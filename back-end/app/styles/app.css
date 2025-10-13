@@ -1,0 +1,170 @@
+/* Main app layout */
+Screen {
+    layout: vertical;
+    background: $surface;
+}
+
+/* Header styling */
+Header {
+    background: $primary;
+    color: $text;
+    text-align: center;
+    padding: 1;
+}
+
+/* Footer styling */
+Footer {
+    background: $primary;
+    color: $text;
+    text-align: center;
+    padding: 1;
+}
+
+/* Main container layout */
+#main_container {
+    border: solid $accent;
+    padding: 1 2;
+    height: 1fr;
+    background: $surface;
+}
+
+/* Sidebar styling */
+#sidebar {
+    width: 40;
+    border: solid $accent;
+    padding: 1;
+    background: $surface-darken-1;
+}
+
+#sidebar .title {
+    text-align: center;
+    padding: 1;
+    background: $primary;
+    color: $text;
+    margin-bottom: 1;
+}
+
+/* Button styling */
+Button {
+    margin: 1 2;
+    width: 36;
+    border: round $accent;
+    background: $surface;
+    color: $text;
+}
+
+Button:hover {
+    background: $accent;
+    color: $text;
+}
+
+Button:focus {
+    border: round $primary;
+}
+
+/* Main panel styling */
+#main {
+    padding: 1 2;
+    background: $surface;
+    color: $text;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* Context log styling */
+#context_log {
+    height: 1fr;
+    padding: 1 2;
+    background: $surface;
+    border: solid $accent;
+}
+
+/* Milestones styling */
+#milestones {
+    border: tall $accent;
+    padding: 1 2;
+    height: 1fr;
+    background: $surface;
+}
+
+/* Error styling */
+.error {
+    border: heavy $error;
+    background: $error 10%;
+    color: $error;
+    padding: 1;
+    margin: 1;
+}
+
+/* Success styling */
+.success {
+    border: heavy $success;
+    background: $success 10%;
+    color: $success;
+    padding: 1;
+    margin: 1;
+}
+
+/* Input styling */
+Input {
+    border: solid $accent;
+    background: $surface;
+    color: $text;
+    padding: 1;
+    margin: 1;
+}
+
+Input:focus {
+    border: solid $primary;
+}
+
+/* TextArea styling */
+TextArea {
+    border: solid $accent;
+    background: $surface;
+    color: $text;
+    padding: 1;
+    margin: 1;
+    height: 5;
+}
+
+TextArea:focus {
+    border: solid $primary;
+}
+
+/* Debug styling */
+.debug {
+    border: heavy $success;
+    background: $surface 10%;
+    padding: 1;
+    margin: 1;
+}
+
+.modal {
+    background: $surface;
+    border: heavy $accent;
+    padding: 2;
+    width: 60;
+    height: 20;
+}
+
+.modal .title {
+    text-align: center;
+    padding: 1;
+    background: $primary;
+    color: $text;
+    margin-bottom: 2;
+}
+
+#workspaces_list {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+#context_content {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 1;
+    border: solid $accent;
+    margin: 1;
+}

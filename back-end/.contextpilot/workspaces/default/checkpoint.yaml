@@ -1,0 +1,10 @@
+current_status: Planning
+goal: Deploy first end-to-end automation MVP
+milestones:
+- due: '2025-07-15'
+  name: Define architecture
+- due: '2025-08-01'
+  name: Build core agents
+- due: '2025-08-15'
+  name: Deploy staging environment
+project_name: Livre AI Agents

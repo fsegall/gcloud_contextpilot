@@ -1,0 +1,115 @@
+checkpoint:
+  created_at: 2025-06-24T23:59
+  current_status: Progresso constante, coach ativo!
+  goal: Finalizar API funcional + CI/CD
+  milestones:
+  - due: '2025-06-26'
+    name: API funcional
+  - due: '2025-06-27'
+    name: CI/CD + docs
+  - due: '2025-06-29'
+    name: Deploy final
+  project_name: ZK Threshold SaaS
+current_status: Progresso constante, coach ativo!
+goal: Finalizar API funcional + CI/CD
+history:
+- agent: llm
+  commit: 49f5a8ce4084355daba968930b782d35f32cf0f4
+  summary: Resumo gerado por LLM (placeholder)
+  timestamp: '2025-06-25T14:17:59.449566'
+- agent: chat
+  commit: df4d855253c021e0dd07359daf155d2b08f3a3c1
+  summary: Atualiza status da sprint
+  timestamp: '2025-06-25T14:42:41.491051'
+- agent: llm
+  commit: af705be67be68a52bbadd78ee289a33e5b4be003
+  summary: Resumo gerado por LLM (placeholder)
+  timestamp: '2025-06-25T14:42:53.987858'
+- agent: llm
+  commit: 4ed7781b56752d10e41cedad7e8cf787ff9ea2a3
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:00:51.512989'
+- agent: llm
+  commit: e880ba631ede067a896b3f46cf168eac103b71b9
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:03:12.268146'
+- agent: llm
+  commit: 079d389d872581c9c28a208a765daa0ec1ad0360
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:03:23.131238'
+- agent: llm
+  commit: 3284d9172b5b665ca1d2a8e7446f3688fa44db74
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:04:46.453476'
+- agent: llm
+  commit: ee483fcaa18d186a6b8a479f961ebdbf4c898fbb
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:04:55.537230'
+- agent: llm
+  commit: ddc85a42fbc190ed53149086d4dfcb7e162d8e13
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:05:10.191240'
+- agent: llm
+  commit: f9e9b49c620e7378bdd6c89ac660cda5dbbb5eb1
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:05:47.542499'
+- agent: llm
+  commit: 989628d3f49663df74bf3f6f6bec84b18bcd0254
+  summary: "Erro ao chamar OpenAI: \n\nYou tried to access openai.ChatCompletion,\
+    \ but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python\
+    \ for the API.\n\nYou can run `openai migrate` to automatically upgrade your codebase\
+    \ to use the 1.0.0 interface. \n\nAlternatively, you can pin your installation\
+    \ to the old version, e.g. `pip install openai==0.28`\n\nA detailed migration\
+    \ guide is available here: https://github.com/openai/openai-python/discussions/742\n"
+  timestamp: '2025-06-25T15:07:18.169926'
+- agent: llm
+  commit: f900347e799c9bdef50ffa546cc89bb1dbb61ba4
+  summary: "Refatora API para usar FastAPI e reorganiza gerenciamento de contexto\
+    \ Git\n\n- Substitui implementa\xE7\xE3o anterior por FastAPI para simplificar\
+    \ a cria\xE7\xE3o de endpoints.\n- Reorganiza a classe `Git_Context_Manager` em\
+    \ um m\xF3dulo separado, melhorando a modularidade.\n- Implementa endpoints para\
+    \ obter"
+  timestamp: '2025-06-25T15:15:39.547534'
+milestones:
+- due: '2025-06-26'
+  name: API funcional
+- due: '2025-06-27'
+  name: CI/CD + docs
+- due: '2025-06-29'
+  name: Deploy final
+project_name: ZK Threshold SaaS

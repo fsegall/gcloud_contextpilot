@@ -1,0 +1,6 @@
+current_status: Testing
+goal: Test the API
+milestones:
+- due: '2025-07-10'
+  name: Test milestone
+project_name: Test Project

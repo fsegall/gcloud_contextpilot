@@ -1,0 +1,337 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "FastAPI", "version": "0.1.0" },
+  "paths":
+    {
+      "/context":
+        {
+          "get":
+            {
+              "summary": "Get Context",
+              "operationId": "get_context_context_get",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        },
+      "/commit":
+        {
+          "post":
+            {
+              "summary": "Manual Commit",
+              "operationId": "manual_commit_commit_post",
+              "parameters":
+                [
+                  {
+                      "name": "message",
+                      "in": "query",
+                      "required": false,
+                      "schema": { "type": "string", "default": "Manual context update", "title": "Message" }
+                    },
+                  {
+                      "name": "agent",
+                      "in": "query",
+                      "required": false,
+                      "schema": { "type": "string", "default": "manual", "title": "Agent" }
+                    }
+                ],
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    },
+                  "422":
+                    {
+                      "description": "Validation Error",
+                      "content":
+                        {
+                          "application/json": { "schema": { "$ref": "#/components/schemas/HTTPValidationError" } }
+                        }
+                    }
+                }
+            }
+        },
+      "/commit/llm":
+        {
+          "post":
+            {
+              "summary": "Llm Commit",
+              "operationId": "llm_commit_commit_llm_post",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        },
+      "/log":
+        {
+          "get":
+            {
+              "summary": "Get Log",
+              "operationId": "get_log_log_get",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        },
+      "/coach":
+        {
+          "get":
+            {
+              "summary": "Get Coach Tip",
+              "operationId": "get_coach_tip_coach_get",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        },
+      "/update":
+        {
+          "post":
+            {
+              "summary": "Update Checkpoint",
+              "operationId": "update_checkpoint_update_post",
+              "requestBody":
+                {
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema": { "$ref": "#/components/schemas/Body_update_checkpoint_update_post" }
+                        }
+                    },
+                  "required": true
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    },
+                  "422":
+                    {
+                      "description": "Validation Error",
+                      "content":
+                        {
+                          "application/json": { "schema": { "$ref": "#/components/schemas/HTTPValidationError" } }
+                        }
+                    }
+                }
+            }
+        },
+      "/push-to-llm":
+        {
+          "post":
+            {
+              "summary": "Push Context To Llm",
+              "operationId": "push_context_to_llm_push_to_llm_post",
+              "requestBody":
+                {
+                  "content":
+                    {
+                      "application/json": { "schema": { "$ref": "#/components/schemas/LLMRequest" } }
+                    },
+                  "required": true
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    },
+                  "422":
+                    {
+                      "description": "Validation Error",
+                      "content":
+                        {
+                          "application/json": { "schema": { "$ref": "#/components/schemas/HTTPValidationError" } }
+                        }
+                    }
+                }
+            }
+        },
+      "/summary":
+        {
+          "get":
+            {
+              "summary": "Get Summary",
+              "operationId": "get_summary_summary_get",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        },
+      "/reflect":
+        {
+          "post":
+            {
+              "summary": "Reflect",
+              "operationId": "reflect_reflect_post",
+              "requestBody":
+                {
+                  "content":
+                    {
+                      "application/json":
+                        {
+                          "schema": { "$ref": "#/components/schemas/LLMRequest", "default": "motivational" }
+                        }
+                    }
+                },
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    },
+                  "422":
+                    {
+                      "description": "Validation Error",
+                      "content":
+                        {
+                          "application/json": { "schema": { "$ref": "#/components/schemas/HTTPValidationError" } }
+                        }
+                    }
+                }
+            }
+        },
+      "/plan":
+        {
+          "post":
+            {
+              "summary": "Plan",
+              "operationId": "plan_plan_post",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        },
+      "/llm-history":
+        {
+          "get":
+            {
+              "summary": "Llm History",
+              "operationId": "llm_history_llm_history_get",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        },
+      "/validate-goal":
+        {
+          "post":
+            {
+              "summary": "Validate Goal",
+              "operationId": "validate_goal_validate_goal_post",
+              "responses":
+                {
+                  "200":
+                    {
+                      "description": "Successful Response",
+                      "content": { "application/json": { "schema": {} } }
+                    }
+                }
+            }
+        }
+    },
+  "components":
+    {
+      "schemas":
+        {
+          "Body_update_checkpoint_update_post":
+            {
+              "properties":
+                {
+                  "project_name": { "type": "string", "title": "Project Name" },
+                  "goal": { "type": "string", "title": "Goal" },
+                  "current_status": { "type": "string", "title": "Current Status" },
+                  "milestones":
+                    {
+                      "items": { "additionalProperties": true, "type": "object" },
+                      "type": "array",
+                      "title": "Milestones"
+                    }
+                },
+              "type": "object",
+              "required": [ "project_name", "goal", "current_status", "milestones" ],
+              "title": "Body_update_checkpoint_update_post"
+            },
+          "HTTPValidationError":
+            {
+              "properties":
+                {
+                  "detail":
+                    {
+                      "items": { "$ref": "#/components/schemas/ValidationError" },
+                      "type": "array",
+                      "title": "Detail"
+                    }
+                },
+              "type": "object",
+              "title": "HTTPValidationError"
+            },
+          "LLMRequest":
+            {
+              "properties": { "prompt": { "type": "string", "title": "Prompt" } },
+              "type": "object",
+              "required": [ "prompt" ],
+              "title": "LLMRequest"
+            },
+          "ValidationError":
+            {
+              "properties":
+                {
+                  "loc":
+                    {
+                      "items": { "anyOf": [ { "type": "string" }, { "type": "integer" } ] },
+                      "type": "array",
+                      "title": "Location"
+                    },
+                  "msg": { "type": "string", "title": "Message" },
+                  "type": { "type": "string", "title": "Error Type" }
+                },
+              "type": "object",
+              "required": [ "loc", "msg", "type" ],
+              "title": "ValidationError"
+            }
+        }
+    }
+}
