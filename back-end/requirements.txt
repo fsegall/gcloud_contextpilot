@@ -30,6 +30,10 @@ eth-account==0.11.0
 
 # AI/LLM
 openai==1.12.0
+google-generativeai==0.3.2
+
+# Google Cloud Pub/Sub
+google-cloud-pubsub==2.18.0
 
 # YAML support
 PyYAML==6.0.1

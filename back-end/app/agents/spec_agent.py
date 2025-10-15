@@ -14,6 +14,7 @@ import json
 from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
 from app.agents.diff_generator import generate_unified_diff, read_file_safe
+from app.services.llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,14 @@ class SpecAgent(BaseAgent):
         self.workspace_path = Path(self.workspace_path)  # Convert to Path if string
         self.docs_path = self.workspace_path / "docs"
         self.templates_path = Path(__file__).parent.parent / "templates"
+        
+        # Initialize LLM service
+        try:
+            self.llm = get_llm_service()
+            logger.info(f"[Spec Agent] LLM service initialized")
+        except Exception as e:
+            logger.warning(f"[Spec Agent] LLM service not available: {e}")
+            self.llm = None
         
         # Subscribe to events
         self.subscribe_to_event(EventTypes.GIT_COMMIT)
@@ -256,12 +265,19 @@ class SpecAgent(BaseAgent):
         current_content = read_file_safe(file_path, str(self.workspace_path))
         
         # 2. Generate proposed content
-        # For now, use a simple template. In production, use Gemini to generate
         if issue['type'] == 'missing_doc':
-            proposed_content = self._generate_doc_template(file_path)
+            if self.llm:
+                # Use Gemini to generate intelligent content
+                proposed_content = await self._generate_doc_with_ai(file_path, issue)
+            else:
+                # Fallback to template
+                proposed_content = self._generate_doc_template(file_path)
         else:
-            # For other types, just add a note (in production, use LLM)
-            proposed_content = current_content + f"\n\n<!-- Updated by Spec Agent: {issue['message']} -->\n"
+            # For other types, update with AI if available
+            if self.llm:
+                proposed_content = await self._update_doc_with_ai(file_path, current_content, issue)
+            else:
+                proposed_content = current_content + f"\n\n<!-- Updated by Spec Agent: {issue['message']} -->\n"
         
         # 3. Generate diff
         diff_content = generate_unified_diff(
@@ -317,8 +333,72 @@ class SpecAgent(BaseAgent):
         
         return proposal_id
     
+    async def _generate_doc_with_ai(self, file_path: str, issue: Dict) -> str:
+        """Generate documentation content using Gemini"""
+        filename = Path(file_path).stem
+        
+        # Build context from artifacts
+        context_data = self.apply_artifact_rules({})
+        artifact_context = ""
+        if context_data.get('artifact_rules'):
+            artifact_context = "\n\nProject Context:\n"
+            for rule in context_data['artifact_rules']:
+                artifact_context += f"\n{rule['artifact']}:\n{rule['content'][:500]}...\n"
+        
+        prompt = f"""You are a technical documentation expert. Generate professional markdown documentation for: {file_path}
+
+File name: {filename}
+Issue: {issue['message']}
+{artifact_context}
+
+Create a comprehensive, well-structured markdown document with:
+1. Clear title and overview
+2. Purpose/objectives section
+3. Detailed usage instructions
+4. Code examples (if applicable)
+5. Best practices
+6. References
+
+The documentation should be:
+- Professional and concise
+- Easy to understand
+- Following markdown best practices
+- Specific to {filename}
+
+Output ONLY the markdown content, no explanations or meta-commentary."""
+
+        try:
+            content = await self.llm.generate(prompt, temperature=0.7, max_tokens=2048)
+            logger.info(f"[Spec Agent] Generated {len(content)} chars of documentation with AI")
+            return content
+        except Exception as e:
+            logger.error(f"[Spec Agent] AI generation failed: {e}, using template")
+            return self._generate_doc_template(file_path)
+    
+    async def _update_doc_with_ai(self, file_path: str, current_content: str, issue: Dict) -> str:
+        """Update existing documentation using Gemini"""
+        
+        prompt = f"""You are a technical documentation expert. Update this documentation:
+
+File: {file_path}
+Issue: {issue['message']}
+
+Current content:
+{current_content}
+
+Task: Fix the issue while preserving the document structure and style.
+Output ONLY the updated markdown content."""
+
+        try:
+            content = await self.llm.generate(prompt, temperature=0.5, max_tokens=2048)
+            logger.info(f"[Spec Agent] Updated documentation with AI")
+            return content
+        except Exception as e:
+            logger.error(f"[Spec Agent] AI update failed: {e}, using fallback")
+            return current_content + f"\n\n<!-- Updated by Spec Agent: {issue['message']} -->\n"
+    
     def _generate_doc_template(self, file_path: str) -> str:
-        """Generate basic documentation template"""
+        """Generate basic documentation template (fallback when AI not available)"""
         filename = Path(file_path).stem
         return f"""# {filename.replace('_', ' ').replace('-', ' ').title()}
 
