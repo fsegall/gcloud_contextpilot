@@ -39,7 +39,8 @@
         "description": "README.md not found"
       }
     ],
-    "status": "pending"
+    "status": "approved",
+    "commit_hash": "d6145978d246512f66cc2df264e8375b3cee5713"
   },
   {
     "id": "spec-4",
