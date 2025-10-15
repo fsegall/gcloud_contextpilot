@@ -2,7 +2,7 @@
 
 ## System Overview
 
-ContextPilot is a **multi-agent AI system** with an **integrated Web3 incentive layer** built on Google Cloud Run and Polygon blockchain via **Google Blockchain Node Engine**.
+ContextPilot is a **multi-agent AI system** with an **integrated Web3 incentive layer** built on Google Cloud Run and Ethereum blockchain via **Google Blockchain Node Engine**.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

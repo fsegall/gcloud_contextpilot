@@ -41,7 +41,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    GCP Pub/Sub Event Bus                         │
+│                    GCP Pub/Sub Event Bus                        │
 │  Topics: git-events, proposal-events, strategy-events, etc.     │
 └─────────────────────────────────────────────────────────────────┘
                               ↑ ↓
@@ -59,14 +59,14 @@
        │ reads/writes        │ reads/writes        │ reads/writes
        ↓                     ↓                     ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│              Firestore: Global Workspace Context                 │
-│                                                                  │
-│  {                                                               │
+│              Firestore: Global Workspace Context                │
+│                                                                 │
+│  {                                                              │
 │    workspace_id: "contextpilot",                                │
-│    agents: { spec: {...}, git: {...}, strategy: {...} },       │
+│    agents: { spec: {...}, git: {...}, strategy: {...} },        │
 │    artifacts: {                                                 │
-│      context_md: { producer: "git", consumers: ["spec",...] }, │
-│      proposals_md: { producer: "spec", consumers: ["git"] }    │
+│      context_md: { producer: "git", consumers: ["spec",...] },  │
+│      proposals_md: { producer: "spec", consumers: ["git"] }     │
 │    },                                                           │
 │    retrospectives: [...]                                        │
 │  }                                                              │

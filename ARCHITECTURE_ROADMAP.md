@@ -161,16 +161,24 @@ retrospective = {
 
 ## Implementation Phases
 
-### Phase 1: State Management (Week 1) 🎯 PRIORITY
-**Goal:** Agents remember context between runs
+### Phase 1: State Management + Custom Artifacts (Week 1) 🎯 PRIORITY
+**Goal:** Agents remember context between runs AND consume custom artifacts with rules
 
+#### Part A: State Management
 - [ ] Create `BaseAgent` class with Firestore integration
 - [ ] Implement `remember()` and `recall()` methods
 - [ ] Migrate Spec Agent to use `BaseAgent`
 - [ ] Test state persistence across runs
 - [ ] Document agent state schema
 
-**Deliverable:** Spec Agent remembers issues found and patterns detected
+#### Part B: Custom Artifacts
+- [ ] Create `artifacts.yaml` configuration system
+- [ ] Add `consume_artifact()` method to `BaseAgent`
+- [ ] Implement artifact rule loading and injection
+- [ ] Create templates: `project_scope.md`, `project_checklist.md`, `daily_checklist.md`
+- [ ] Test Spec Agent with `project_scope.md` rules
+
+**Deliverable:** Spec Agent remembers issues AND respects project_scope.md rules
 
 ---
 
