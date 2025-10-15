@@ -14,6 +14,12 @@ import logging
 from fastapi.middleware.cors import CORSMiddleware
 # Temporarily commented - install dependencies later
 # from app.routers import rewards, proposals, events
+from app.agents.spec_agent import SpecAgent
+from app.utils.workspace_manager import get_workspace_path
+import os
+from typing import List, Dict
+import json
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
@@ -627,3 +633,232 @@ async def trigger_git_event(
             "status": "error",
             "message": str(e)
         }
+
+
+# ===== SPEC AGENT ENDPOINTS =====
+
+@app.post("/agents/spec/analyze")
+async def spec_analyze(workspace_id: str = Query("default")):
+    """Analyze documentation consistency and return issues (Spec Agent)."""
+    logger.info(f"POST /agents/spec/analyze - workspace: {workspace_id}")
+    try:
+        workspace_path = str(get_workspace_path(workspace_id))
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local"))
+        agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
+        issues = await agent.validate_docs()
+        return {"issues": issues, "count": len(issues)}
+    except Exception as e:
+        logger.error(f"Error analyzing docs: {str(e)}")
+        return {"issues": [], "count": 0, "error": str(e)}
+
+
+@app.get("/agents/spec/proposals")
+async def spec_get_proposals(workspace_id: str = Query("default")):
+    """Create in-memory change proposals from SpecAgent issues (no commit).
+
+    The approval will be a separate step that triggers the Git Agent.
+    """
+    logger.info(f"GET /agents/spec/proposals - workspace: {workspace_id}")
+    try:
+        workspace_path = str(get_workspace_path(workspace_id))
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local"))
+        agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
+        issues: List[Dict] = await agent.validate_docs()
+
+        # Map issues -> lightweight proposals (not persisted)
+        proposals: List[Dict] = []
+        for idx, issue in enumerate(issues, start=1):
+            title = f"Docs issue: {issue.get('file', 'unknown')}"
+            description = issue.get("message", issue.get("type", "issue"))
+            proposals.append({
+                "id": f"spec-{idx}",
+                "agent_id": "spec",
+                "title": title,
+                "description": description,
+                "proposed_changes": [
+                    {
+                        "file_path": issue.get("file", "docs/"),
+                        "change_type": "update",
+                        "description": description
+                    }
+                ],
+                "status": "pending"
+            })
+
+        return {"proposals": proposals, "count": len(proposals)}
+    except Exception as e:
+        logger.error(f"Error generating spec proposals: {str(e)}")
+        return {"proposals": [], "count": 0, "error": str(e)}
+
+
+@app.post("/proposals/approve-mvp")
+async def approve_proposal_mvp(
+    workspace_id: str = Query("default"),
+    proposal_id: str = Body(...),
+    summary: str = Body(...)
+):
+    """Approval trigger that calls the Git Agent (MVP, no persistence)."""
+    logger.info(f"POST /proposals/approve-mvp - {proposal_id} (workspace: {workspace_id})")
+    try:
+        from app.agents.git_agent import commit_via_agent
+        commit_hash = await commit_via_agent(
+            workspace_id=workspace_id,
+            event_type="proposal.approved",
+            data={
+                "proposal_id": proposal_id,
+                "changes_summary": summary
+            },
+            source="spec-agent"
+        )
+        return {"status": "approved", "commit_hash": commit_hash}
+    except Exception as e:
+        logger.error(f"Error approving proposal: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
+
+# ===== PROPOSALS PERSISTENCE (MVP - JSON + MD in workspace) =====
+
+def _proposals_paths(workspace_id: str) -> Dict[str, Path]:
+    ws = Path(get_workspace_path(workspace_id))
+    proposals_dir = ws / "proposals"
+    proposals_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "json": ws / "proposals.json",
+        "dir": proposals_dir,
+    }
+
+def _read_proposals(json_path: Path) -> List[Dict]:
+    if json_path.exists():
+        try:
+            return json.loads(json_path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+    return []
+
+def _write_proposals(json_path: Path, proposals: List[Dict]):
+    json_path.write_text(json.dumps(proposals, indent=2), encoding="utf-8")
+
+
+def _auto_approve_enabled() -> bool:
+    val = os.getenv("CONTEXTPILOT_AUTO_APPROVE_PROPOSALS", os.getenv("CP_AUTO_APPROVE_PROPOSALS", "false"))
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
+@app.get("/proposals")
+async def list_proposals(workspace_id: str = Query("default")):
+    paths = _proposals_paths(workspace_id)
+    proposals = _read_proposals(paths["json"])
+    return {"proposals": proposals, "count": len(proposals)}
+
+
+@app.post("/proposals/create")
+async def create_proposals_from_spec(workspace_id: str = Query("default")):
+    """Generate proposals from SpecAgent issues, persist JSON and MD."""
+    logger.info(f"POST /proposals/create - workspace: {workspace_id}")
+    paths = _proposals_paths(workspace_id)
+    existing = _read_proposals(paths["json"])
+    try:
+        workspace_path = str(get_workspace_path(workspace_id))
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local"))
+        agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
+        issues: List[Dict] = await agent.validate_docs()
+
+        new_proposals: List[Dict] = []
+        start_index = len(existing) + 1
+        for idx, issue in enumerate(issues, start=start_index):
+            pid = f"spec-{idx}"
+            title = f"Docs issue: {issue.get('file', 'unknown')}"
+            description = issue.get("message", issue.get("type", "issue"))
+            proposal = {
+                "id": pid,
+                "agent_id": "spec",
+                "title": title,
+                "description": description,
+                "proposed_changes": [
+                    {
+                        "file_path": issue.get("file", "docs/"),
+                        "change_type": "update",
+                        "description": description
+                    }
+                ],
+                "status": "pending"
+            }
+            # Write MD file
+            md_path = paths["dir"] / f"{pid}.md"
+            md_content = f"# {title}\n\n{description}\n\nStatus: pending\n"
+            md_path.write_text(md_content, encoding="utf-8")
+
+            new_proposals.append(proposal)
+
+        all_proposals = existing + new_proposals
+        _write_proposals(paths["json"], all_proposals)
+
+        return {"created": len(new_proposals), "total": len(all_proposals)}
+    except Exception as e:
+        logger.error(f"Error creating proposals: {str(e)}")
+        return {"created": 0, "error": str(e)}
+
+
+@app.post("/proposals/{proposal_id}/approve")
+async def approve_proposal(
+    proposal_id: str,
+    workspace_id: str = Query("default")
+):
+    paths = _proposals_paths(workspace_id)
+    proposals = _read_proposals(paths["json"])
+    prop = next((p for p in proposals if p.get("id") == proposal_id), None)
+    if not prop:
+        return {"status": "not_found"}
+
+    summary = prop.get("description", "")
+    try:
+        commit_hash = None
+        if _auto_approve_enabled():
+            from app.agents.git_agent import commit_via_agent
+            commit_hash = await commit_via_agent(
+                workspace_id=workspace_id,
+                event_type="proposal.approved",
+                data={"proposal_id": proposal_id, "changes_summary": summary},
+                source="spec-agent"
+            )
+        prop["status"] = "approved"
+        if commit_hash:
+            prop["commit_hash"] = commit_hash
+        _write_proposals(paths["json"], proposals)
+
+        # Update MD file
+        md_path = paths["dir"] / f"{proposal_id}.md"
+        if md_path.exists():
+            md_content = md_path.read_text(encoding="utf-8")
+            md_content += "\nStatus: approved\n"
+            if commit_hash:
+                md_content += f"Commit: {commit_hash}\n"
+            md_path.write_text(md_content, encoding="utf-8")
+
+        return {"status": "approved", "commit_hash": commit_hash, "auto_committed": bool(commit_hash)}
+    except Exception as e:
+        logger.error(f"Error approving proposal: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(
+    proposal_id: str,
+    workspace_id: str = Query("default"),
+    reason: str = Body("")
+):
+    paths = _proposals_paths(workspace_id)
+    proposals = _read_proposals(paths["json"])
+    prop = next((p for p in proposals if p.get("id") == proposal_id), None)
+    if not prop:
+        return {"status": "not_found"}
+    prop["status"] = "rejected"
+    prop["reason"] = reason
+    _write_proposals(paths["json"], proposals)
+
+    md_path = paths["dir"] / f"{proposal_id}.md"
+    if md_path.exists():
+        md_content = md_path.read_text(encoding="utf-8")
+        md_content += f"\nStatus: rejected\nReason: {reason}\n"
+        md_path.write_text(md_content, encoding="utf-8")
+    return {"status": "rejected"}

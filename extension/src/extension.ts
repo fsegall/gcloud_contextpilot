@@ -69,8 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('contextpilot.approveProposal', async (proposalId: string) => {
-      await commands.approveProposal(contextPilotService, proposalId);
-      proposalsProvider.refresh();
+      await commands.approveProposal(contextPilotService, proposalId, proposalsProvider);
       rewardsProvider.refresh();
       updateStatusBar();
     }),

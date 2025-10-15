@@ -70,19 +70,15 @@ export class ContextPilotService {
 
   async getProposals(): Promise<ChangeProposal[]> {
     try {
-      // Use mock endpoint if in test mode or if regular endpoint fails
       const endpoint = this.testMode ? '/proposals/mock' : '/proposals';
-      const response = await this.client.get(endpoint, {
-        params: this.testMode ? {} : { user_id: this.userId },
-      });
-      console.log(`[ContextPilot] Fetched ${response.data.length} proposals`);
-      return response.data;
+      const response = await this.client.get(endpoint);
+      const arr = Array.isArray(response.data) ? response.data : response.data?.proposals || [];
+      console.log(`[ContextPilot] Fetched ${arr.length} proposals`);
+      return arr;
     } catch (error) {
       console.error('Failed to fetch proposals:', error);
-      // Fallback to mock endpoint
       try {
         const response = await this.client.get('/proposals/mock');
-        console.log(`[ContextPilot] Using mock proposals (fallback)`);
         return response.data;
       } catch {
         return [];
@@ -100,15 +96,15 @@ export class ContextPilotService {
     }
   }
 
-  async approveProposal(proposalId: string): Promise<boolean> {
+  async approveProposal(proposalId: string): Promise<{ ok: boolean; autoCommitted: boolean; commitHash?: string }> {
     try {
-      await this.client.post(`/proposals/${proposalId}/approve`, {
-        user_id: this.userId,
-      });
-      return true;
+      const response = await this.client.post(`/proposals/${proposalId}/approve`);
+      const autoCommitted = !!response.data?.auto_committed;
+      const commitHash = response.data?.commit_hash;
+      return { ok: true, autoCommitted, commitHash };
     } catch (error) {
       console.error('Failed to approve proposal:', error);
-      return false;
+      return { ok: false, autoCommitted: false };
     }
   }
 

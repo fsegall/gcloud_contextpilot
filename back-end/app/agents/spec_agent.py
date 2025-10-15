@@ -11,8 +11,8 @@ from pathlib import Path
 import yaml
 import json
 
-from app.services.event_bus import get_event_bus
-from app.models.proposal import ChangeProposal, FileChange, ImpactAnalysis, ChangeAction, ProposalType
+# Lazy import of event bus in __init__ to avoid hard dependency during local tests
+# from app.services.event_bus import get_event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,14 @@ class SpecAgent:
         self.workspace_path = Path(workspace_path)
         self.docs_path = self.workspace_path / "docs"
         self.templates_path = Path(__file__).parent.parent / "templates"
-        self.event_bus = get_event_bus(project_id)
+        # Lazy/optional event bus initialization to avoid hanging when GCP is not configured
+        self.event_bus = None
+        try:
+            if project_id and project_id not in ("local", "test"):
+                self.event_bus = get_event_bus(project_id)
+        except Exception as e:
+            logger.warning(f"SpecAgent: Pub/Sub disabled (reason: {e})")
+            self.event_bus = None
         
         logger.info(f"Spec Agent initialized for workspace: {workspace_path}")
     
@@ -123,16 +130,17 @@ class SpecAgent:
         logger.info(f"✅ Daily checklist generated: {output_path}")
         
         # Emit event
-        self.event_bus.publish(
-            topic="spec-updates",
-            event_type="spec.update.v1",
-            source="spec-agent",
-            data={
-                "file": str(output_path),
-                "action": "created",
-                "type": "daily_checklist"
-            }
-        )
+        if self.event_bus:
+            self.event_bus.publish(
+                topic="spec-updates",
+                event_type="spec.update.v1",
+                source="spec-agent",
+                data={
+                    "file": str(output_path),
+                    "action": "created",
+                    "type": "daily_checklist"
+                }
+            )
         
         return str(output_path)
     
@@ -168,15 +176,16 @@ class SpecAgent:
             logger.warning(f"Found {len(issues)} documentation issues")
             
             # Emit validation event
-            self.event_bus.publish(
-                topic="spec-updates",
-                event_type="spec.validation.v1",
-                source="spec-agent",
-                data={
-                    "issues": issues,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
-            )
+            if self.event_bus:
+                self.event_bus.publish(
+                    topic="spec-updates",
+                    event_type="spec.validation.v1",
+                    source="spec-agent",
+                    data={
+                        "issues": issues,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                )
         else:
             logger.info("✅ All docs valid")
         
@@ -233,16 +242,17 @@ class SpecAgent:
         logger.info(f"✅ Template created: {template_path}")
         
         # Emit event
-        self.event_bus.publish(
-            topic="spec-updates",
-            event_type="spec.template.created.v1",
-            source="spec-agent",
-            data={
-                "template_name": name,
-                "path": str(template_path),
-                "sections": sections
-            }
-        )
+        if self.event_bus:
+            self.event_bus.publish(
+                topic="spec-updates",
+                event_type="spec.template.created.v1",
+                source="spec-agent",
+                data={
+                    "template_name": name,
+                    "path": str(template_path),
+                    "sections": sections
+                }
+            )
         
         return str(template_path)
 

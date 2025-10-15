@@ -1,0 +1,58 @@
+[
+  {
+    "id": "spec-1",
+    "agent_id": "spec",
+    "title": "Docs issue: README.md",
+    "description": "README.md not found",
+    "proposed_changes": [
+      {
+        "file_path": "README.md",
+        "change_type": "update",
+        "description": "README.md not found"
+      }
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "spec-2",
+    "agent_id": "spec",
+    "title": "Docs issue: ARCHITECTURE.md",
+    "description": "ARCHITECTURE.md not found",
+    "proposed_changes": [
+      {
+        "file_path": "ARCHITECTURE.md",
+        "change_type": "update",
+        "description": "ARCHITECTURE.md not found"
+      }
+    ],
+    "status": "approved"
+  },
+  {
+    "id": "spec-3",
+    "agent_id": "spec",
+    "title": "Docs issue: README.md",
+    "description": "README.md not found",
+    "proposed_changes": [
+      {
+        "file_path": "README.md",
+        "change_type": "update",
+        "description": "README.md not found"
+      }
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "spec-4",
+    "agent_id": "spec",
+    "title": "Docs issue: ARCHITECTURE.md",
+    "description": "ARCHITECTURE.md not found",
+    "proposed_changes": [
+      {
+        "file_path": "ARCHITECTURE.md",
+        "change_type": "update",
+        "description": "ARCHITECTURE.md not found"
+      }
+    ],
+    "status": "pending"
+  }
+]

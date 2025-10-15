@@ -32,7 +32,8 @@ export function disconnect(service: ContextPilotService): void {
 
 export async function approveProposal(
   service: ContextPilotService,
-  proposalId: string
+  proposalId: string,
+  proposalsProvider?: any
 ): Promise<void> {
   const confirmed = await vscode.window.showWarningMessage(
     'Approve this change proposal?',
@@ -44,11 +45,22 @@ export async function approveProposal(
     return;
   }
 
-  const success = await service.approveProposal(proposalId);
-  if (success) {
-    vscode.window.showInformationMessage(
-      '✅ Proposal approved! You earned CPT tokens 🎉'
-    );
+  const result = await service.approveProposal(proposalId);
+  if (result.ok) {
+    // Refresh proposals view
+    if (proposalsProvider) {
+      proposalsProvider.refresh();
+    }
+    
+    if (result.autoCommitted) {
+      vscode.window.showInformationMessage(
+        `✅ Proposal approved and committed! (${result.commitHash?.slice(0,7)})`
+      );
+    } else {
+      vscode.window.showInformationMessage(
+        '✅ Proposal approved (pending commit by Git Agent)'
+      );
+    }
   } else {
     vscode.window.showErrorMessage('❌ Failed to approve proposal');
   }
