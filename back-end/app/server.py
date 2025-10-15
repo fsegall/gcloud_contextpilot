@@ -728,12 +728,31 @@ def _proposals_paths(workspace_id: str) -> Dict[str, Path]:
     }
 
 def _read_proposals(json_path: Path) -> List[Dict]:
+    """Read proposals from proposals.json (legacy)"""
     if json_path.exists():
         try:
             return json.loads(json_path.read_text(encoding="utf-8"))
         except Exception:
             return []
     return []
+
+def _read_proposals_from_dir(proposals_dir: Path) -> List[Dict]:
+    """Read all proposals from proposals/ directory (new format with diffs)"""
+    if not proposals_dir.exists():
+        return []
+    
+    proposals = []
+    for json_file in proposals_dir.glob("*.json"):
+        try:
+            with open(json_file, 'r') as f:
+                proposal = json.load(f)
+                proposals.append(proposal)
+        except Exception as e:
+            logger.error(f"Error reading proposal {json_file}: {e}")
+    
+    # Sort by created_at (newest first)
+    proposals.sort(key=lambda p: p.get('created_at', ''), reverse=True)
+    return proposals
 
 def _write_proposals(json_path: Path, proposals: List[Dict]):
     json_path.write_text(json.dumps(proposals, indent=2), encoding="utf-8")
@@ -746,9 +765,41 @@ def _auto_approve_enabled() -> bool:
 
 @app.get("/proposals")
 async def list_proposals(workspace_id: str = Query("default")):
+    """List all proposals with diffs"""
     paths = _proposals_paths(workspace_id)
-    proposals = _read_proposals(paths["json"])
+    
+    # Try new format first (individual JSON files with diffs)
+    proposals = _read_proposals_from_dir(paths["dir"])
+    
+    # Fallback to legacy format if no proposals in dir
+    if not proposals:
+        proposals = _read_proposals(paths["json"])
+    
     return {"proposals": proposals, "count": len(proposals)}
+
+
+@app.get("/proposals/{proposal_id}")
+async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
+    """Get a single proposal by ID with full diff"""
+    paths = _proposals_paths(workspace_id)
+    
+    # Try to read from individual file
+    proposal_file = paths["dir"] / f"{proposal_id}.json"
+    if proposal_file.exists():
+        try:
+            with open(proposal_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading proposal {proposal_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to read proposal: {e}")
+    
+    # Fallback: search in proposals.json
+    proposals = _read_proposals(paths["json"])
+    for p in proposals:
+        if p.get('id') == proposal_id:
+            return p
+    
+    raise HTTPException(status_code=404, detail="Proposal not found")
 
 
 @app.post("/proposals/create")

@@ -50,8 +50,8 @@ class ProposalItem extends vscode.TreeItem {
     this.contextValue = 'proposal';
     this.iconPath = new vscode.ThemeIcon('git-pull-request');
     this.command = {
-      command: 'contextpilot.approveProposal',
-      title: 'Approve Proposal',
+      command: 'contextpilot.viewProposalDiff',
+      title: 'View Diff',
       arguments: [proposal.id]
     };
   }

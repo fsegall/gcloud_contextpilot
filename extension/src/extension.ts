@@ -112,6 +112,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('contextpilot.getCoachTipReal', async () => {
       await commands.getCoachTipCommand(contextPilotService);
+    }),
+
+    // Proposal diff commands
+    vscode.commands.registerCommand('contextpilot.viewProposalDiff', async (proposalId: string) => {
+      await commands.viewProposalDiff(contextPilotService, proposalId);
     })
   );
 

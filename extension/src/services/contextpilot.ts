@@ -1,17 +1,36 @@
 import axios, { AxiosInstance } from 'axios';
 
+export interface ProposalDiff {
+  format: 'unified' | 'git-patch';
+  content: string;
+}
+
+export interface ProposedChange {
+  file_path: string;
+  change_type: 'create' | 'update' | 'delete';
+  description: string;
+  before?: string;
+  after?: string;
+  diff?: string;
+}
+
 export interface ChangeProposal {
   id: string;
   agent_id: string;
+  workspace_id: string;
   title: string;
   description: string;
-  proposed_changes: Array<{
-    file_path: string;
-    change_type: string;
-    description: string;
-  }>;
+  diff: ProposalDiff;
+  proposed_changes: Array<ProposedChange>;
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
+  ai_review?: {
+    model: string;
+    verdict: 'approve' | 'reject' | 'needs_changes';
+    reasoning: string;
+    concerns: string[];
+    suggestions: string[];
+  };
 }
 
 export interface Balance {

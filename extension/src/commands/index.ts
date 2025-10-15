@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ContextPilotService } from '../services/contextpilot';
+import { ContextPilotService, ChangeProposal } from '../services/contextpilot';
 import { CoachProvider } from '../views/coach';
 
 export async function connect(service: ContextPilotService): Promise<void> {
@@ -231,6 +231,143 @@ export async function getCoachTipCommand(service: ContextPilotService): Promise<
     vscode.window.showInformationMessage(`🧠 Coach: ${tip}`, 'OK');
   } catch (error) {
     vscode.window.showErrorMessage('Error getting coach tip');
+  }
+}
+
+// ===== PROPOSAL DIFF COMMANDS =====
+
+export async function viewProposalDiff(
+  service: ContextPilotService,
+  proposalId: string
+): Promise<void> {
+  try {
+    // Fetch proposal with diff
+    const proposal = await service.getProposal(proposalId);
+    
+    if (!proposal) {
+      vscode.window.showErrorMessage('Proposal not found');
+      return;
+    }
+    
+    // Create virtual document with diff
+    const uri = vscode.Uri.parse(`contextpilot-diff:${proposalId}.diff`);
+    const content = proposal.diff?.content || 'No diff available';
+    
+    // Show diff in editor
+    const doc = await vscode.workspace.openTextDocument({
+      content: content,
+      language: 'diff'
+    });
+    
+    await vscode.window.showTextDocument(doc, { preview: false });
+    
+    // Show quick actions
+    const action = await vscode.window.showQuickPick([
+      {
+        label: '$(robot) Ask Claude to Review',
+        description: 'Get AI feedback on these changes',
+        action: 'review'
+      },
+      {
+        label: '$(check) Approve',
+        description: 'Apply these changes',
+        action: 'approve'
+      },
+      {
+        label: '$(x) Reject',
+        description: 'Decline these changes',
+        action: 'reject'
+      },
+      {
+        label: '$(eye) View Files',
+        description: 'See affected files',
+        action: 'files'
+      }
+    ], {
+      placeHolder: `Review proposal: ${proposal.title}`
+    });
+    
+    if (action?.action === 'review') {
+      await askClaudeToReview(proposal);
+    } else if (action?.action === 'approve') {
+      await approveProposal(service, proposalId);
+    } else if (action?.action === 'reject') {
+      await rejectProposal(service, proposalId);
+    } else if (action?.action === 'files') {
+      await showProposalFiles(proposal);
+    }
+  } catch (error) {
+    vscode.window.showErrorMessage('Failed to view proposal diff');
+  }
+}
+
+async function askClaudeToReview(proposal: ChangeProposal): Promise<void> {
+  // Prepare context for Claude
+  const filesAffected = proposal.proposed_changes
+    .map(c => `- **${c.file_path}** (${c.change_type}): ${c.description}`)
+    .join('\n');
+  
+  const context = `# Review Change Proposal
+
+**Title:** ${proposal.title}
+**Description:** ${proposal.description}
+**Agent:** ${proposal.agent_id}
+
+## Proposed Changes
+
+\`\`\`diff
+${proposal.diff.content}
+\`\`\`
+
+## Files Affected
+${filesAffected}
+
+## Review Request
+
+Please analyze these proposed changes and tell me:
+1. Are they appropriate for this project?
+2. Any potential issues or concerns?
+3. Should I approve or reject?
+
+Consider:
+- Code quality and best practices
+- Project conventions and style
+- Potential side effects
+- Documentation completeness
+- Security implications
+`;
+  
+  // Copy context to clipboard
+  await vscode.env.clipboard.writeText(context);
+  
+  // Show message with instructions
+  const result = await vscode.window.showInformationMessage(
+    '📋 Review context copied to clipboard! Open Cursor Chat and paste to ask Claude.',
+    'Open Chat',
+    'OK'
+  );
+  
+  if (result === 'Open Chat') {
+    // Try to open Cursor Chat
+    await vscode.commands.executeCommand('workbench.action.chat.open');
+  }
+}
+
+async function showProposalFiles(proposal: ChangeProposal): Promise<void> {
+  const files = proposal.proposed_changes.map(c => c.file_path);
+  
+  const selected = await vscode.window.showQuickPick(files, {
+    placeHolder: 'Select file to view'
+  });
+  
+  if (selected) {
+    // Try to open the file
+    const uri = vscode.Uri.file(vscode.workspace.workspaceFolders?.[0].uri.fsPath + '/' + selected);
+    try {
+      await vscode.window.showTextDocument(uri);
+    } catch {
+      vscode.window.showWarningMessage(`File ${selected} does not exist yet`);
+    }
   }
 }
 
