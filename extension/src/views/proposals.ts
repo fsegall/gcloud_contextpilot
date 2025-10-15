@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { ContextPilotService, ChangeProposal } from '../services/contextpilot';
 
-export class ProposalsProvider implements vscode.TreeDataProvider<ProposalItem> {
-  private _onDidChangeTreeData: vscode.EventEmitter<ProposalItem | undefined | null | void> = new vscode.EventEmitter<ProposalItem | undefined | null | void>();
-  readonly onDidChangeTreeData: vscode.Event<ProposalItem | undefined | null | void> = this._onDidChangeTreeData.event;
+type ProposalTreeItem = ProposalItem | ProposalChangeItem;
+
+export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeItem> {
+  private _onDidChangeTreeData: vscode.EventEmitter<ProposalTreeItem | undefined | null | void> = new vscode.EventEmitter<ProposalTreeItem | undefined | null | void>();
+  readonly onDidChangeTreeData: vscode.Event<ProposalTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
   constructor(private contextPilotService: ContextPilotService) {}
 
@@ -11,11 +13,11 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalItem> 
     this._onDidChangeTreeData.fire();
   }
 
-  getTreeItem(element: ProposalItem): vscode.TreeItem {
+  getTreeItem(element: ProposalTreeItem): vscode.TreeItem {
     return element;
   }
 
-  async getChildren(element?: ProposalItem): Promise<ProposalItem[]> {
+  async getChildren(element?: ProposalTreeItem): Promise<ProposalTreeItem[]> {
     if (!this.contextPilotService.isConnected()) {
       return [];
     }
@@ -26,12 +28,14 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalItem> 
       return proposals
         .filter(p => p.status === 'pending')
         .map(p => new ProposalItem(p, vscode.TreeItemCollapsibleState.Collapsed));
-    } else {
+    } else if (element instanceof ProposalItem) {
       // Show proposal changes
       return element.proposal.proposed_changes.map(
         change => new ProposalChangeItem(change)
       );
     }
+    
+    return [];
   }
 }
 
