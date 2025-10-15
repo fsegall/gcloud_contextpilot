@@ -301,13 +301,30 @@ export async function viewProposalDiff(
   }
 }
 
+// Global review panel for maintaining context
+let reviewPanel: any = null;
+
+export function setReviewPanel(panel: any): void {
+  reviewPanel = panel;
+}
+
+// Global chat session ID for maintaining context
+let contextPilotChatSessionId: string | undefined;
+
 async function askClaudeToReview(proposal: ChangeProposal): Promise<void> {
+  // If review panel is available, use it
+  if (reviewPanel) {
+    await reviewPanel.showReview(proposal);
+    return;
+  }
+  
+  // Fallback to clipboard + chat
   // Prepare context for Claude
   const filesAffected = proposal.proposed_changes
     .map(c => `- **${c.file_path}** (${c.change_type}): ${c.description}`)
     .join('\n');
   
-  const context = `# Review Change Proposal
+  const context = `# Review Change Proposal #${proposal.id}
 
 **Title:** ${proposal.title}
 **Description:** ${proposal.description}
@@ -337,20 +354,58 @@ Consider:
 - Security implications
 `;
   
-  // Copy context to clipboard
-  await vscode.env.clipboard.writeText(context);
-  
-  // Show message with instructions
-  const result = await vscode.window.showInformationMessage(
-    '📋 Review context copied to clipboard! Open Cursor Chat and paste to ask Claude.',
-    'Open Chat',
-    'OK'
-  );
-  
-  if (result === 'Open Chat') {
-    // Try to open Cursor Chat
-    await vscode.commands.executeCommand('workbench.action.chat.open');
+  try {
+    // Try to use Cursor's chat API with session persistence
+    // Option 1: Use chat participant API (if available)
+    const chatOptions = {
+      prompt: context,
+      // Try to maintain session
+      sessionId: contextPilotChatSessionId
+    };
+    
+    // Try to open chat with context directly
+    const result = await vscode.commands.executeCommand(
+      'workbench.action.chat.open',
+      chatOptions
+    );
+    
+    // Store session ID if returned
+    if (result && typeof result === 'object' && 'sessionId' in result) {
+      contextPilotChatSessionId = (result as any).sessionId;
+    }
+    
+    // Also copy to clipboard as fallback
+    await vscode.env.clipboard.writeText(context);
+    
+    vscode.window.showInformationMessage(
+      '🤖 Chat opened with review context. If not auto-filled, paste from clipboard (Cmd+V).'
+    );
+  } catch (error) {
+    // Fallback: Just copy to clipboard and open chat
+    await vscode.env.clipboard.writeText(context);
+    
+    const result = await vscode.window.showInformationMessage(
+      '📋 Review context copied to clipboard! Open Cursor Chat and paste to ask Claude.',
+      'Open Chat',
+      'OK'
+    );
+    
+    if (result === 'Open Chat') {
+      await vscode.commands.executeCommand('workbench.action.chat.open');
+    }
   }
+}
+
+// Export function to reset chat session if needed
+export function resetChatSession(): void {
+  contextPilotChatSessionId = undefined;
+  
+  // Also clear review panel history
+  if (reviewPanel) {
+    reviewPanel.clearHistory();
+  }
+  
+  vscode.window.showInformationMessage('🔄 Chat session reset. Next review will start a fresh conversation.');
 }
 
 async function showProposalFiles(proposal: ChangeProposal): Promise<void> {

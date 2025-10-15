@@ -5,6 +5,7 @@ import { RewardsProvider } from './views/rewards';
 import { AgentsProvider } from './views/agents';
 import { CoachProvider } from './views/coach';
 import { ContextTreeProvider } from './views/context';
+import { ReviewPanelProvider } from './views/review-panel';
 import * as commands from './commands';
 
 let contextPilotService: ContextPilotService;
@@ -41,6 +42,10 @@ export function activate(context: vscode.ExtensionContext) {
   const agentsProvider = new AgentsProvider(contextPilotService);
   const coachProvider = new CoachProvider(contextPilotService);
   const contextProvider = new ContextTreeProvider(contextPilotService);
+  
+  // Create review panel provider (maintains conversation context)
+  const reviewPanelProvider = new ReviewPanelProvider(context);
+  commands.setReviewPanel(reviewPanelProvider);
 
   vscode.window.registerTreeDataProvider('contextpilot.proposals', proposalsProvider);
   vscode.window.registerTreeDataProvider('contextpilot.rewards', rewardsProvider);
@@ -117,6 +122,10 @@ export function activate(context: vscode.ExtensionContext) {
     // Proposal diff commands
     vscode.commands.registerCommand('contextpilot.viewProposalDiff', async (proposalId: string) => {
       await commands.viewProposalDiff(contextPilotService, proposalId);
+    }),
+
+    vscode.commands.registerCommand('contextpilot.resetChatSession', () => {
+      commands.resetChatSession();
     })
   );
 

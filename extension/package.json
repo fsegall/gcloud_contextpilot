@@ -89,6 +89,16 @@
         "command": "contextpilot.getCoachTipReal",
         "title": "ContextPilot: Get Coach Tip (Real API)",
         "icon": "$(lightbulb)"
+      },
+      {
+        "command": "contextpilot.viewProposalDiff",
+        "title": "ContextPilot: View Proposal Diff",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "contextpilot.resetChatSession",
+        "title": "ContextPilot: Reset Chat Session",
+        "icon": "$(clear-all)"
       }
     ],
     "viewsContainers": {
