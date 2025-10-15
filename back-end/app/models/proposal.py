@@ -1,197 +1,108 @@
 """
-Change Proposal data models.
+Proposal Data Models
 
-Represents agent-suggested changes that require developer approval.
+Defines the structure for change proposals with diffs.
 """
+
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
 from datetime import datetime
-from enum import Enum
 
 
-class ProposalStatus(str, Enum):
-    """Status of a change proposal."""
-    PENDING = "pending_approval"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    APPLIED = "applied"
-    FAILED = "failed"
+class ProposedChange(BaseModel):
+    """Individual file change in a proposal"""
+    file_path: str = Field(..., description="Path to file being changed")
+    change_type: Literal['create', 'update', 'delete'] = Field(..., description="Type of change")
+    description: str = Field(..., description="Human-readable description of change")
+    
+    # Content before/after
+    before: Optional[str] = Field(None, description="Current file content (if exists)")
+    after: Optional[str] = Field(None, description="Proposed file content")
+    
+    # Diff
+    diff: Optional[str] = Field(None, description="Unified diff for this file")
 
 
-class ProposalType(str, Enum):
-    """Type of change being proposed."""
-    REFACTOR = "refactor"
-    FEATURE = "feature"
-    BUGFIX = "bugfix"
-    DOCS = "docs"
-    TESTS = "tests"
-    SECURITY = "security"
-    PERFORMANCE = "performance"
-
-
-class ChangeAction(str, Enum):
-    """Action to perform on a file."""
-    CREATE = "create"
-    MODIFY = "modify"
-    DELETE = "delete"
-
-
-class FileChange(BaseModel):
-    """Represents a change to a single file."""
-    file: str = Field(..., description="File path relative to repo root")
-    action: ChangeAction
-    diff: Optional[str] = Field(None, description="Unified diff for modify actions")
-    content: Optional[str] = Field(None, description="Full content for create actions")
-    reason: str = Field(..., description="Why this change is needed")
-    lines_added: int = 0
-    lines_removed: int = 0
-
-
-class ImpactAnalysis(BaseModel):
-    """Impact analysis of the proposal."""
-    files_affected: int
-    lines_added: int
-    lines_removed: int
-    test_coverage: Literal["maintained", "improved", "reduced", "unknown"]
-    breaking_changes: bool
-    blast_radius: Literal["low", "medium", "high"]
-    estimated_time_minutes: int
+class ProposalDiff(BaseModel):
+    """Complete diff for a proposal"""
+    format: Literal['unified', 'git-patch'] = Field(default='unified', description="Diff format")
+    content: str = Field(..., description="Complete diff content")
 
 
 class ChangeProposal(BaseModel):
-    """
-    Complete change proposal from an agent.
+    """Change proposal from an agent"""
+    id: str = Field(..., description="Unique proposal ID")
+    agent_id: str = Field(..., description="Agent that created proposal")
+    workspace_id: str = Field(..., description="Workspace ID")
     
-    This is the core data structure for the "agents suggest, devs approve" workflow.
-    """
-    proposal_id: str = Field(..., description="Unique proposal identifier")
-    created_at: datetime
-    agent: str = Field(..., description="Agent that created proposal (e.g., 'strategy-agent')")
-    type: ProposalType
+    title: str = Field(..., description="Short title")
+    description: str = Field(..., description="Detailed description")
     
-    # Description
-    title: str = Field(..., max_length=100, description="Short title (≤100 chars)")
-    description: str = Field(..., description="Detailed explanation of the change")
+    # Diff
+    diff: ProposalDiff = Field(..., description="Complete diff")
     
-    # Changes
-    changes: List[FileChange] = Field(..., min_items=1)
+    # Individual changes
+    proposed_changes: List[ProposedChange] = Field(..., description="List of file changes")
     
-    # Impact
-    impact: ImpactAnalysis
-    
-    # Benefits & Risks
-    benefits: List[str] = Field(..., description="Expected benefits")
-    risks: List[str] = Field(default_factory=list, description="Potential risks")
-    
-    # Status & Tracking
-    status: ProposalStatus = ProposalStatus.PENDING
-    user_id: str = Field(..., description="Target developer")
-    workspace_id: str = Field(default="default")
-    
-    # Git integration
-    preview_branch: Optional[str] = Field(None, description="Branch created for preview")
-    applied_commit: Optional[str] = Field(None, description="Commit hash after applying")
-    
-    # Approval tracking
-    approved_by: Optional[str] = None
-    approved_at: Optional[datetime] = None
-    rejected_by: Optional[str] = None
-    rejected_at: Optional[datetime] = None
-    rejection_reason: Optional[str] = None
+    # Status
+    status: Literal['pending', 'approved', 'rejected'] = Field(default='pending')
     
     # Metadata
-    related_events: List[str] = Field(default_factory=list, description="Event IDs that triggered this proposal")
-    related_issues: List[str] = Field(default_factory=list, description="GitHub issues, etc")
-    priority: Literal["low", "medium", "high", "critical"] = "medium"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    rejected_at: Optional[datetime] = None
+    
+    # Rejection reason
+    rejection_reason: Optional[str] = None
+    
+    # AI Review (optional)
+    ai_review: Optional[dict] = Field(None, description="AI review results if requested")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "spec-001",
+                "agent_id": "spec",
+                "workspace_id": "contextpilot",
+                "title": "Update README.md with event-driven architecture",
+                "description": "README is outdated, needs to reflect new event bus",
+                "diff": {
+                    "format": "unified",
+                    "content": "--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,5 @@\n # ContextPilot\n \n-Old architecture\n+Event-driven architecture with Pub/Sub\n"
+                },
+                "proposed_changes": [
+                    {
+                        "file_path": "README.md",
+                        "change_type": "update",
+                        "description": "Add event-driven architecture section",
+                        "before": "# ContextPilot\n\nOld architecture",
+                        "after": "# ContextPilot\n\nEvent-driven architecture with Pub/Sub",
+                        "diff": "--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,5 @@\n # ContextPilot\n \n-Old architecture\n+Event-driven architecture with Pub/Sub\n"
+                    }
+                ],
+                "status": "pending",
+                "created_at": "2025-10-15T12:00:00Z"
+            }
+        }
 
 
 class ProposalApprovalRequest(BaseModel):
-    """Request to approve a proposal."""
-    proposal_id: str
-    user_id: str
-    edited_changes: Optional[List[FileChange]] = Field(
-        None,
-        description="If user edited the changes before approving"
-    )
-    create_pr: bool = Field(True, description="Create PR after applying")
-    pr_title: Optional[str] = None
-    pr_body: Optional[str] = None
+    """Request to approve a proposal"""
+    user_id: Optional[str] = None
+    comment: Optional[str] = None
 
 
 class ProposalRejectionRequest(BaseModel):
-    """Request to reject a proposal."""
-    proposal_id: str
-    user_id: str
-    reason: str = Field(..., description="Why rejected (helps agents learn)")
-    feedback: Optional[str] = Field(None, description="Additional feedback for agent")
+    """Request to reject a proposal"""
+    user_id: Optional[str] = None
+    reason: str = Field(..., description="Reason for rejection")
 
 
-class ProposalListResponse(BaseModel):
-    """Response for listing proposals."""
-    proposals: List[ChangeProposal]
-    total: int
-    pending: int
-    approved: int
-    rejected: int
-
-
-class ProposalStats(BaseModel):
-    """Statistics about proposals."""
-    total_proposals: int
-    by_status: dict[ProposalStatus, int]
-    by_agent: dict[str, int]
-    by_type: dict[ProposalType, int]
-    approval_rate: float
-    avg_time_to_review_minutes: float
-
-
-# Example proposal
-EXAMPLE_PROPOSAL = {
-    "proposal_id": "cp_001",
-    "created_at": "2025-10-14T10:00:00Z",
-    "agent": "strategy-agent",
-    "type": "refactor",
-    "title": "Extract AuthService from duplicated code",
-    "description": "Authentication logic is duplicated across 3 files (login.py, register.py, reset.py). Extracting to a centralized AuthService will improve maintainability and testability.",
-    "changes": [
-        {
-            "file": "src/auth/login.py",
-            "action": "modify",
-            "diff": "@@ -10,30 +10,8 @@ ...",
-            "reason": "Remove duplicated auth logic",
-            "lines_added": 8,
-            "lines_removed": 30
-        },
-        {
-            "file": "src/services/auth_service.py",
-            "action": "create",
-            "content": "class AuthService:\n    ...",
-            "reason": "Centralize auth logic",
-            "lines_added": 50,
-            "lines_removed": 0
-        }
-    ],
-    "impact": {
-        "files_affected": 4,
-        "lines_added": 50,
-        "lines_removed": 120,
-        "test_coverage": "maintained",
-        "breaking_changes": False,
-        "blast_radius": "medium",
-        "estimated_time_minutes": 45
-    },
-    "benefits": [
-        "Reduce duplication from 3x to 1x",
-        "Easier to test (single service)",
-        "Single source of truth for auth"
-    ],
-    "risks": [
-        "Need to update imports in 8 files",
-        "Potential merge conflicts"
-    ],
-    "status": "pending_approval",
-    "user_id": "dev_123",
-    "workspace_id": "default",
-    "priority": "medium"
-}
-
+class ProposalAIReviewRequest(BaseModel):
+    """Request AI review of a proposal"""
+    model: str = Field(default="claude-3-5-sonnet", description="AI model to use")
+    focus_areas: Optional[List[str]] = Field(
+        default=None,
+        description="Specific areas to focus on (e.g., 'security', 'performance')"
+    )
