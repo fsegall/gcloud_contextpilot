@@ -13,6 +13,7 @@ import json
 
 from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
+from app.agents.diff_generator import generate_unified_diff, read_file_safe
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,9 @@ class SpecAgent(BaseAgent):
         # Initialize base agent
         super().__init__(workspace_id=workspace_id, agent_id='spec', project_id=project_id)
         
-        # Spec-specific paths
-        self.docs_path = Path(workspace_path) / "docs"
+        # Spec-specific paths (ensure Path objects)
+        self.workspace_path = Path(self.workspace_path)  # Convert to Path if string
+        self.docs_path = self.workspace_path / "docs"
         self.templates_path = Path(__file__).parent.parent / "templates"
         
         # Subscribe to events
@@ -239,7 +241,7 @@ class SpecAgent(BaseAgent):
     
     async def _create_proposal_for_issue(self, issue: Dict) -> Optional[str]:
         """
-        Create a change proposal for a documentation issue.
+        Create a change proposal with actual diff for a documentation issue.
         
         Args:
             issue: Issue dictionary from validate_documentation()
@@ -247,23 +249,54 @@ class SpecAgent(BaseAgent):
         Returns:
             Proposal ID if created, None otherwise
         """
-        proposal_id = f"spec-{issue['type']}-{datetime.now().timestamp()}"
+        proposal_id = f"spec-{issue['type']}-{int(datetime.now().timestamp())}"
         
+        # 1. Read current content
+        file_path = issue['file']
+        current_content = read_file_safe(file_path, str(self.workspace_path))
+        
+        # 2. Generate proposed content
+        # For now, use a simple template. In production, use Gemini to generate
+        if issue['type'] == 'missing_doc':
+            proposed_content = self._generate_doc_template(file_path)
+        else:
+            # For other types, just add a note (in production, use LLM)
+            proposed_content = current_content + f"\n\n<!-- Updated by Spec Agent: {issue['message']} -->\n"
+        
+        # 3. Generate diff
+        diff_content = generate_unified_diff(
+            file_path=file_path,
+            old_content=current_content,
+            new_content=proposed_content
+        )
+        
+        # 4. Create proposal with diff
         proposal = {
             'id': proposal_id,
             'agent_id': 'spec',
+            'workspace_id': self.workspace_id,
             'title': f"Docs issue: {issue['file']}",
             'description': issue['message'],
+            'diff': {
+                'format': 'unified',
+                'content': diff_content
+            },
             'proposed_changes': [{
-                'file_path': issue['file'],
-                'change_type': 'update' if issue['type'] == 'outdated' else 'create',
-                'description': issue['message']
+                'file_path': file_path,
+                'change_type': 'update' if current_content else 'create',
+                'description': issue['message'],
+                'before': current_content,
+                'after': proposed_content,
+                'diff': diff_content
             }],
             'status': 'pending',
             'created_at': datetime.now(timezone.utc).isoformat()
         }
         
-        # Publish proposal.created event
+        # 5. Save proposal to workspace
+        await self._save_proposal(proposal)
+        
+        # 6. Publish proposal.created event
         await self.publish_event(
             topic=Topics.PROPOSAL_EVENTS,
             event_type=EventTypes.PROPOSAL_CREATED,
@@ -275,14 +308,82 @@ class SpecAgent(BaseAgent):
             }
         )
         
-        logger.info(f"[Spec Agent] Created proposal {proposal_id} for {issue['file']}")
+        logger.info(f"[Spec Agent] Created proposal {proposal_id} with diff for {issue['file']}")
         
-        # Remember this proposal
+        # 7. Remember this proposal
         proposals = self.recall('proposals_created', [])
         proposals.append(proposal_id)
         self.remember('proposals_created', proposals)
         
         return proposal_id
+    
+    def _generate_doc_template(self, file_path: str) -> str:
+        """Generate basic documentation template"""
+        filename = Path(file_path).stem
+        return f"""# {filename.replace('_', ' ').replace('-', ' ').title()}
+
+## Overview
+
+This document describes {filename}.
+
+## Purpose
+
+<!-- Add purpose here -->
+
+## Usage
+
+<!-- Add usage instructions here -->
+
+## Examples
+
+<!-- Add examples here -->
+
+## References
+
+<!-- Add references here -->
+"""
+    
+    async def _save_proposal(self, proposal: Dict) -> None:
+        """Save proposal to workspace"""
+        proposals_dir = Path(self.workspace_path) / 'proposals'
+        proposals_dir.mkdir(exist_ok=True)
+        
+        # Save as JSON
+        json_path = proposals_dir / f"{proposal['id']}.json"
+        with open(json_path, 'w') as f:
+            json.dump(proposal, f, indent=2)
+        
+        # Save as Markdown
+        md_path = proposals_dir / f"{proposal['id']}.md"
+        md_content = f"""# {proposal['title']}
+
+**ID:** {proposal['id']}  
+**Agent:** {proposal['agent_id']}  
+**Status:** {proposal['status']}  
+**Created:** {proposal['created_at']}
+
+## Description
+
+{proposal['description']}
+
+## Proposed Changes
+
+"""
+        for change in proposal['proposed_changes']:
+            md_content += f"""
+### {change['file_path']} ({change['change_type']})
+
+{change['description']}
+
+```diff
+{change.get('diff', 'No diff available')}
+```
+"""
+        
+        with open(md_path, 'w') as f:
+            f.write(md_content)
+        
+        logger.debug(f"[Spec Agent] Saved proposal to {json_path} and {md_path}")
     
     async def create_template(
         self,

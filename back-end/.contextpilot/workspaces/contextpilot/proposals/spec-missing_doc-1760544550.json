@@ -1,0 +1,23 @@
+{
+  "id": "spec-missing_doc-1760544550",
+  "agent_id": "spec",
+  "workspace_id": "contextpilot",
+  "title": "Docs issue: README.md",
+  "description": "README.md not found",
+  "diff": {
+    "format": "unified",
+    "content": "--- a/README.md\n+++ b/README.md\n@@ -0,0 +1,21 @@\n+# Readme\n+\n+## Overview\n+\n+This document describes README.\n+\n+## Purpose\n+\n+<!-- Add purpose here -->\n+\n+## Usage\n+\n+<!-- Add usage instructions here -->\n+\n+## Examples\n+\n+<!-- Add examples here -->\n+\n+## References\n+\n+<!-- Add references here -->\n"
+  },
+  "proposed_changes": [
+    {
+      "file_path": "README.md",
+      "change_type": "create",
+      "description": "README.md not found",
+      "before": "",
+      "after": "# Readme\n\n## Overview\n\nThis document describes README.\n\n## Purpose\n\n<!-- Add purpose here -->\n\n## Usage\n\n<!-- Add usage instructions here -->\n\n## Examples\n\n<!-- Add examples here -->\n\n## References\n\n<!-- Add references here -->\n",
+      "diff": "--- a/README.md\n+++ b/README.md\n@@ -0,0 +1,21 @@\n+# Readme\n+\n+## Overview\n+\n+This document describes README.\n+\n+## Purpose\n+\n+<!-- Add purpose here -->\n+\n+## Usage\n+\n+<!-- Add usage instructions here -->\n+\n+## Examples\n+\n+<!-- Add examples here -->\n+\n+## References\n+\n+<!-- Add references here -->\n"
+    }
+  ],
+  "status": "pending",
+  "created_at": "2025-10-15T16:09:10.465126+00:00"
+}
