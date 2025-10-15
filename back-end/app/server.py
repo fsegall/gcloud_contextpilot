@@ -572,3 +572,58 @@ def get_mock_balance(user_id: str = Query("test")):
         "total_earned": 300,
         "pending_rewards": 50
     }
+
+
+# ===== GIT AGENT ENDPOINTS =====
+
+@app.post("/git/event")
+async def trigger_git_event(
+    workspace_id: str = Query("default"),
+    event_type: str = Body(...),
+    data: dict = Body(...),
+    source: str = Body("manual")
+):
+    """
+    Trigger Git Agent to handle an event
+    
+    Example:
+    ```json
+    {
+        "event_type": "spec.created",
+        "data": {
+            "file_name": "git_agent.py",
+            "description": "Created Git Agent MVP"
+        },
+        "source": "developer"
+    }
+    ```
+    """
+    from app.agents.git_agent import commit_via_agent
+    
+    logger.info(f"POST /git/event - workspace: {workspace_id}, type: {event_type}")
+    
+    try:
+        commit_hash = await commit_via_agent(
+            workspace_id=workspace_id,
+            event_type=event_type,
+            data=data,
+            source=source
+        )
+        
+        if commit_hash:
+            return {
+                "status": "success",
+                "message": "Git Agent processed event and created commit",
+                "commit_hash": commit_hash
+            }
+        else:
+            return {
+                "status": "skipped",
+                "message": "Git Agent decided not to commit (changes not significant)"
+            }
+    except Exception as e:
+        logger.error(f"Error processing git event: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }

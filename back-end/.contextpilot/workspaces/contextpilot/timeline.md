@@ -21,3 +21,4 @@
 
 - generate-context: Final auto-commit before push by generate-context
 - extension: Context update via ContextPilot extension
+- extension: Final auto-commit before push by extension

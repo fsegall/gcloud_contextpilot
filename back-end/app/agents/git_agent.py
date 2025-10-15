@@ -1,315 +1,325 @@
 """
-Git Agent - Git Operations Authority
+Git Agent - Centralized Git Operations Manager
 
-Only agent authorized to perform Git operations. Implements git-flow, rollbacks, and semantic commits.
+Responsibilities:
+- Listen to events from other agents
+- Decide when to commit
+- Generate semantic commit messages
+- Manage branches (git-flow)
+- Handle rollbacks
+
+Event-driven architecture: Reacts to changes, doesn't make them directly.
 """
-import os
-import logging
-from datetime import datetime, timezone
-from typing import List, Dict, Optional
-from pathlib import Path
-import git
-import uuid
 
-from app.services.event_bus import get_event_bus
-from app.models.proposal import ChangeProposal, FileChange, ChangeAction
-from google.cloud import firestore
+import logging
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from app.git_context_manager import Git_Context_Manager
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 
+class CommitType(Enum):
+    """Conventional commit types"""
+    FEAT = "feat"           # New feature
+    FIX = "fix"             # Bug fix
+    DOCS = "docs"           # Documentation
+    REFACTOR = "refactor"   # Code refactoring
+    TEST = "test"           # Tests
+    CHORE = "chore"         # Maintenance
+    AGENT = "agent"         # Agent-generated change
+
+
+class EventType(Enum):
+    """Event types that trigger git operations"""
+    CONTEXT_UPDATED = "context.updated"
+    SPEC_CREATED = "spec.created"
+    SPEC_UPDATED = "spec.updated"
+    CODE_CHANGED = "code.changed"
+    MILESTONE_COMPLETED = "milestone.completed"
+    PROPOSAL_APPROVED = "proposal.approved"
+    TEST_PASSED = "test.passed"
+
+
 class GitAgent:
     """
-    Git Agent handles all Git operations.
+    Git Agent - Handles all git operations intelligently
     
-    Core Principle: Single authority for Git operations - auditable and reversible.
-    
-    Responsibilities:
-    - Apply approved Change Proposals
-    - Create branches (git-flow)
-    - Create semantic commits
-    - Manage rollback points
-    - Protect critical branches
+    Design principles:
+    - Event-driven: reacts to events, doesn't poll
+    - Smart commits: decides when changes are worth committing
+    - Semantic messages: follows conventional commits
+    - Idempotent: safe to retry operations
     """
     
-    def __init__(self, repo_path: str, project_id: str):
+    def __init__(self, workspace_id: str = "default"):
+        self.workspace_id = workspace_id
+        self.git_manager = Git_Context_Manager(workspace_id=workspace_id)
+        logger.info(f"[GitAgent] Initialized for workspace: {workspace_id}")
+    
+    async def handle_event(self, event: Dict[str, Any]) -> Optional[str]:
         """
-        Initialize Git Agent.
+        Main event handler - routes events to appropriate handlers
         
         Args:
-            repo_path: Path to Git repository
-            project_id: GCP project ID for Pub/Sub
-        """
-        self.repo = git.Repo(repo_path, search_parent_directories=True)
-        self.repo_path = Path(self.repo.working_tree_dir)
-        self.event_bus = get_event_bus(project_id)
-        self.db = firestore.AsyncClient()
-        
-        logger.info(f"Git Agent initialized for repo: {self.repo_path}")
-    
-    async def handle_proposal_approved(self, event: Dict):
-        """
-        Handle proposal.approved.v1 event.
-        
-        Apply the approved changes to a new branch.
-        """
-        logger.info(f"Git Agent received approval: {event['event_id']}")
-        
-        data = event["data"]
-        proposal_id = data["proposal_id"]
-        changes = [FileChange(**c) for c in data["changes"]]
-        
-        try:
-            # Apply proposal
-            result = await self.apply_proposal(proposal_id, changes, data.get("user_id"))
-            
-            # Publish success event
-            self.event_bus.publish(
-                topic="git-events",
-                event_type="git.commit.v1",
-                source="git-agent",
-                data={
-                    "proposal_id": proposal_id,
-                    "branch": result["branch"],
-                    "commit_hash": result["commit"],
-                    "files_changed": result["files_changed"]
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error applying proposal {proposal_id}: {e}")
-            
-            # Publish failure event
-            self.event_bus.publish(
-                topic="git-events",
-                event_type="git.apply.failed.v1",
-                source="git-agent",
-                data={
-                    "proposal_id": proposal_id,
-                    "error": str(e)
-                }
-            )
-    
-    async def apply_proposal(
-        self,
-        proposal_id: str,
-        changes: List[FileChange],
-        user_id: str
-    ) -> Dict:
-        """
-        Apply a Change Proposal to a new branch.
-        
-        Args:
-            proposal_id: Proposal ID
-            changes: List of file changes
-            user_id: User who approved
+            event: Event dict with 'type', 'data', 'source', etc.
             
         Returns:
-            Dict with branch name, commit hash, etc
+            commit_hash if committed, None otherwise
         """
-        logger.info(f"Applying proposal: {proposal_id}")
+        event_type = event.get("type")
+        logger.info(f"[GitAgent] Handling event: {event_type}")
         
-        # 1. Create branch from develop
-        branch_name = f"agent/proposal-{proposal_id}"
+        # Route to specific handler
+        handlers = {
+            EventType.CONTEXT_UPDATED.value: self._handle_context_update,
+            EventType.SPEC_CREATED.value: self._handle_spec_change,
+            EventType.SPEC_UPDATED.value: self._handle_spec_change,
+            EventType.CODE_CHANGED.value: self._handle_code_change,
+            EventType.MILESTONE_COMPLETED.value: self._handle_milestone,
+            EventType.PROPOSAL_APPROVED.value: self._handle_proposal,
+        }
         
-        try:
-            # Ensure we're on develop
-            self.repo.git.checkout("develop")
-            self.repo.git.pull()
-            
-        except git.exc.GitCommandError:
-            # develop doesn't exist, use main
-            logger.warning("develop branch not found, using main")
-            self.repo.git.checkout("main")
-            self.repo.git.pull()
+        handler = handlers.get(event_type)
+        if handler:
+            return await handler(event)
+        else:
+            logger.warning(f"[GitAgent] No handler for event type: {event_type}")
+            return None
+    
+    async def _handle_context_update(self, event: Dict[str, Any]) -> Optional[str]:
+        """Handle context update events"""
+        data = event.get("data", {})
+        changes = data.get("changes", [])
         
-        # Create new branch
-        self.repo.git.checkout("-b", branch_name)
-        logger.info(f"Created branch: {branch_name}")
+        # Check if changes are significant
+        if not self._should_commit(changes):
+            logger.info("[GitAgent] Changes not significant enough for commit")
+            return None
         
-        # 2. Apply changes
-        files_changed = []
-        
-        for change in changes:
-            file_path = self.repo_path / change.file
-            
-            if change.action == ChangeAction.CREATE:
-                # Create new file
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(file_path, 'w') as f:
-                    f.write(change.content)
-                logger.info(f"Created file: {change.file}")
-                
-            elif change.action == ChangeAction.MODIFY:
-                # Apply diff (simplified - in production use proper patch)
-                # For now, this is a placeholder
-                logger.warning(f"MODIFY action not fully implemented for {change.file}")
-                # TODO: Apply actual diff using patch library
-                
-            elif change.action == ChangeAction.DELETE:
-                # Delete file
-                if file_path.exists():
-                    file_path.unlink()
-                    logger.info(f"Deleted file: {change.file}")
-            
-            files_changed.append(change.file)
-        
-        # 3. Stage changes
-        self.repo.git.add(A=True)
-        
-        # 4. Create semantic commit
-        commit_message = self._generate_commit_message(proposal_id, changes)
-        commit = self.repo.index.commit(commit_message)
-        
-        logger.info(f"Created commit: {commit.hexsha}")
-        
-        # 5. Create rollback point
-        rollback_id = await self._create_rollback_point(
-            branch_name,
-            commit.hexsha,
-            proposal_id
+        # Generate commit message
+        message = self._generate_commit_message(
+            commit_type=CommitType.CHORE,
+            scope="context",
+            subject="Update project context",
+            body=self._format_changes(changes),
+            agent_name=event.get("source", "git-agent")
         )
         
-        logger.info(f"✅ Proposal applied: {proposal_id}")
+        # Commit
+        return self._commit(message, agent="git-agent")
+    
+    async def _handle_spec_change(self, event: Dict[str, Any]) -> Optional[str]:
+        """Handle spec creation/update events"""
+        data = event.get("data", {})
+        file_name = data.get("file_name", "document")
+        action = "Add" if event["type"] == EventType.SPEC_CREATED.value else "Update"
         
-        return {
-            "branch": branch_name,
-            "commit": commit.hexsha,
-            "files_changed": files_changed,
-            "rollback_id": rollback_id
-        }
+        message = self._generate_commit_message(
+            commit_type=CommitType.DOCS,
+            scope="spec",
+            subject=f"{action} {file_name}",
+            body=data.get("description", ""),
+            agent_name=event.get("source", "spec-agent")
+        )
+        
+        return self._commit(message, agent="git-agent")
+    
+    async def _handle_code_change(self, event: Dict[str, Any]) -> Optional[str]:
+        """Handle code change events"""
+        data = event.get("data", {})
+        files = data.get("files", [])
+        
+        # Determine if it's a feature, fix, or refactor
+        commit_type = self._infer_commit_type(data)
+        
+        message = self._generate_commit_message(
+            commit_type=commit_type,
+            scope=data.get("scope", "core"),
+            subject=data.get("summary", "Code changes"),
+            body=f"Modified files:\n" + "\n".join(f"- {f}" for f in files),
+            agent_name=event.get("source", "strategy-agent")
+        )
+        
+        return self._commit(message, agent="git-agent")
+    
+    async def _handle_milestone(self, event: Dict[str, Any]) -> Optional[str]:
+        """Handle milestone completion - creates commit + tag"""
+        data = event.get("data", {})
+        milestone_name = data.get("name", "Milestone")
+        
+        message = self._generate_commit_message(
+            commit_type=CommitType.FEAT,
+            scope="milestone",
+            subject=f"Complete {milestone_name}",
+            body=data.get("summary", ""),
+            agent_name="milestone-agent"
+        )
+        
+        commit_hash = self._commit(message, agent="git-agent")
+        
+        # TODO: Create git tag
+        # self._create_tag(milestone_name, commit_hash)
+        
+        return commit_hash
+    
+    async def _handle_proposal(self, event: Dict[str, Any]) -> Optional[str]:
+        """Handle approved proposal - merges branch if exists"""
+        data = event.get("data", {})
+        proposal_id = data.get("proposal_id")
+        
+        message = self._generate_commit_message(
+            commit_type=CommitType.AGENT,
+            scope="proposal",
+            subject=f"Apply proposal {proposal_id}",
+            body=data.get("changes_summary", ""),
+            agent_name=event.get("source", "unknown-agent")
+        )
+        
+        # TODO: Check if branch exists and merge
+        # branch_name = f"agent/proposal-{proposal_id}"
+        # if self._branch_exists(branch_name):
+        #     self._merge_branch(branch_name)
+        
+        return self._commit(message, agent="git-agent")
+    
+    def _should_commit(self, changes: List[str]) -> bool:
+        """
+        Decide if changes are significant enough for a commit
+        
+        Rules:
+        - At least 1 significant change
+        - Not just whitespace
+        - Not just comments (unless docs)
+        """
+        if not changes:
+            return False
+        
+        # For MVP, commit everything
+        # TODO: Add more sophisticated logic
+        return len(changes) > 0
+    
+    def _infer_commit_type(self, data: Dict[str, Any]) -> CommitType:
+        """Infer commit type from change data"""
+        description = data.get("description", "").lower()
+        
+        if "fix" in description or "bug" in description:
+            return CommitType.FIX
+        elif "test" in description:
+            return CommitType.TEST
+        elif "refactor" in description:
+            return CommitType.REFACTOR
+        elif "doc" in description:
+            return CommitType.DOCS
+        else:
+            return CommitType.FEAT
     
     def _generate_commit_message(
         self,
-        proposal_id: str,
-        changes: List[FileChange]
+        commit_type: CommitType,
+        scope: str,
+        subject: str,
+        body: str = "",
+        agent_name: str = "git-agent"
     ) -> str:
-        """Generate semantic commit message."""
-        
-        # Determine type and scope
-        if all(c.file.endswith(".md") for c in changes):
-            commit_type = "docs"
-            scope = "spec"
-        else:
-            commit_type = "agent"
-            scope = "refactor"
-        
-        # Count changes
-        lines_added = sum(c.lines_added for c in changes)
-        lines_removed = sum(c.lines_removed for c in changes)
-        
-        # Build message
-        message = f"{commit_type}({scope}): Apply proposal {proposal_id}\n\n"
-        
-        for change in changes:
-            action = change.action.value
-            message += f"- {action.capitalize()}: {change.file}\n"
-        
-        message += f"\nStats: +{lines_added} -{lines_removed} lines\n"
-        message += f"Generated by: Git Agent\n"
-        message += f"Proposal ID: {proposal_id}\n"
-        
-        return message
-    
-    async def _create_rollback_point(
-        self,
-        branch: str,
-        commit_hash: str,
-        proposal_id: str
-    ) -> str:
-        """Create a rollback point in Firestore."""
-        
-        rollback_id = f"rb_{uuid.uuid4().hex[:8]}"
-        
-        await self.db.collection("rollback_points").document(rollback_id).set({
-            "rollback_id": rollback_id,
-            "created_at": firestore.SERVER_TIMESTAMP,
-            "branch": branch,
-            "commit_hash": commit_hash,
-            "proposal_id": proposal_id,
-            "can_rollback": True,
-            "rolled_back": False
-        })
-        
-        logger.info(f"Created rollback point: {rollback_id}")
-        
-        return rollback_id
-    
-    async def rollback(self, rollback_id: str) -> Dict:
         """
-        Rollback to a previous state.
+        Generate semantic commit message following conventional commits
+        
+        Format:
+        <type>(<scope>): <subject>
+        
+        <body>
+        
+        Generated-by: <agent_name>
+        """
+        header = f"{commit_type.value}({scope}): {subject}"
+        
+        parts = [header]
+        
+        if body:
+            parts.append("")  # Empty line
+            parts.append(body)
+        
+        parts.append("")  # Empty line
+        parts.append(f"Generated-by: {agent_name}")
+        
+        return "\n".join(parts)
+    
+    def _format_changes(self, changes: List[str]) -> str:
+        """Format list of changes into commit body"""
+        if not changes:
+            return "No specific changes listed"
+        
+        return "Changes:\n" + "\n".join(f"- {change}" for change in changes)
+    
+    def _commit(self, message: str, agent: str = "git-agent") -> Optional[str]:
+        """
+        Execute git commit using Git_Context_Manager
         
         Args:
-            rollback_id: Rollback point ID
+            message: Commit message
+            agent: Agent name for tracking
             
         Returns:
-            Dict with status and details
+            Commit hash or None if failed
         """
-        logger.info(f"Rolling back: {rollback_id}")
-        
-        # Get rollback point
-        doc = await self.db.collection("rollback_points").document(rollback_id).get()
-        
-        if not doc.exists:
-            raise ValueError(f"Rollback point not found: {rollback_id}")
-        
-        rollback_data = doc.to_dict()
-        
-        if not rollback_data["can_rollback"]:
-            raise ValueError("Rollback not allowed (may be merged to main)")
-        
-        if rollback_data["rolled_back"]:
-            raise ValueError("Already rolled back")
-        
-        # Checkout branch
-        branch = rollback_data["branch"]
-        self.repo.git.checkout(branch)
-        
-        # Reset to commit
-        commit_hash = rollback_data["commit_hash"]
-        self.repo.git.reset("--hard", commit_hash)
-        
-        logger.info(f"✅ Rolled back to {commit_hash}")
-        
-        # Mark as rolled back
-        await doc.reference.update({
-            "rolled_back": True,
-            "rolled_back_at": firestore.SERVER_TIMESTAMP
-        })
-        
-        # Emit event
-        self.event_bus.publish(
-            topic="git-events",
-            event_type="git.rollback.v1",
-            source="git-agent",
-            data={
-                "rollback_id": rollback_id,
-                "branch": branch,
-                "commit_hash": commit_hash,
-                "proposal_id": rollback_data["proposal_id"]
-            }
-        )
-        
-        return {
-            "status": "success",
-            "rollback_id": rollback_id,
-            "branch": branch,
-            "commit": commit_hash
-        }
-
-
-# For testing
-if __name__ == "__main__":
-    import asyncio
+        try:
+            logger.info(f"[GitAgent] Committing with message: {message[:50]}...")
+            result = self.git_manager.commit_changes(message=message, agent=agent)
+            logger.info(f"[GitAgent] Commit successful: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"[GitAgent] Commit failed: {str(e)}")
+            return None
     
-    async def test():
-        agent = GitAgent(
-            repo_path="/home/fsegall/Desktop/New_Projects/google-context-pilot",
-            project_id="test-project"
-        )
-        
-        print(f"Current branch: {agent.repo.active_branch.name}")
-        print(f"Repo path: {agent.repo_path}")
+    # ===== Future features (branches, tags, rollback) =====
     
-    asyncio.run(test())
+    def _create_branch(self, branch_name: str) -> bool:
+        """Create a new git branch"""
+        # TODO: Implement
+        pass
+    
+    def _merge_branch(self, branch_name: str) -> bool:
+        """Merge branch into current branch"""
+        # TODO: Implement
+        pass
+    
+    def _create_tag(self, tag_name: str, commit_hash: str) -> bool:
+        """Create git tag at specific commit"""
+        # TODO: Implement
+        pass
+    
+    def _rollback(self, commit_hash: str) -> bool:
+        """Rollback to specific commit"""
+        # TODO: Implement
+        pass
 
+
+# ===== Helper function for easy usage =====
+
+async def commit_via_agent(
+    workspace_id: str,
+    event_type: str,
+    data: Dict[str, Any],
+    source: str = "manual"
+) -> Optional[str]:
+    """
+    Convenience function to trigger Git Agent from anywhere
+    
+    Usage:
+        await commit_via_agent(
+            workspace_id="contextpilot",
+            event_type="spec.created",
+            data={"file_name": "API.md", "description": "Added API docs"},
+            source="spec-agent"
+        )
+    """
+    agent = GitAgent(workspace_id=workspace_id)
+    event = {
+        "type": event_type,
+        "data": data,
+        "source": source,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    return await agent.handle_event(event)
