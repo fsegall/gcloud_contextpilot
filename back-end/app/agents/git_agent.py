@@ -17,7 +17,10 @@ from datetime import datetime
 from app.git_context_manager import Git_Context_Manager
 from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
+from app.agents.diff_generator import apply_patch, read_file_safe
 from enum import Enum
+from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -181,16 +184,28 @@ class GitAgent(BaseAgent):
         proposal_id = data.get('proposal_id')
         workspace_id = data.get('workspace_id')
         
-        logger.info(f"[GitAgent] Proposal {proposal_id} approved, committing changes...")
+        logger.info(f"[GitAgent] Proposal {proposal_id} approved, applying changes...")
         
+        # 1. Load proposal to get diff/changes
+        proposal = self._load_proposal(proposal_id)
+        if not proposal:
+            logger.error(f"[GitAgent] Proposal {proposal_id} not found")
+            return
+        
+        # 2. Apply changes from proposal
+        files_changed = await self._apply_proposal_changes(proposal)
+        logger.info(f"[GitAgent] Applied changes to {len(files_changed)} files")
+        
+        # 3. Generate commit message
         message = self._generate_commit_message(
             commit_type=CommitType.AGENT,
             scope="proposal",
-            subject=f"Apply proposal {proposal_id}",
-            body=f"Workspace: {workspace_id}",
+            subject=f"Apply proposal: {proposal.get('title', proposal_id)}",
+            body=f"{proposal.get('description', '')}\n\nProposal-ID: {proposal_id}",
             agent_name="git-agent"
         )
         
+        # 4. Commit
         commit_hash = self._commit(message, agent="git-agent")
         
         if commit_hash:
@@ -201,7 +216,8 @@ class GitAgent(BaseAgent):
                 data={
                     'commit_hash': commit_hash,
                     'workspace_id': workspace_id,
-                    'proposal_id': proposal_id
+                    'proposal_id': proposal_id,
+                    'files_changed': files_changed
                 }
             )
             logger.info(f"[GitAgent] Committed {commit_hash} for proposal {proposal_id}")
@@ -355,6 +371,77 @@ class GitAgent(BaseAgent):
         except Exception as e:
             logger.error(f"[GitAgent] Commit failed: {str(e)}")
             return None
+    
+    # ===== Proposal Application Methods =====
+    
+    def _load_proposal(self, proposal_id: str) -> Optional[Dict]:
+        """Load proposal from storage"""
+        proposals_dir = Path(self.workspace_path) / "proposals"
+        proposal_file = proposals_dir / f"{proposal_id}.json"
+        
+        if not proposal_file.exists():
+            logger.warning(f"[GitAgent] Proposal file not found: {proposal_file}")
+            return None
+        
+        try:
+            with open(proposal_file, 'r') as f:
+                proposal = json.load(f)
+            logger.debug(f"[GitAgent] Loaded proposal {proposal_id}")
+            return proposal
+        except Exception as e:
+            logger.error(f"[GitAgent] Failed to load proposal: {e}")
+            return None
+    
+    async def _apply_proposal_changes(self, proposal: Dict) -> List[str]:
+        """
+        Apply changes from proposal to workspace files.
+        
+        Args:
+            proposal: Proposal dict with proposed_changes
+        
+        Returns:
+            List of files changed
+        """
+        files_changed = []
+        proposed_changes = proposal.get('proposed_changes', [])
+        
+        for change in proposed_changes:
+            file_path = change.get('file_path')
+            change_type = change.get('change_type')
+            
+            if not file_path:
+                continue
+            
+            full_path = Path(self.workspace_path) / file_path
+            
+            try:
+                if change_type == 'create' or change_type == 'update':
+                    # Get the new content
+                    new_content = change.get('after')
+                    
+                    if new_content:
+                        # Ensure directory exists
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        # Write new content
+                        with open(full_path, 'w', encoding='utf-8') as f:
+                            f.write(new_content)
+                        
+                        logger.info(f"[GitAgent] {change_type.title()}d: {file_path}")
+                        files_changed.append(file_path)
+                    else:
+                        logger.warning(f"[GitAgent] No 'after' content for {file_path}")
+                
+                elif change_type == 'delete':
+                    if full_path.exists():
+                        full_path.unlink()
+                        logger.info(f"[GitAgent] Deleted: {file_path}")
+                        files_changed.append(file_path)
+                
+            except Exception as e:
+                logger.error(f"[GitAgent] Failed to apply change to {file_path}: {e}")
+        
+        return files_changed
     
     # ===== Future features (branches, tags, rollback) =====
     
