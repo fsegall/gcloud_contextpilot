@@ -96,7 +96,7 @@
         {
           "id": "contextpilot",
           "title": "ContextPilot",
-          "icon": "assets/sidebar-icon.svg"
+          "icon": "$(rocket)"
         }
       ]
     },
