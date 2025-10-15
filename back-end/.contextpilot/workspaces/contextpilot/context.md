@@ -155,3 +155,13 @@ Generated-by: spec-agent
 - **git-agent**: Final auto-commit before push by git-agent
 
 <!-- Auto-update by agent 'git-agent' at 2025-10-15T23:33:13.660594+00:00 -->
+
+
+### 2025-10-15
+- **git-agent**: agent(proposal): Apply proposal: Docs issue: README.md
+
+README.md not found
+
+Proposal-ID: spec-missing_doc-1760571093
+
+Generated-by: git-agent

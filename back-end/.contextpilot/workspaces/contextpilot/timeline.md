@@ -66,3 +66,10 @@ README.md not found
 
 Generated-by: spec-agent
 - git-agent: Final auto-commit before push by git-agent
+- git-agent: agent(proposal): Apply proposal: Docs issue: README.md
+
+README.md not found
+
+Proposal-ID: spec-missing_doc-1760571093
+
+Generated-by: git-agent

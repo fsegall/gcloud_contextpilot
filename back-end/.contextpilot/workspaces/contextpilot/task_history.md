@@ -118,3 +118,14 @@ Generated-by: spec-agent
 - **Agent**: git-agent
 - **Message**: Final auto-commit before push by git-agent
 - **Commit**: d6145978d246512f66cc2df264e8375b3cee5713
+
+### 2025-10-15T23:33:13.690933+00:00
+- **Agent**: git-agent
+- **Message**: agent(proposal): Apply proposal: Docs issue: README.md
+
+README.md not found
+
+Proposal-ID: spec-missing_doc-1760571093
+
+Generated-by: git-agent
+- **Commit**: cd5c616207d8a7ed08d8c7cf9f9e88ef4dc7a4fd
