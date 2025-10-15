@@ -30,3 +30,11 @@ Modified files:
 
 Generated-by: developer
 - git-agent: Final auto-commit before push by git-agent
+- git-agent: feat(extension): Add Context View to sidebar with milestones countdown
+
+Modified files:
+- extension/src/views/context.ts
+- extension/src/extension.ts
+- extension/package.json
+
+Generated-by: developer

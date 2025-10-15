@@ -34,3 +34,15 @@ Generated-by: developer
 - **Agent**: git-agent
 - **Message**: Final auto-commit before push by git-agent
 - **Commit**: fc80dd61a1347ec3e2bfe8d00989d8142c944b47
+
+### 2025-10-15T01:41:08.007565+00:00
+- **Agent**: git-agent
+- **Message**: feat(extension): Add Context View to sidebar with milestones countdown
+
+Modified files:
+- extension/src/views/context.ts
+- extension/src/extension.ts
+- extension/package.json
+
+Generated-by: developer
+- **Commit**: fbbbcfb3d44428492f7a1e82aadf616990dd6704
