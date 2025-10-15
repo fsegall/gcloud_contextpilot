@@ -1,0 +1,210 @@
+{
+  "name": "contextpilot",
+  "displayName": "ContextPilot",
+  "description": "AI-powered context management with multi-agent system and blockchain rewards",
+  "version": "0.1.0",
+  "publisher": "contextpilot",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fsegall/google-context-pilot"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "context",
+    "productivity",
+    "agents",
+    "blockchain",
+    "web3"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "contextpilot.connect",
+        "title": "ContextPilot: Connect to Backend",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "contextpilot.disconnect",
+        "title": "ContextPilot: Disconnect",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "contextpilot.viewProposals",
+        "title": "ContextPilot: View Change Proposals",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "contextpilot.approveProposal",
+        "title": "ContextPilot: Approve Proposal",
+        "icon": "$(check)"
+      },
+      {
+        "command": "contextpilot.rejectProposal",
+        "title": "ContextPilot: Reject Proposal",
+        "icon": "$(close)"
+      },
+      {
+        "command": "contextpilot.viewRewards",
+        "title": "ContextPilot: View CPT Balance",
+        "icon": "$(star)"
+      },
+      {
+        "command": "contextpilot.askCoach",
+        "title": "ContextPilot: Ask Coach",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "contextpilot.commitContext",
+        "title": "ContextPilot: Commit Context",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "contextpilot.refreshStatus",
+        "title": "ContextPilot: Refresh Status",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "contextpilot.getContext",
+        "title": "ContextPilot: Get Project Context",
+        "icon": "$(folder-library)"
+      },
+      {
+        "command": "contextpilot.commitContextReal",
+        "title": "ContextPilot: Commit Context (Real API)",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "contextpilot.getCoachTipReal",
+        "title": "ContextPilot: Get Coach Tip (Real API)",
+        "icon": "$(lightbulb)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "contextpilot",
+          "title": "ContextPilot",
+          "icon": "assets/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "contextpilot": [
+        {
+          "id": "contextpilot.proposals",
+          "name": "Change Proposals"
+        },
+        {
+          "id": "contextpilot.rewards",
+          "name": "Rewards"
+        },
+        {
+          "id": "contextpilot.agents",
+          "name": "Agents Status"
+        },
+        {
+          "id": "contextpilot.coach",
+          "name": "Coach"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ContextPilot",
+      "properties": {
+        "contextpilot.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "ContextPilot API URL"
+        },
+        "contextpilot.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect on startup"
+        },
+        "contextpilot.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications for agent activities"
+        },
+        "contextpilot.walletAddress": {
+          "type": "string",
+          "default": "",
+          "description": "Your wallet address for CPT rewards"
+        },
+        "contextpilot.userId": {
+          "type": "string",
+          "default": "",
+          "description": "Your ContextPilot user ID"
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "contextpilot.connect",
+          "when": "!contextpilot.connected"
+        },
+        {
+          "command": "contextpilot.disconnect",
+          "when": "contextpilot.connected"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "contextpilot.refreshStatus",
+          "when": "view == contextpilot.proposals",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "contextpilot.approveProposal",
+          "when": "view == contextpilot.proposals && viewItem == proposal",
+          "group": "inline"
+        },
+        {
+          "command": "contextpilot.rejectProposal",
+          "when": "view == contextpilot.proposals && viewItem == proposal",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.x",
+    "@typescript-eslint/parser": "^6.x",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.x",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "ethers": "^6.9.0"
+  }
+}
+

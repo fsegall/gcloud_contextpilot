@@ -22,12 +22,12 @@ spec:
             - name: GOOGLE_BLOCKCHAIN_NODE_ENDPOINT
               valueFrom:
                 secretKeyRef:
-                  name: gcne-mumbai-endpoint
+                  name: gcne-sepolia-endpoint
                   key: latest
-            - name: POLYGON_RPC_URL
+            - name: SEPOLIA_RPC_URL
               valueFrom:
                 secretKeyRef:
-                  name: polygon-rpc-url
+                  name: sepolia-rpc-url
                   key: latest
             - name: CPT_CONTRACT_ADDRESS
               valueFrom:

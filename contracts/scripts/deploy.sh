@@ -1,9 +1,9 @@
 #!/bin/bash
-# Deploy CPT smart contract to Polygon Mumbai testnet
+# Deploy CPT smart contract to Ethereum Sepolia testnet
 
 set -e
 
-echo "🚀 Deploying CPT Contract to Polygon Mumbai..."
+echo "🚀 Deploying CPT Contract to Sepolia..."
 
 # Load environment variables
 source .env
@@ -16,18 +16,18 @@ forge build
 echo "🧪 Running tests..."
 forge test -vv
 
-# Deploy to Mumbai testnet
-echo "🌐 Deploying to Mumbai testnet..."
+# Deploy to Sepolia testnet
+echo "🌐 Deploying to Sepolia testnet..."
 forge script script/Deploy.s.sol:DeployCPT \
-  --rpc-url $POLYGON_RPC_URL \
+  --rpc-url $SEPOLIA_RPC_URL \
   --broadcast \
   --verify \
-  --etherscan-api-key $POLYGONSCAN_API_KEY \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
   -vvvv
 
 # Extract deployed address
 CONTRACT_ADDRESS=$(forge script script/Deploy.s.sol:DeployCPT \
-  --rpc-url $POLYGON_RPC_URL \
+  --rpc-url $SEPOLIA_RPC_URL \
   --broadcast \
   --verify \
   --json | jq -r '.returns.token.value')
@@ -44,9 +44,9 @@ echo "✅ ABI exported to backend"
 echo ""
 echo "📋 Add this to your backend .env:"
 echo "CPT_CONTRACT_ADDRESS=$CONTRACT_ADDRESS"
-echo "CPT_CONTRACT_MUMBAI=$CONTRACT_ADDRESS"
+echo "CPT_CONTRACT_SEPOLIA=$CONTRACT_ADDRESS"
 
 echo ""
 echo "🎉 Deployment complete!"
-echo "View on PolygonScan: https://mumbai.polygonscan.com/address/$CONTRACT_ADDRESS"
+echo "View on Etherscan: https://sepolia.etherscan.io/address/$CONTRACT_ADDRESS"
 

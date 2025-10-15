@@ -14,7 +14,7 @@ echo ""
 
 # Enable API
 echo "📡 Enabling Blockchain Node API..."
-gcloud services enable blockchainnode.googleapis.com --project=$PROJECT_ID
+gcloud services enable blockchainnodeengine.googleapis.com --project=$PROJECT_ID
 
 # Wait for API to be enabled
 sleep 10

@@ -1,0 +1,61 @@
+📚 CONTEXTPILOT DOCUMENTATION - ORGANIZED
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📂 ROOT
+   └─ README.md .......................... Project overview (main)
+
+📂 docs/
+   ├─ INDEX.md ........................... 📚 Navigation hub
+   │
+   ├─ 🏗️  architecture/ (7 files)
+   │  ├─ ARCHITECTURE.md ................. Complete system architecture
+   │  ├─ AGENTS.md ....................... Multi-agent system design
+   │  ├─ AGENT_AUTONOMY.md ............... Change Proposal System
+   │  ├─ AGENT_RETROSPECTIVE.md .......... Meta-learning layer
+   │  ├─ EVENT_BUS.md .................... Pub/Sub architecture
+   │  ├─ TOKENOMICS.md ................... CPT token economics
+   │  └─ IDE_EXTENSION_SPEC.md ........... VSCode/Cursor extension
+   │
+   ├─ 🚀 deployment/ (4 files)
+   │  ├─ DEPLOYMENT.md ................... Smart contract deployment
+   │  ├─ QUICKSTART.md ................... Quick start guide
+   │  ├─ GET_SEPOLIA_ETH.md .............. Testnet faucets guide
+   │  └─ FAUCETS_SEPOLIA.md .............. Faucet comparison
+   │
+   ├─ 📖 guides/ (1 file)
+   │  └─ IMPLEMENTATION_GUIDE.md ......... Comprehensive guide
+   │
+   ├─ 📊 progress/ (4 files)
+   │  ├─ DAY2_PROGRESS.md ................ Day 2 report (2025-10-14)
+   │  ├─ PROGRESS_2025-10-13.md .......... Day 1 report
+   │  ├─ SUMMARY_SESSION_2.md ............ Session 2 summary
+   │  └─ CURRENT_STATUS.md ............... Overall status
+   │
+   └─ 🤖 agents/ (3 files)
+      ├─ AGENT.coach.md .................. Coach Agent contract
+      ├─ AGENT.spec.md ................... Spec Agent contract
+      └─ AGENT.git.md .................... Git Agent contract
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 STATISTICS
+   Total MD files: 20
+   Categories: 5
+   Agent contracts: 3
+   Progress reports: 4
+
+✅ BENEFITS
+   ✓ Clean root directory
+   ✓ Logical categorization
+   ✓ Easy navigation
+   ✓ Professional structure
+   ✓ Ready for hackathon submission
+   ✓ Scalable for future docs
+
+🎯 NAVIGATION
+   Start: docs/INDEX.md
+   For Judges: See INDEX.md → "For Hackathon Judges"
+   For Devs: See INDEX.md → "For Developers"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

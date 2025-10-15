@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from fastapi import Body, Query
 import logging
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import rewards, proposals, events
+# Temporarily commented - install dependencies later
+# from app.routers import rewards, proposals, events
 
 # Configure logging
 logging.basicConfig(
@@ -47,10 +48,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(rewards.router)
-app.include_router(proposals.router)
-app.include_router(events.router)
+# Include routers (temporarily commented - install dependencies later)
+# app.include_router(rewards.router)
+# app.include_router(proposals.router)
+# app.include_router(events.router)
 
 
 def get_manager(workspace_id: str = "default"):
@@ -457,3 +458,117 @@ def close_cycle(workspace_id: str = Query("default")):
     except Exception as e:
         logger.error(f"Error closing cycle: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+
+# ===== ENDPOINTS FOR EXTENSION (MOCK FOR TESTING) =====
+
+@app.get("/health")
+def health_check():
+    """Health check for extension connectivity"""
+    logger.info("Health check called")
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "agents": ["context", "spec", "strategy", "milestone", "git", "coach"]
+    }
+
+@app.get("/agents/status")
+def get_agents_status():
+    """Get status of all agents (mock for now)"""
+    logger.info("GET /agents/status called")
+    return [
+        {
+            "agent_id": "context",
+            "name": "Context Agent",
+            "status": "active",
+            "last_activity": "Just now"
+        },
+        {
+            "agent_id": "spec",
+            "name": "Spec Agent",
+            "status": "active",
+            "last_activity": "5 minutes ago"
+        },
+        {
+            "agent_id": "strategy",
+            "name": "Strategy Agent",
+            "status": "idle",
+            "last_activity": "1 hour ago"
+        },
+        {
+            "agent_id": "milestone",
+            "name": "Milestone Agent",
+            "status": "active",
+            "last_activity": "10 minutes ago"
+        },
+        {
+            "agent_id": "git",
+            "name": "Git Agent",
+            "status": "active",
+            "last_activity": "2 minutes ago"
+        },
+        {
+            "agent_id": "coach",
+            "name": "Coach Agent",
+            "status": "active",
+            "last_activity": "Just now"
+        }
+    ]
+
+@app.post("/agents/coach/ask")
+def coach_ask(
+    user_id: str = Body(...),
+    question: str = Body(...)
+):
+    """Ask the coach agent a question (mock for now)"""
+    logger.info(f"POST /agents/coach/ask - user: {user_id}, question: {question}")
+    # TODO: Integrate with actual coach agent
+    mock_answer = f"Great question! For '{question}', I recommend: 1) Break it into smaller tasks, 2) Write tests first, 3) Document as you go. Let me know if you need more specific guidance!"
+    return {"answer": mock_answer}
+
+@app.get("/proposals/mock")
+def get_mock_proposals():
+    """Get mock proposals for testing"""
+    logger.info("GET /proposals/mock called")
+    return [
+        {
+            "id": "prop-001",
+            "agent_id": "strategy",
+            "title": "Add error handling to API calls",
+            "description": "Found 3 API calls without proper error handling. This could cause silent failures.",
+            "proposed_changes": [
+                {
+                    "file_path": "src/api.ts",
+                    "change_type": "update",
+                    "description": "Wrap fetch calls in try-catch blocks"
+                }
+            ],
+            "status": "pending",
+            "created_at": "2025-10-14T10:30:00Z"
+        },
+        {
+            "id": "prop-002",
+            "agent_id": "spec",
+            "title": "Update API documentation",
+            "description": "API endpoints in api.ts need documentation with examples.",
+            "proposed_changes": [
+                {
+                    "file_path": "src/api.ts",
+                    "change_type": "update",
+                    "description": "Add JSDoc comments with examples"
+                }
+            ],
+            "status": "pending",
+            "created_at": "2025-10-14T10:45:00Z"
+        }
+    ]
+
+@app.get("/rewards/balance/mock")
+def get_mock_balance(user_id: str = Query("test")):
+    """Get mock rewards balance for testing"""
+    logger.info(f"GET /rewards/balance/mock called for user: {user_id}")
+    return {
+        "balance": 150,
+        "total_earned": 300,
+        "pending_rewards": 50
+    }

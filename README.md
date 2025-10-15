@@ -241,10 +241,19 @@ Wallet Balance Updated
 
 ## 📚 Documentation
 
-- [QUICKSTART.md](QUICKSTART.md) - Get started in 15 min
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System design
-- [TOKENOMICS.md](TOKENOMICS.md) - Token economics
-- [contracts/README.md](contracts/README.md) - Smart contract docs
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
+
+- **[📚 Documentation Index](docs/INDEX.md)** - Start here for complete navigation
+- **[🏗️ Architecture](docs/architecture/)** - System design, agents, events, tokenomics
+- **[🚀 Deployment](docs/deployment/)** - Setup guides, deployment instructions
+- **[📖 Guides](docs/guides/)** - Implementation guides and tutorials
+- **[📊 Progress](docs/progress/)** - Development progress reports
+- **[🤖 Agent Contracts](docs/agents/)** - Individual agent specifications
+
+### Quick Links
+- **Getting Started**: [docs/deployment/QUICKSTART.md](docs/deployment/QUICKSTART.md)
+- **For Judges**: See [docs/INDEX.md](docs/INDEX.md) → "For Hackathon Judges"
+- **Architecture Deep Dive**: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)
 
 ---
 

@@ -1,0 +1,16 @@
+current_status: 'Extension integration in progress. Backend API working, smart contract
+  deployed on Sepolia. Next: E2E testing with real workspace.'
+goal: Build a multi-agent system that helps developers manage project context, deployed
+  on Google Cloud Run for the Cloud Run Hackathon
+milestones:
+- due: '2025-10-16'
+  name: Extension MVP with real API integration
+- due: '2025-10-20'
+  name: Multi-agent system fully integrated
+- due: '2025-10-25'
+  name: Deploy to Cloud Run
+- due: '2025-11-01'
+  name: Beta launch with 50 users
+- due: '2025-11-10'
+  name: Hackathon submission
+project_name: ContextPilot - Multi-Agent Dev Assistant

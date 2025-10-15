@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title CPT - Context Pilot Token
@@ -143,14 +143,14 @@ contract CPT is ERC20, AccessControl, Pausable {
     
     /**
      * @notice Update activity timestamp on transfers
-     * @dev Overrides ERC20 _beforeTokenTransfer hook
+     * @dev Overrides ERC20 _update hook (OpenZeppelin v5)
      */
-    function _beforeTokenTransfer(
+    function _update(
         address from,
         address to,
         uint256 amount
     ) internal override {
-        super._beforeTokenTransfer(from, to, amount);
+        super._update(from, to, amount);
         
         // Update activity for sender and receiver
         if (from != address(0)) lastActivity[from] = block.timestamp;
