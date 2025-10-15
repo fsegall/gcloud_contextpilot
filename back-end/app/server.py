@@ -856,8 +856,17 @@ async def approve_proposal(
     workspace_id: str = Query("default")
 ):
     paths = _proposals_paths(workspace_id)
-    proposals = _read_proposals(paths["json"])
-    prop = next((p for p in proposals if p.get("id") == proposal_id), None)
+    
+    # Try to read from individual file first (new format)
+    proposal_file = paths["dir"] / f"{proposal_id}.json"
+    if proposal_file.exists():
+        with open(proposal_file, 'r') as f:
+            prop = json.load(f)
+    else:
+        # Fallback to proposals.json (legacy)
+        proposals = _read_proposals(paths["json"])
+        prop = next((p for p in proposals if p.get("id") == proposal_id), None)
+    
     if not prop:
         return {"status": "not_found"}
 
@@ -872,18 +881,26 @@ async def approve_proposal(
                 data={"proposal_id": proposal_id, "changes_summary": summary},
                 source="spec-agent"
             )
+        # Update proposal status
         prop["status"] = "approved"
         if commit_hash:
             prop["commit_hash"] = commit_hash
-        _write_proposals(paths["json"], proposals)
+        
+        # Save to individual file if it exists
+        if proposal_file.exists():
+            with open(proposal_file, 'w') as f:
+                json.dump(prop, f, indent=2)
+        else:
+            # Save to proposals.json (legacy)
+            _write_proposals(paths["json"], proposals)
 
         # Update MD file
         md_path = paths["dir"] / f"{proposal_id}.md"
         if md_path.exists():
             md_content = md_path.read_text(encoding="utf-8")
-            md_content += "\nStatus: approved\n"
+            md_content += f"\n\n---\n**Status:** approved\n"
             if commit_hash:
-                md_content += f"Commit: {commit_hash}\n"
+                md_content += f"**Commit:** {commit_hash}\n"
             md_path.write_text(md_content, encoding="utf-8")
 
         return {"status": "approved", "commit_hash": commit_hash, "auto_committed": bool(commit_hash)}

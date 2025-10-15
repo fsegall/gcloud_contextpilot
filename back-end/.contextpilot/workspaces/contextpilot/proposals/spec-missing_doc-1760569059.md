@@ -134,3 +134,8 @@ README.md not found
 +*   [Cursor Documentation](https://cursor.sh/docs)
 +```
 ```
+
+
+---
+**Status:** approved
+**Commit:** 083d1f9ed735ac5a7e753b55627975e0205cd1dd

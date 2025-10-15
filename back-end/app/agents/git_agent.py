@@ -399,10 +399,12 @@ async def commit_via_agent(
         )
     """
     agent = GitAgent(workspace_id=workspace_id)
-    event = {
-        "type": event_type,
-        "data": data,
-        "source": source,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    return await agent.handle_event(event)
+    
+    # Use new event handler interface
+    await agent.handle_event(event_type, data)
+    
+    # Return commit hash from last operation
+    # For now, check if repo has new commits
+    if agent.git_manager.repo.head.is_valid():
+        return agent.git_manager.repo.head.commit.hexsha
+    return None
