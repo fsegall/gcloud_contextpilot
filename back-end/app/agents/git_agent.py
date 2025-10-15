@@ -15,6 +15,8 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from app.git_context_manager import Git_Context_Manager
+from app.agents.base_agent import BaseAgent
+from app.services.event_bus import EventTypes, Topics
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ class EventType(Enum):
     TEST_PASSED = "test.passed"
 
 
-class GitAgent:
+class GitAgent(BaseAgent):
     """
     Git Agent - Handles all git operations intelligently
     
@@ -53,12 +55,42 @@ class GitAgent:
     - Idempotent: safe to retry operations
     """
     
-    def __init__(self, workspace_id: str = "default"):
-        self.workspace_id = workspace_id
+    def __init__(self, workspace_id: str = "default", project_id: Optional[str] = None):
+        # Initialize base agent
+        super().__init__(workspace_id=workspace_id, agent_id='git', project_id=project_id)
+        
+        # Git-specific manager
         self.git_manager = Git_Context_Manager(workspace_id=workspace_id)
+        
+        # Subscribe to events
+        self.subscribe_to_event(EventTypes.PROPOSAL_APPROVED)
+        self.subscribe_to_event(EventTypes.MILESTONE_COMPLETE)
+        
         logger.info(f"[GitAgent] Initialized for workspace: {workspace_id}")
     
-    async def handle_event(self, event: Dict[str, Any]) -> Optional[str]:
+    async def handle_event(self, event_type: str, data: Dict) -> None:
+        """
+        Handle incoming events (BaseAgent interface).
+        
+        Args:
+            event_type: Type of event
+            data: Event data payload
+        """
+        logger.info(f"[GitAgent] Received event: {event_type}")
+        
+        try:
+            if event_type == EventTypes.PROPOSAL_APPROVED:
+                await self._handle_proposal_approved_v2(data)
+            elif event_type == EventTypes.MILESTONE_COMPLETE:
+                await self._handle_milestone_v2(data)
+            
+            # Update metrics
+            self.increment_metric('events_processed')
+        except Exception as e:
+            logger.error(f"[GitAgent] Error handling {event_type}: {e}")
+            self.increment_metric('errors')
+    
+    async def handle_event_legacy(self, event: Dict[str, Any]) -> Optional[str]:
         """
         Main event handler - routes events to appropriate handlers
         
@@ -143,6 +175,57 @@ class GitAgent:
         )
         
         return self._commit(message, agent="git-agent")
+    
+    async def _handle_proposal_approved_v2(self, data: Dict) -> None:
+        """Handle proposal.approved.v1 event (new event bus format)"""
+        proposal_id = data.get('proposal_id')
+        workspace_id = data.get('workspace_id')
+        
+        logger.info(f"[GitAgent] Proposal {proposal_id} approved, committing changes...")
+        
+        message = self._generate_commit_message(
+            commit_type=CommitType.AGENT,
+            scope="proposal",
+            subject=f"Apply proposal {proposal_id}",
+            body=f"Workspace: {workspace_id}",
+            agent_name="git-agent"
+        )
+        
+        commit_hash = self._commit(message, agent="git-agent")
+        
+        if commit_hash:
+            # Publish git.commit event
+            await self.publish_event(
+                topic=Topics.GIT_EVENTS,
+                event_type=EventTypes.GIT_COMMIT,
+                data={
+                    'commit_hash': commit_hash,
+                    'workspace_id': workspace_id,
+                    'proposal_id': proposal_id
+                }
+            )
+            logger.info(f"[GitAgent] Committed {commit_hash} for proposal {proposal_id}")
+    
+    async def _handle_milestone_v2(self, data: Dict) -> None:
+        """Handle milestone.complete.v1 event (new event bus format)"""
+        milestone_id = data.get('milestone_id')
+        milestone_name = data.get('name', 'Unknown')
+        
+        logger.info(f"[GitAgent] Milestone {milestone_name} completed, creating tag...")
+        
+        message = self._generate_commit_message(
+            commit_type=CommitType.CHORE,
+            scope="milestone",
+            subject=f"Complete milestone: {milestone_name}",
+            body=f"Milestone ID: {milestone_id}",
+            agent_name="milestone-agent"
+        )
+        
+        commit_hash = self._commit(message, agent="git-agent")
+        
+        if commit_hash:
+            # Could create Git tag here
+            logger.info(f"[GitAgent] Milestone {milestone_name} committed: {commit_hash}")
     
     async def _handle_milestone(self, event: Dict[str, Any]) -> Optional[str]:
         """Handle milestone completion - creates commit + tag"""

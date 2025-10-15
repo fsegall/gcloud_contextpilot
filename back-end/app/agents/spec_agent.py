@@ -11,13 +11,13 @@ from pathlib import Path
 import yaml
 import json
 
-# Lazy import of event bus in __init__ to avoid hard dependency during local tests
-# from app.services.event_bus import get_event_bus
+from app.agents.base_agent import BaseAgent
+from app.services.event_bus import EventTypes, Topics
 
 logger = logging.getLogger(__name__)
 
 
-class SpecAgent:
+class SpecAgent(BaseAgent):
     """
     Spec Agent manages documentation artifacts as versioned code.
     
@@ -28,27 +28,73 @@ class SpecAgent:
     - Create Change Proposals for doc updates
     """
     
-    def __init__(self, workspace_path: str, project_id: str):
+    def __init__(self, workspace_path: str, workspace_id: str = "default", project_id: Optional[str] = None):
         """
         Initialize Spec Agent.
         
         Args:
             workspace_path: Path to workspace directory
+            workspace_id: Workspace identifier
             project_id: GCP project ID for Pub/Sub
         """
-        self.workspace_path = Path(workspace_path)
-        self.docs_path = self.workspace_path / "docs"
+        # Initialize base agent
+        super().__init__(workspace_id=workspace_id, agent_id='spec', project_id=project_id)
+        
+        # Spec-specific paths
+        self.docs_path = Path(workspace_path) / "docs"
         self.templates_path = Path(__file__).parent.parent / "templates"
-        # Lazy/optional event bus initialization to avoid hanging when GCP is not configured
-        self.event_bus = None
-        try:
-            if project_id and project_id not in ("local", "test"):
-                self.event_bus = get_event_bus(project_id)
-        except Exception as e:
-            logger.warning(f"SpecAgent: Pub/Sub disabled (reason: {e})")
-            self.event_bus = None
+        
+        # Subscribe to events
+        self.subscribe_to_event(EventTypes.GIT_COMMIT)
+        self.subscribe_to_event(EventTypes.CONTEXT_DELTA)
         
         logger.info(f"Spec Agent initialized for workspace: {workspace_path}")
+    
+    async def handle_event(self, event_type: str, data: Dict) -> None:
+        """
+        Handle incoming events.
+        
+        Args:
+            event_type: Type of event
+            data: Event data payload
+        """
+        logger.info(f"[Spec Agent] Received event: {event_type}")
+        
+        try:
+            if event_type == EventTypes.GIT_COMMIT:
+                await self._handle_git_commit(data)
+            elif event_type == EventTypes.CONTEXT_DELTA:
+                await self._handle_context_delta(data)
+            
+            # Update metrics
+            self.increment_metric('events_processed')
+        except Exception as e:
+            logger.error(f"[Spec Agent] Error handling {event_type}: {e}")
+            self.increment_metric('errors')
+    
+    async def _handle_git_commit(self, data: Dict) -> None:
+        """Handle git.commit.v1 event"""
+        commit_hash = data.get('commit_hash')
+        workspace_id = data.get('workspace_id')
+        
+        logger.info(f"[Spec Agent] Processing commit {commit_hash}")
+        
+        # Analyze documentation consistency
+        issues = self.validate_documentation()
+        
+        if issues:
+            logger.warning(f"[Spec Agent] Found {len(issues)} documentation issues")
+            # Create proposals for issues
+            for issue in issues:
+                await self._create_proposal_for_issue(issue)
+    
+    async def _handle_context_delta(self, data: Dict) -> None:
+        """Handle context.delta.v1 event"""
+        delta_type = data.get('type')
+        scope = data.get('scope', [])
+        
+        logger.info(f"[Spec Agent] Context delta: {delta_type} in {scope}")
+        # Could trigger specific doc updates based on scope
     
     async def handle_context_update(self, event: Dict):
         """
@@ -190,6 +236,53 @@ class SpecAgent:
             logger.info("✅ All docs valid")
         
         return issues
+    
+    async def _create_proposal_for_issue(self, issue: Dict) -> Optional[str]:
+        """
+        Create a change proposal for a documentation issue.
+        
+        Args:
+            issue: Issue dictionary from validate_documentation()
+        
+        Returns:
+            Proposal ID if created, None otherwise
+        """
+        proposal_id = f"spec-{issue['type']}-{datetime.now().timestamp()}"
+        
+        proposal = {
+            'id': proposal_id,
+            'agent_id': 'spec',
+            'title': f"Docs issue: {issue['file']}",
+            'description': issue['message'],
+            'proposed_changes': [{
+                'file_path': issue['file'],
+                'change_type': 'update' if issue['type'] == 'outdated' else 'create',
+                'description': issue['message']
+            }],
+            'status': 'pending',
+            'created_at': datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Publish proposal.created event
+        await self.publish_event(
+            topic=Topics.PROPOSAL_EVENTS,
+            event_type=EventTypes.PROPOSAL_CREATED,
+            data={
+                'proposal_id': proposal_id,
+                'workspace_id': self.workspace_id,
+                'issue_type': issue['type'],
+                'file': issue['file']
+            }
+        )
+        
+        logger.info(f"[Spec Agent] Created proposal {proposal_id} for {issue['file']}")
+        
+        # Remember this proposal
+        proposals = self.recall('proposals_created', [])
+        proposals.append(proposal_id)
+        self.remember('proposals_created', proposals)
+        
+        return proposal_id
     
     async def create_template(
         self,
