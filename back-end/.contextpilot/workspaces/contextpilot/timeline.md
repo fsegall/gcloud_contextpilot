@@ -22,3 +22,10 @@
 - generate-context: Final auto-commit before push by generate-context
 - extension: Context update via ContextPilot extension
 - extension: Final auto-commit before push by extension
+- git-agent: feat(agents): Implement Git Agent MVP with event-driven commits
+
+Modified files:
+- back-end/app/agents/git_agent.py
+- back-end/app/server.py
+
+Generated-by: developer
