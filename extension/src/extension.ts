@@ -4,6 +4,7 @@ import { ProposalsProvider } from './views/proposals';
 import { RewardsProvider } from './views/rewards';
 import { AgentsProvider } from './views/agents';
 import { CoachProvider } from './views/coach';
+import { ContextTreeProvider } from './views/context';
 import * as commands from './commands';
 
 let contextPilotService: ContextPilotService;
@@ -39,11 +40,13 @@ export function activate(context: vscode.ExtensionContext) {
   const rewardsProvider = new RewardsProvider(contextPilotService);
   const agentsProvider = new AgentsProvider(contextPilotService);
   const coachProvider = new CoachProvider(contextPilotService);
+  const contextProvider = new ContextTreeProvider(contextPilotService);
 
   vscode.window.registerTreeDataProvider('contextpilot.proposals', proposalsProvider);
   vscode.window.registerTreeDataProvider('contextpilot.rewards', rewardsProvider);
   vscode.window.registerTreeDataProvider('contextpilot.agents', agentsProvider);
   vscode.window.registerTreeDataProvider('contextpilot.coach', coachProvider);
+  vscode.window.registerTreeDataProvider('contextpilot.context', contextProvider);
 
   // Register commands
   context.subscriptions.push(
@@ -52,6 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
       proposalsProvider.refresh();
       rewardsProvider.refresh();
       agentsProvider.refresh();
+      contextProvider.refresh();
       updateStatusBar();
     }),
 
@@ -94,6 +98,7 @@ export function activate(context: vscode.ExtensionContext) {
       rewardsProvider.refresh();
       agentsProvider.refresh();
       coachProvider.refresh();
+      contextProvider.refresh();
       updateStatusBar();
     }),
 
@@ -117,6 +122,7 @@ export function activate(context: vscode.ExtensionContext) {
       proposalsProvider.refresh();
       rewardsProvider.refresh();
       agentsProvider.refresh();
+      contextProvider.refresh();
       updateStatusBar();
     });
   }

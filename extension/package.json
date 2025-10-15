@@ -103,6 +103,10 @@
     "views": {
       "contextpilot": [
         {
+          "id": "contextpilot.context",
+          "name": "📦 Project Context"
+        },
+        {
           "id": "contextpilot.proposals",
           "name": "Change Proposals"
         },
