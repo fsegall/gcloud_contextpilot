@@ -3,175 +3,139 @@
 
 ## Overview
 
-This document outlines the architectural design of ContextPilot, a multi-agent AI system designed to enhance developer productivity. It details the key components, their interactions, and the technologies used to build the system. ContextPilot aims to automate documentation, manage Git context, and incentivize contributions through blockchain integration.
+This document outlines the architectural design of ContextPilot, a multi-agent AI system designed to enhance developer productivity. It details the key components, their interactions, and the overall system flow. Understanding this architecture is crucial for contributing to the project, debugging issues, and extending its functionality.
 
-## Purpose/Objectives
+## Purpose and Objectives
 
 The primary objectives of the ContextPilot architecture are:
 
-*   **Modularity:** To create a system with loosely coupled components, enabling independent development, testing, and deployment.
-*   **Scalability:** To design a system that can handle increasing workloads and user demands without significant performance degradation.
-*   **Maintainability:** To ensure the codebase is easily understandable, modifiable, and extensible.
-*   **Extensibility:** To facilitate the addition of new features and functionalities without requiring major architectural changes.
-*   **Integration:** To seamlessly integrate with existing development tools and platforms.
+*   **Modularity:** To enable independent development and maintenance of individual components.
+*   **Scalability:** To accommodate future growth and increasing complexity of projects.
+*   **Extensibility:** To allow for the easy addition of new features and agents.
+*   **Maintainability:** To ensure the codebase remains understandable and manageable over time.
+*   **Integration:** To seamlessly integrate with existing developer tools and workflows.
 
 ## Architecture Diagram
 
 ```mermaid
 graph LR
-    A[User Interface] --> B(Task Manager);
-    B --> C{Agent Orchestration};
+    A[User] --> B(ContextPilot CLI);
+    B --> C{Agent Manager};
     C --> D[Documentation Agent];
     C --> E[Git Context Agent];
-    C --> F[Tokenization Agent];
-    D --> G[LLM API (e.g., OpenAI)];
+    C --> F[Token Reward Agent];
+    D --> G[LLM - Documentation Generation];
     E --> H[Git Repository];
-    F --> I[Blockchain API];
-    B --> J[Context Database];
-    D --> J;
-    E --> J;
-    F --> J;
-
-    subgraph Agents
-      D
-      E
-      F
-    end
-
+    F --> I[Blockchain Interface];
+    G --> J[Documentation Storage];
+    H --> J;
+    I --> K[Smart Contract];
+    J --> B;
+    K --> B;
     style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#ccf,stroke:#333,stroke-width:2px
-    style C fill:#ccf,stroke:#333,stroke-width:2px
-    style G fill:#eee,stroke:#333,stroke-width:2px
-    style H fill:#eee,stroke:#333,stroke-width:2px
-    style I fill:#eee,stroke:#333,stroke-width:2px
-    style J fill:#eee,stroke:#333,stroke-width:2px
 ```
 
-## Components
+## Component Details
 
-### 1. User Interface (UI)
+ContextPilot is composed of the following key components:
 
-*   **Description:** The user-facing component that allows developers to interact with ContextPilot.
-*   **Functionality:**
-    *   Task input and management.
-    *   Displaying documentation suggestions.
-    *   Presenting Git context information.
-    *   Showing token reward status.
-*   **Technology:** React (or similar JavaScript framework).
+1.  **ContextPilot CLI (Command Line Interface):** This is the primary interface through which users interact with the system. It receives user commands, dispatches them to the appropriate agents, and presents the results.
 
-### 2. Task Manager
+    *   **Responsibilities:**
+        *   Command parsing and validation.
+        *   Agent invocation.
+        *   Result presentation.
+        *   User authentication and authorization.
 
-*   **Description:** Manages user tasks and dispatches them to the appropriate agents.
-*   **Functionality:**
-    *   Receives tasks from the UI.
-    *   Queues tasks for processing.
-    *   Monitors task progress.
-    *   Handles task prioritization.
-*   **Technology:** Python (or similar language) with a task queueing system (e.g., Celery, Redis Queue).
+2.  **Agent Manager:** This component is responsible for managing the lifecycle of individual agents. It handles agent instantiation, communication, and coordination.
 
-### 3. Agent Orchestration
+    *   **Responsibilities:**
+        *   Agent discovery and registration.
+        *   Message routing between agents.
+        *   Resource allocation for agents.
+        *   Error handling and recovery.
 
-*   **Description:**  Directs the flow of information and coordinates the activities of the different agents.
-*   **Functionality:**
-    *   Receives tasks from the Task Manager.
-    *   Determines which agents are required for a given task.
-    *   Routes tasks to the appropriate agents.
-    *   Aggregates results from the agents.
-    *   Updates the Context Database.
-*   **Technology:** Python (or similar language).
+3.  **Documentation Agent:** This agent automates the generation and maintenance of project documentation. It uses a Large Language Model (LLM) to analyze code, comments, and commit messages to create comprehensive documentation.
 
-### 4. Documentation Agent
+    *   **Responsibilities:**
+        *   Code analysis and understanding.
+        *   Documentation generation using LLM.
+        *   Documentation formatting and styling.
+        *   Documentation storage and versioning.
 
-*   **Description:**  Automatically generates and suggests documentation based on code analysis and context.
-*   **Functionality:**
-    *   Analyzes code and comments.
-    *   Generates documentation snippets.
-    *   Suggests documentation improvements.
-    *   Uses LLM APIs to generate natural language descriptions.
-*   **Technology:** Python (or similar language), LLM API (e.g., OpenAI, Cohere), Code parsing libraries (e.g., AST).
+4.  **Git Context Agent:** This agent helps developers manage their Git context by suggesting relevant branches, identifying potential merge conflicts, and providing code snippets.
 
-### 5. Git Context Agent
+    *   **Responsibilities:**
+        *   Git repository analysis.
+        *   Branch management suggestions.
+        *   Merge conflict detection.
+        *   Code snippet retrieval.
 
-*   **Description:**  Provides relevant Git context information to the developer.
-*   **Functionality:**
-    *   Identifies relevant Git branches, commits, and pull requests.
-    *   Provides code authorship and history information.
-    *   Helps developers understand the context of their work.
-*   **Technology:** Python (or similar language), GitPython library.
+5.  **Token Reward Agent:** This agent rewards developers for their contributions to the project with blockchain tokens. It tracks contributions, calculates rewards, and interacts with a smart contract to distribute tokens.
 
-### 6. Tokenization Agent
+    *   **Responsibilities:**
+        *   Contribution tracking.
+        *   Reward calculation.
+        *   Blockchain interaction.
+        *   Token distribution.
 
-*   **Description:**  Manages the distribution of blockchain tokens to incentivize contributions.
-*   **Functionality:**
-    *   Tracks contributions and assigns token rewards.
-    *   Interacts with a blockchain API to distribute tokens.
-    *   Manages user wallets and token balances.
-*   **Technology:** Python (or similar language), Blockchain API (e.g., Ethereum, Polygon).
+6.  **LLM (Large Language Model):** This is the core component responsible for generating documentation based on the codebase.
 
-### 7. Context Database
+    *   **Responsibilities:**
+        *   Understanding code semantics.
+        *   Generating natural language documentation.
+        *   Following documentation style guidelines.
 
-*   **Description:**  Stores and manages contextual information about the project.
-*   **Functionality:**
-    *   Stores code metadata.
-    *   Stores Git history.
-    *   Stores documentation snippets.
-    *   Stores user preferences.
-*   **Technology:**  Vector Database (e.g., Pinecone, ChromaDB) for efficient similarity searches, Relational Database (e.g., PostgreSQL) for structured data.
+7.  **Git Repository:** This is the version control system used to store the project's code and history.
 
-### 8. LLM API
+    *   **Responsibilities:**
+        *   Code storage and versioning.
+        *   Contribution tracking.
+        *   Branch management.
 
-*   **Description:** Interface to Large Language Models for text generation and code understanding.
-*   **Functionality:**
-    *   Provides natural language documentation from code.
-    *   Assists in summarizing code functionality.
-    *   Offers suggestions for code improvements.
-*   **Technology:** OpenAI API (or similar).
+8.  **Blockchain Interface:** This component provides an interface for interacting with the blockchain.
 
-### 9. Git Repository
+    *   **Responsibilities:**
+        *   Smart contract interaction.
+        *   Transaction management.
+        *   Token management.
 
-*   **Description:** The version control system where the project's code is stored.
-*   **Functionality:**
-    *   Provides access to code history.
-    *   Allows for branching and merging.
-    *   Tracks code changes.
-*   **Technology:** Git.
+9.  **Smart Contract:** This smart contract manages the distribution of tokens to contributors.
 
-### 10. Blockchain API
+    *   **Responsibilities:**
+        *   Token storage and management.
+        *   Reward distribution logic.
+        *   Transaction recording.
 
-*   **Description:** Interface to a blockchain network for token management.
-*   **Functionality:**
-    *   Allows for the creation and distribution of tokens.
-    *   Tracks token balances.
-    *   Facilitates token transactions.
-*   **Technology:** Ethereum API, Polygon API (or similar).
+10. **Documentation Storage:** This component stores the generated documentation. This could be a file system, a database, or a cloud storage service.
 
-## Data Flow
+    *   **Responsibilities:**
+        *   Documentation storage and retrieval.
+        *   Version control.
+        *   Access control.
 
-1.  A developer interacts with the **User Interface** and submits a task (e.g., "Generate documentation for this function").
-2.  The **Task Manager** receives the task and queues it for processing.
-3.  The **Agent Orchestration** component receives the task from the Task Manager.
-4.  The Agent Orchestration determines that the **Documentation Agent** is needed.
-5.  The Agent Orchestration sends the relevant code snippet to the Documentation Agent.
-6.  The Documentation Agent analyzes the code and uses the **LLM API** to generate documentation.
-7.  The Documentation Agent stores the generated documentation in the **Context Database**.
-8.  The Agent Orchestration retrieves the generated documentation from the Context Database.
-9.  The Agent Orchestration sends the documentation back to the Task Manager.
-10. The Task Manager sends the documentation to the User Interface for display to the developer.
+## System Flow
+
+1.  The user interacts with ContextPilot through the CLI.
+2.  The CLI parses the user's command and dispatches it to the appropriate agent via the Agent Manager.
+3.  The Agent performs its task, potentially interacting with other components such as the LLM, Git Repository, or Blockchain Interface.
+4.  The Agent returns the results to the CLI.
+5.  The CLI presents the results to the user.
 
 ## Best Practices
 
-*   **Microservices Architecture:** Consider breaking down the system into smaller, independent microservices for improved scalability and maintainability.
-*   **API-First Design:** Design APIs between components before implementing the components themselves.
-*   **Asynchronous Communication:** Use asynchronous communication (e.g., message queues) to decouple components and improve performance.
-*   **Containerization:** Use Docker and Kubernetes to containerize and orchestrate the components.
-*   **Monitoring and Logging:** Implement comprehensive monitoring and logging to track the health and performance of the system.
-*   **Security:** Implement robust security measures to protect the system from unauthorized access and data breaches.
+*   **Loose Coupling:** Design agents to be loosely coupled to minimize dependencies and promote modularity.
+*   **Asynchronous Communication:** Use asynchronous communication patterns to avoid blocking operations and improve performance.
+*   **Error Handling:** Implement robust error handling mechanisms to ensure system stability.
+*   **Logging:** Use comprehensive logging to facilitate debugging and monitoring.
+*   **Testing:** Write unit tests and integration tests to ensure the quality of the code.
+*   **Configuration Management:** Use a configuration management system to manage environment-specific settings.
+*   **Security:** Implement security measures to protect sensitive data and prevent unauthorized access.
 
 ## References
 
-*   [Celery: Distributed Task Queue](https://docs.celeryq.dev/en/stable/)
-*   [GitPython: Python library to interact with Git repositories](https://gitpython.readthedocs.io/en/stable/)
-*   [OpenAI API Documentation](https://platform.openai.com/docs/api-reference)
-*   [Pinecone Vector Database](https://www.pinecone.io/)
-*   [ChromaDB Vector Database](https://www.trychroma.com/)
+*   [Project Scope Document](project_scope.md)
+*   [Relevant Research Papers on Multi-Agent Systems]
+*   [Documentation for the chosen LLM]
+*   [Documentation for the chosen Blockchain Platform]
 ```
