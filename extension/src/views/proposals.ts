@@ -18,12 +18,15 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
   }
 
   async getChildren(element?: ProposalTreeItem): Promise<ProposalTreeItem[]> {
+    console.log('[ProposalsProvider] getChildren called');
     if (!this.contextPilotService.isConnected()) {
+      console.log('[ProposalsProvider] Not connected, returning empty array');
       return [];
     }
 
     if (!element) {
       // Root level - show proposals
+      console.log('[ProposalsProvider] Fetching proposals...');
       const proposals = await this.contextPilotService.getProposals();
       return proposals
         .filter(p => p.status === 'pending')
@@ -49,6 +52,10 @@ class ProposalItem extends vscode.TreeItem {
     this.description = `by ${proposal.agent_id}`;
     this.contextValue = 'proposal';
     this.iconPath = new vscode.ThemeIcon('git-pull-request');
+    
+    // Debug: Log proposal ID
+    console.log(`[ProposalItem] Creating item with ID: ${proposal.id}, Title: ${proposal.title}`);
+    
     this.command = {
       command: 'contextpilot.viewProposalDiff',
       title: 'View Diff',

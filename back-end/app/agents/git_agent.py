@@ -18,6 +18,7 @@ from app.git_context_manager import Git_Context_Manager
 from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
 from app.agents.diff_generator import apply_patch, read_file_safe
+from app.repositories.proposal_repository import get_proposal_repository
 from enum import Enum
 from pathlib import Path
 import json
@@ -375,7 +376,22 @@ class GitAgent(BaseAgent):
     # ===== Proposal Application Methods =====
     
     def _load_proposal(self, proposal_id: str) -> Optional[Dict]:
-        """Load proposal from storage"""
+        """Load proposal from Firestore (with local fallback)"""
+        
+        # Try Firestore first (if enabled)
+        if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+            try:
+                repo = get_proposal_repository(project_id=self.project_id)
+                proposal = repo.get(proposal_id)
+                if proposal:
+                    logger.info(f"[GitAgent] Loaded proposal from Firestore: {proposal_id}")
+                    return proposal
+                else:
+                    logger.warning(f"[GitAgent] Proposal not found in Firestore: {proposal_id}")
+            except Exception as e:
+                logger.error(f"[GitAgent] Firestore error, falling back to local: {e}")
+        
+        # Fallback to local file storage
         proposals_dir = Path(self.workspace_path) / "proposals"
         proposal_file = proposals_dir / f"{proposal_id}.json"
         
@@ -386,7 +402,7 @@ class GitAgent(BaseAgent):
         try:
             with open(proposal_file, 'r') as f:
                 proposal = json.load(f)
-            logger.debug(f"[GitAgent] Loaded proposal {proposal_id}")
+            logger.debug(f"[GitAgent] Loaded proposal from local file: {proposal_id}")
             return proposal
         except Exception as e:
             logger.error(f"[GitAgent] Failed to load proposal: {e}")

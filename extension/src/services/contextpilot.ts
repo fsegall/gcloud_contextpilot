@@ -56,7 +56,7 @@ export class ContextPilotService {
   constructor(apiUrl: string, userId: string, walletAddress: string, testMode: boolean = false) {
     this.client = axios.create({
       baseURL: apiUrl,
-      timeout: 10000,
+      timeout: 30000, // Increased for Cloud Run cold starts
       headers: {
         'Content-Type': 'application/json',
       },
@@ -70,12 +70,39 @@ export class ContextPilotService {
 
   async connect(): Promise<boolean> {
     try {
-      const response = await this.client.get('/health');
-      this.connected = response.status === 200;
-      return this.connected;
+      console.log(`[ContextPilot] Attempting to connect to: ${this.client.defaults.baseURL}`);
+      
+      // Add retry logic for Cloud Run cold starts
+      let lastError: any;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`[ContextPilot] Connection attempt ${attempt}/3...`);
+          const response = await this.client.get('/health', {
+            validateStatus: (status) => status === 200,
+            // Add explicit HTTP adapter config for Node.js compatibility
+            httpAgent: undefined,
+            httpsAgent: undefined,
+          });
+          console.log(`[ContextPilot] Connect response: ${response.status}`, response.data);
+          this.connected = response.status === 200;
+          return this.connected;
+        } catch (err) {
+          lastError = err;
+          console.warn(`[ContextPilot] Attempt ${attempt} failed:`, err);
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+          }
+        }
+      }
+      
+      throw lastError;
     } catch (error) {
+      console.error(`[ContextPilot] Connection failed after 3 attempts:`, error);
+      if (error instanceof Error) {
+        console.error(`[ContextPilot] Error message: ${error.message}`);
+      }
       this.connected = false;
-      throw new Error('Failed to connect to ContextPilot API');
+      throw new Error(`Failed to connect to ContextPilot API: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -88,11 +115,15 @@ export class ContextPilotService {
   }
 
   async getProposals(): Promise<ChangeProposal[]> {
+    console.log('[ContextPilot] getProposals() called');
     try {
-      const endpoint = this.testMode ? '/proposals/mock' : '/proposals';
-      const response = await this.client.get(endpoint);
+      // Force real endpoint for testing
+      const response = await this.client.get('/proposals', {
+        params: { workspace_id: 'contextpilot' }
+      });
+      console.log('[ContextPilot] Raw response:', response.data);
       const arr = Array.isArray(response.data) ? response.data : response.data?.proposals || [];
-      console.log(`[ContextPilot] Fetched ${arr.length} proposals`);
+      console.log(`[ContextPilot] Fetched ${arr.length} proposals:`, arr.map((p: any) => ({ id: p.id, title: p.title })));
       return arr;
     } catch (error) {
       console.error('Failed to fetch proposals:', error);
@@ -107,7 +138,11 @@ export class ContextPilotService {
 
   async getProposal(proposalId: string): Promise<ChangeProposal | null> {
     try {
-      const response = await this.client.get(`/proposals/${proposalId}`);
+      console.log(`[ContextPilot] getProposal called with ID: ${proposalId}`);
+      const response = await this.client.get(`/proposals/${proposalId}`, {
+        params: { workspace_id: 'contextpilot' }
+      });
+      console.log(`[ContextPilot] getProposal response status: ${response.status}`);
       return response.data;
     } catch (error) {
       console.error('Failed to fetch proposal:', error);

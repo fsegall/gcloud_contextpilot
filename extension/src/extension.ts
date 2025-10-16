@@ -16,12 +16,12 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Initialize service
   const config = vscode.workspace.getConfiguration('contextpilot');
-  const apiUrl = config.get<string>('apiUrl', 'http://localhost:8000');
+  const apiUrl = config.get<string>('apiUrl', 'https://contextpilot-backend-581368740395.us-central1.run.app');
   const userId = config.get<string>('userId', 'test-user');
   const walletAddress = config.get<string>('walletAddress', '0xtest...');
   
   // Enable test mode if userId is 'test-user' or empty
-  const testMode = !userId || userId === 'test-user';
+  const testMode = false; // Force real mode for testing
   
   contextPilotService = new ContextPilotService(apiUrl, userId, walletAddress, testMode);
   
@@ -73,13 +73,25 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.commands.executeCommand('contextpilot.proposals.focus');
     }),
 
-    vscode.commands.registerCommand('contextpilot.approveProposal', async (proposalId: string) => {
+    vscode.commands.registerCommand('contextpilot.approveProposal', async (item: any) => {
+      // When called from tree view inline button, item is ProposalItem
+      // When called directly, item is proposalId string
+      const proposalId = typeof item === 'string' ? item : item?.proposal?.id;
+      if (!proposalId) {
+        vscode.window.showErrorMessage('No proposal ID provided');
+        return;
+      }
       await commands.approveProposal(contextPilotService, proposalId, proposalsProvider);
       rewardsProvider.refresh();
       updateStatusBar();
     }),
 
-    vscode.commands.registerCommand('contextpilot.rejectProposal', async (proposalId: string) => {
+    vscode.commands.registerCommand('contextpilot.rejectProposal', async (item: any) => {
+      const proposalId = typeof item === 'string' ? item : item?.proposal?.id;
+      if (!proposalId) {
+        vscode.window.showErrorMessage('No proposal ID provided');
+        return;
+      }
       await commands.rejectProposal(contextPilotService, proposalId);
       proposalsProvider.refresh();
     }),
@@ -132,6 +144,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Auto-connect if enabled
   if (config.get<boolean>('autoConnect', true)) {
     commands.connect(contextPilotService).then(() => {
+      console.log('[ContextPilot] Auto-connect completed, refreshing providers...');
       proposalsProvider.refresh();
       rewardsProvider.refresh();
       agentsProvider.refresh();

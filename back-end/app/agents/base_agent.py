@@ -50,10 +50,11 @@ class BaseAgent(ABC):
         # Get workspace path
         self.workspace_path = get_workspace_path(workspace_id)
         
-        # Initialize event bus
+        # Initialize event bus with agent_id for Pub/Sub routing
         self.event_bus = get_event_bus(
             project_id=self.project_id,
-            force_in_memory=os.getenv('USE_PUBSUB', 'false').lower() != 'true'
+            force_in_memory=os.getenv('USE_PUBSUB', 'false').lower() != 'true',
+            agent_id=self.agent_id
         )
         
         # Load agent state

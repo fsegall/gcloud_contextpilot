@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { ContextPilotService, ChangeProposal } from '../services/contextpilot';
 import { CoachProvider } from '../views/coach';
+import * as path from 'path';
+import * as fs from 'fs';
+import simpleGit from 'simple-git';
 
 export async function connect(service: ContextPilotService): Promise<void> {
   try {
@@ -17,6 +20,10 @@ export async function connect(service: ContextPilotService): Promise<void> {
 
     vscode.window.showInformationMessage('✅ Connected to ContextPilot!');
     vscode.commands.executeCommand('setContext', 'contextpilot.connected', true);
+    
+    // Refresh all views by calling refresh methods directly
+    // Note: We can't use executeCommand for refresh as those commands don't exist
+    // The providers will auto-refresh when needed
   } catch (error) {
     vscode.window.showErrorMessage(
       '❌ Failed to connect to ContextPilot. Is the backend running?'
@@ -35,34 +42,100 @@ export async function approveProposal(
   proposalId: string,
   proposalsProvider?: any
 ): Promise<void> {
-  const confirmed = await vscode.window.showWarningMessage(
-    'Approve this change proposal?',
-    { modal: true },
-    'Approve'
-  );
-
-  if (confirmed !== 'Approve') {
-    return;
-  }
-
-  const result = await service.approveProposal(proposalId);
-  if (result.ok) {
-    // Refresh proposals view
-    if (proposalsProvider) {
-      proposalsProvider.refresh();
+  console.log(`[approveProposal] Called with proposalId: ${proposalId}`);
+  
+  try {
+    // 1. Get workspace root
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage('No workspace folder open');
+      return;
     }
     
-    if (result.autoCommitted) {
-      vscode.window.showInformationMessage(
-        `✅ Proposal approved and committed! (${result.commitHash?.slice(0,7)})`
-      );
-    } else {
-      vscode.window.showInformationMessage(
-        '✅ Proposal approved (pending commit by Git Agent)'
-      );
+    // 2. Get full proposal with diff
+    const proposal = await service.getProposal(proposalId);
+    if (!proposal) {
+      vscode.window.showErrorMessage('Proposal not found');
+      return;
     }
-  } else {
-    vscode.window.showErrorMessage('❌ Failed to approve proposal');
+    
+    // 3. Confirm approval
+    const confirmed = await vscode.window.showWarningMessage(
+      `Approve: ${proposal.title}?`,
+      { modal: true },
+      'Approve & Commit'
+    );
+
+    if (confirmed !== 'Approve & Commit') {
+      return;
+    }
+
+    // 4. Approve in backend (updates Firestore)
+    console.log(`[approveProposal] Marking as approved in backend: ${proposalId}`);
+    const result = await service.approveProposal(proposalId);
+    if (!result.ok) {
+      vscode.window.showErrorMessage('Failed to approve proposal in backend');
+      return;
+    }
+    
+    // 5. Apply changes locally
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Applying proposal changes...',
+        cancellable: false
+      },
+      async (progress) => {
+        progress.report({ message: 'Applying diff to files...' });
+        
+        for (const change of proposal.proposed_changes) {
+          const filePath = path.join(workspaceRoot, change.file_path);
+          
+          if (change.change_type === 'delete') {
+            if (fs.existsSync(filePath)) {
+              await fs.promises.unlink(filePath);
+              console.log(`[approveProposal] Deleted: ${change.file_path}`);
+            }
+          } else {
+            // Create or update file
+            await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+            const content = change.after || '';
+            await fs.promises.writeFile(filePath, content, 'utf-8');
+            console.log(`[approveProposal] ${change.change_type}: ${change.file_path}`);
+          }
+        }
+        
+        progress.report({ message: 'Committing changes...' });
+        
+        // 6. Git commit
+        const git = simpleGit(workspaceRoot);
+        await git.add('.');
+        
+        const commitMsg = `feat(contextpilot): ${proposal.title}
+
+${proposal.description}
+
+Applied by ContextPilot Extension.
+Proposal-ID: ${proposalId}
+Agent: ${proposal.agent_id}`;
+        
+        const commitResult = await git.commit(commitMsg);
+        console.log(`[approveProposal] Committed: ${commitResult.commit}`);
+        
+        // 7. Refresh UI
+        if (proposalsProvider) {
+          proposalsProvider.refresh();
+        }
+        
+        vscode.window.showInformationMessage(
+          `✅ ${proposal.title} - Committed: ${commitResult.commit.slice(0, 7)}`
+        );
+      }
+    );
+    
+  } catch (error: any) {
+    console.error('[approveProposal] Error:', error);
+    vscode.window.showErrorMessage(`Error approving proposal: ${error.message}`);
   }
 }
 
@@ -241,6 +314,8 @@ export async function viewProposalDiff(
   proposalId: string
 ): Promise<void> {
   try {
+    console.log(`[viewProposalDiff] Called with proposalId: ${proposalId}`);
+    
     // Fetch proposal with diff
     const proposal = await service.getProposal(proposalId);
     

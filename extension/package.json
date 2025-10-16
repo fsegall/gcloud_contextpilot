@@ -4,7 +4,6 @@
   "description": "AI-powered context management with multi-agent system and blockchain rewards",
   "version": "0.1.0",
   "publisher": "contextpilot",
-  "icon": "assets/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/fsegall/google-context-pilot"
@@ -139,7 +138,7 @@
       "properties": {
         "contextpilot.apiUrl": {
           "type": "string",
-          "default": "http://localhost:8000",
+          "default": "https://contextpilot-backend-581368740395.us-central1.run.app",
           "description": "ContextPilot API URL"
         },
         "contextpilot.autoConnect": {
@@ -198,6 +197,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "dev": "cursor --extensionDevelopmentPath=/home/fsegall/Desktop/New_Projects/google-context-pilot/extension",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
@@ -212,13 +212,13 @@
     "@typescript-eslint/eslint-plugin": "^6.x",
     "@typescript-eslint/parser": "^6.x",
     "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
     "eslint": "^8.x",
-    "typescript": "^5.3.0",
-    "@vscode/vsce": "^2.22.0"
+    "typescript": "^5.3.0"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "ethers": "^6.9.0"
+    "ethers": "^6.9.0",
+    "simple-git": "^3.28.0"
   }
 }
-

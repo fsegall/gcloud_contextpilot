@@ -115,16 +115,45 @@ class PubSubEventBus(EventBusInterface):
     Events are published to GCP Pub/Sub topics.
     """
     
-    def __init__(self, project_id: str):
+    # Map event types to Pub/Sub subscriptions
+    EVENT_TO_SUBSCRIPTION = {
+        'git.commit.v1': 'git-agent-sub',
+        'git.branch.created.v1': 'git-agent-sub',
+        'git.merge.v1': 'git-agent-sub',
+        'git.rollback.v1': 'git-agent-sub',
+        'spec.validation.v1': 'spec-agent-sub',
+        'spec.update.v1': 'spec-agent-sub',
+        'proposal.created.v1': 'spec-agent-sub',
+        'proposal.approved.v1': 'git-agent-sub',
+        'proposal.rejected.v1': 'git-agent-sub',
+        'strategy.insight.v1': 'strategy-agent-sub',
+        'strategy.options.v1': 'strategy-agent-sub',
+        'coach.nudge.v1': 'coach-agent-sub',
+        'coach.unblock.v1': 'coach-agent-sub',
+        'retrospective.summary.v1': 'retrospective-agent-sub',
+    }
+    
+    # Map topics to subscriptions (for listening to all events on a topic)
+    TOPIC_TO_SUBSCRIPTION = {
+        'git-events': 'git-agent-sub',
+        'proposal-events': 'spec-agent-sub',
+        'spec-events': 'spec-agent-sub',
+        'strategy-events': 'strategy-agent-sub',
+        'coach-events': 'coach-agent-sub',
+        'retrospective-events': 'retrospective-agent-sub',
+    }
+    
+    def __init__(self, project_id: str, agent_id: str = None):
         try:
             from google.cloud import pubsub_v1
             self.publisher = pubsub_v1.PublisherClient()
             self.subscriber = pubsub_v1.SubscriberClient()
             self.project_id = project_id
+            self.agent_id = agent_id
             self.subscriptions: Dict[str, List[Callable]] = defaultdict(list)
             self.subscription_futures = []
             self.listening = False
-            logger.info(f"[PubSubEventBus] Initialized for project: {project_id}")
+            logger.info(f"[PubSubEventBus] Initialized for project: {project_id}, agent: {agent_id}")
         except ImportError:
             logger.error("[PubSubEventBus] google-cloud-pubsub not installed")
             raise
@@ -154,16 +183,39 @@ class PubSubEventBus(EventBusInterface):
         self.subscriptions[event_type].append(handler)
         logger.info(f"[PubSubEventBus] Registered handler for {event_type}")
     
+    def _get_subscription_for_agent(self) -> Optional[str]:
+        """Get the Pub/Sub subscription name for this agent"""
+        if not self.agent_id:
+            return None
+        
+        # Map agent_id to subscription name
+        agent_subscription_map = {
+            'spec': 'spec-agent-sub',
+            'git': 'git-agent-sub',
+            'strategy': 'strategy-agent-sub',
+            'coach': 'coach-agent-sub',
+            'retrospective': 'retrospective-agent-sub',
+            'milestone': 'git-agent-sub',  # Milestone events go to git-agent-sub
+            'context': 'spec-agent-sub',   # Context events go to spec-agent-sub
+        }
+        
+        return agent_subscription_map.get(self.agent_id)
+    
     async def start_listening(self) -> None:
         """Start listening to Pub/Sub subscriptions"""
         self.listening = True
         
-        # Create subscription for each topic we care about
-        # For now, we'll use a single subscription per agent
-        subscription_name = f"contextpilot-events-sub"
+        # Determine which subscription to listen to based on agent_id
+        subscription_name = self._get_subscription_for_agent()
+        if not subscription_name:
+            logger.warning(f"[PubSubEventBus] No subscription found for agent: {self.agent_id}")
+            return
+        
         subscription_path = self.subscriber.subscription_path(
             self.project_id, subscription_name
         )
+        
+        logger.info(f"[PubSubEventBus] Listening to subscription: {subscription_name}")
         
         def callback(message):
             """Handle incoming Pub/Sub message"""
@@ -172,7 +224,7 @@ class PubSubEventBus(EventBusInterface):
                 event_type = event['event_type']
                 data = event['data']
                 
-                logger.info(f"[PubSubEventBus] Received {event_type}")
+                logger.info(f"[PubSubEventBus] Received {event_type} on {subscription_name}")
                 
                 # Call registered handlers
                 if event_type in self.subscriptions:
@@ -209,13 +261,14 @@ class PubSubEventBus(EventBusInterface):
 _event_bus: Optional[EventBusInterface] = None
 
 
-def get_event_bus(project_id: Optional[str] = None, force_in_memory: bool = False) -> EventBusInterface:
+def get_event_bus(project_id: Optional[str] = None, force_in_memory: bool = False, agent_id: Optional[str] = None) -> EventBusInterface:
     """
     Get or create event bus instance.
     
     Args:
         project_id: GCP project ID (for Pub/Sub)
         force_in_memory: Force in-memory bus even if GCP is available
+        agent_id: Agent identifier (for Pub/Sub subscription routing)
     
     Returns:
         EventBus instance (Pub/Sub or in-memory)
@@ -234,8 +287,8 @@ def get_event_bus(project_id: Optional[str] = None, force_in_memory: bool = Fals
     
     if use_pubsub:
         try:
-            _event_bus = PubSubEventBus(project_id)
-            logger.info("[EventBus] Using Google Pub/Sub")
+            _event_bus = PubSubEventBus(project_id, agent_id=agent_id)
+            logger.info(f"[EventBus] Using Google Pub/Sub for agent: {agent_id}")
         except Exception as e:
             logger.warning(f"[EventBus] Pub/Sub init failed, falling back to in-memory: {e}")
             _event_bus = InMemoryEventBus()

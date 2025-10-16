@@ -15,6 +15,7 @@ from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
 from app.agents.diff_generator import generate_unified_diff, read_file_safe
 from app.services.llm_service import get_llm_service
+from app.repositories.proposal_repository import get_proposal_repository
 
 logger = logging.getLogger(__name__)
 
@@ -188,9 +189,9 @@ class SpecAgent(BaseAgent):
         
         # Emit event
         if self.event_bus:
-            self.event_bus.publish(
-                topic="spec-updates",
-                event_type="spec.update.v1",
+            await self.event_bus.publish(
+                topic=Topics.SPEC_EVENTS,
+                event_type=EventTypes.SPEC_UPDATE,
                 source="spec-agent",
                 data={
                     "file": str(output_path),
@@ -234,9 +235,9 @@ class SpecAgent(BaseAgent):
             
             # Emit validation event
             if self.event_bus:
-                self.event_bus.publish(
-                    topic="spec-updates",
-                    event_type="spec.validation.v1",
+                await self.event_bus.publish(
+                    topic=Topics.SPEC_EVENTS,
+                    event_type=EventTypes.SPEC_VALIDATION,
                     source="spec-agent",
                     data={
                         "issues": issues,
@@ -424,7 +425,19 @@ This document describes {filename}.
 """
     
     async def _save_proposal(self, proposal: Dict) -> None:
-        """Save proposal to workspace"""
+        """Save proposal to Firestore (and optionally local backup)"""
+        
+        # Save to Firestore if enabled
+        if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+            try:
+                repo = get_proposal_repository(project_id=self.project_id)
+                repo.create(proposal)
+                logger.info(f"[Spec Agent] Saved proposal to Firestore: {proposal['id']}")
+            except Exception as e:
+                logger.error(f"[Spec Agent] Failed to save to Firestore: {e}")
+                # Fall through to local save as backup
+        
+        # Also save locally (for backup and local development)
         proposals_dir = Path(self.workspace_path) / 'proposals'
         proposals_dir.mkdir(exist_ok=True)
         
@@ -517,9 +530,9 @@ This document describes {filename}.
         
         # Emit event
         if self.event_bus:
-            self.event_bus.publish(
-                topic="spec-updates",
-                event_type="spec.template.created.v1",
+            await self.event_bus.publish(
+                topic=Topics.SPEC_EVENTS,
+                event_type=EventTypes.SPEC_UPDATE,
                 source="spec-agent",
                 data={
                     "template_name": name,

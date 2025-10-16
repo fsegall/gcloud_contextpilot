@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body, Query
+from fastapi import FastAPI, Body, Query, HTTPException
 from typing import Optional
 from app.git_context_manager import Git_Context_Manager
 from datetime import datetime
@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # from app.routers import rewards, proposals, events
 from app.agents.spec_agent import SpecAgent
 from app.utils.workspace_manager import get_workspace_path
+from app.repositories.proposal_repository import get_proposal_repository
 import os
 from typing import List, Dict
 import json
@@ -643,7 +644,7 @@ async def spec_analyze(workspace_id: str = Query("default")):
     logger.info(f"POST /agents/spec/analyze - workspace: {workspace_id}")
     try:
         workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local"))
+        project_id = os.getenv("GCP_PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")))
         agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
         issues = await agent.validate_docs()
         return {"issues": issues, "count": len(issues)}
@@ -661,7 +662,7 @@ async def spec_get_proposals(workspace_id: str = Query("default")):
     logger.info(f"GET /agents/spec/proposals - workspace: {workspace_id}")
     try:
         workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local"))
+        project_id = os.getenv("GCP_PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")))
         agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
         issues: List[Dict] = await agent.validate_docs()
 
@@ -763,9 +764,63 @@ def _auto_approve_enabled() -> bool:
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
+async def _trigger_github_workflow(proposal_id: str, proposal: Dict) -> bool:
+    """
+    Trigger GitHub Actions workflow to apply proposal.
+    
+    Uses repository_dispatch event to trigger the workflow.
+    """
+    github_token = os.getenv('GITHUB_TOKEN')
+    github_repo = os.getenv('GITHUB_REPO', 'fsegall/google-context-pilot')  # Format: owner/repo
+    
+    if not github_token:
+        logger.warning("[API] GITHUB_TOKEN not set, skipping GitHub trigger")
+        return False
+    
+    url = f"https://api.github.com/repos/{github_repo}/dispatches"
+    headers = {
+        'Authorization': f'token {github_token}',
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        'event_type': 'proposal-approved',
+        'client_payload': {
+            'proposal_id': proposal_id,
+            'title': proposal.get('title', ''),
+            'description': proposal.get('description', ''),
+            'workspace_id': proposal.get('workspace_id', 'contextpilot')
+        }
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, headers=headers, timeout=10.0)
+            response.raise_for_status()
+            logger.info(f"[API] GitHub Actions triggered successfully for {proposal_id}")
+            return True
+    except Exception as e:
+        logger.error(f"[API] Failed to trigger GitHub Actions: {e}")
+        return False
+
+
 @app.get("/proposals")
 async def list_proposals(workspace_id: str = Query("default")):
     """List all proposals with diffs"""
+    
+    # Try Firestore first (if enabled)
+    if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+        try:
+            from app.repositories.proposal_repository import get_proposal_repository
+            repo = get_proposal_repository()
+            proposals = repo.list(workspace_id=workspace_id)
+            logger.info(f"[API] Listed {len(proposals)} proposals from Firestore")
+            return {"proposals": proposals, "count": len(proposals)}
+        except Exception as e:
+            logger.error(f"[API] Firestore error, falling back to local: {e}")
+    
+    # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
     
     # Try new format first (individual JSON files with diffs)
@@ -781,6 +836,20 @@ async def list_proposals(workspace_id: str = Query("default")):
 @app.get("/proposals/{proposal_id}")
 async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
     """Get a single proposal by ID with full diff"""
+    
+    # Try Firestore first (if enabled)
+    if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+        try:
+            from app.repositories.proposal_repository import get_proposal_repository
+            repo = get_proposal_repository()
+            proposal = repo.get(proposal_id)
+            if proposal:
+                logger.info(f"[API] Found proposal in Firestore: {proposal_id}")
+                return proposal
+        except Exception as e:
+            logger.error(f"[API] Firestore error, falling back to local: {e}")
+    
+    # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
     
     # Try to read from individual file
@@ -804,47 +873,36 @@ async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
 
 @app.post("/proposals/create")
 async def create_proposals_from_spec(workspace_id: str = Query("default")):
-    """Generate proposals from SpecAgent issues, persist JSON and MD."""
+    """Generate proposals from SpecAgent with diffs, persist to Firestore."""
     logger.info(f"POST /proposals/create - workspace: {workspace_id}")
-    paths = _proposals_paths(workspace_id)
-    existing = _read_proposals(paths["json"])
+    
     try:
         workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local"))
-        agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
+        project_id = os.getenv("GCP_PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")))
+        agent = SpecAgent(workspace_path=workspace_path, workspace_id=workspace_id, project_id=project_id)
         issues: List[Dict] = await agent.validate_docs()
 
-        new_proposals: List[Dict] = []
-        start_index = len(existing) + 1
-        for idx, issue in enumerate(issues, start=start_index):
-            pid = f"spec-{idx}"
-            title = f"Docs issue: {issue.get('file', 'unknown')}"
-            description = issue.get("message", issue.get("type", "issue"))
-            proposal = {
-                "id": pid,
-                "agent_id": "spec",
-                "title": title,
-                "description": description,
-                "proposed_changes": [
-                    {
-                        "file_path": issue.get("file", "docs/"),
-                        "change_type": "update",
-                        "description": description
-                    }
-                ],
-                "status": "pending"
-            }
-            # Write MD file
-            md_path = paths["dir"] / f"{pid}.md"
-            md_content = f"# {title}\n\n{description}\n\nStatus: pending\n"
-            md_path.write_text(md_content, encoding="utf-8")
+        # Create proposals with actual diffs using agent's method
+        new_proposals = []
+        for issue in issues:
+            proposal_id = await agent._create_proposal_for_issue(issue)
+            if proposal_id:
+                new_proposals.append(proposal_id)
 
-            new_proposals.append(proposal)
+        # Count total proposals in Firestore
+        if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+            repo = get_proposal_repository()
+            all_proposals = repo.list(workspace_id=workspace_id)
+            total = len(all_proposals)
+        else:
+            # Fallback to local file storage
+            paths = _proposals_paths(workspace_id)
+            proposals = _read_proposals_from_dir(paths["dir"])
+            if not proposals:
+                proposals = _read_proposals(paths["json"])
+            total = len(proposals)
 
-        all_proposals = existing + new_proposals
-        _write_proposals(paths["json"], all_proposals)
-
-        return {"created": len(new_proposals), "total": len(all_proposals)}
+        return {"created": len(new_proposals), "total": total}
     except Exception as e:
         logger.error(f"Error creating proposals: {str(e)}")
         return {"created": 0, "error": str(e)}
@@ -855,6 +913,55 @@ async def approve_proposal(
     proposal_id: str,
     workspace_id: str = Query("default")
 ):
+    # Try Firestore first (if enabled)
+    if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+        try:
+            from app.repositories.proposal_repository import get_proposal_repository
+            repo = get_proposal_repository()
+            prop = repo.get(proposal_id)
+            
+            if not prop:
+                return {"status": "not_found"}
+            
+            summary = prop.get("description", "")
+            commit_hash = None
+            
+            if _auto_approve_enabled():
+                try:
+                    from app.agents.git_agent import commit_via_agent
+                    commit_hash = await commit_via_agent(
+                        workspace_id=workspace_id,
+                        event_type="proposal.approved",
+                        data={"proposal_id": proposal_id, "workspace_id": workspace_id, "changes_summary": summary},
+                        source="spec-agent"
+                    )
+                except Exception as git_error:
+                    logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
+                    # Continue with approval even if Git fails
+            
+            # Update status in Firestore
+            repo.approve(proposal_id, commit_hash)
+            
+            # Trigger GitHub Actions workflow for cloud deployment
+            github_triggered = False
+            if os.getenv('ENVIRONMENT') == 'production' and not commit_hash:
+                try:
+                    github_triggered = await _trigger_github_workflow(proposal_id, prop)
+                    logger.info(f"[API] GitHub Actions triggered for proposal {proposal_id}")
+                except Exception as gh_error:
+                    logger.warning(f"[API] GitHub trigger failed: {gh_error}")
+            
+            return {
+                "status": "approved",
+                "commit_hash": commit_hash,
+                "auto_committed": bool(commit_hash),
+                "github_triggered": github_triggered
+            }
+        except Exception as e:
+            logger.error(f"[API] Firestore approve error: {e}")
+            return {"status": "error", "error": str(e)}
+    
+    # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
     
     # Try to read from individual file first (new format)
@@ -874,13 +981,17 @@ async def approve_proposal(
     try:
         commit_hash = None
         if _auto_approve_enabled():
-            from app.agents.git_agent import commit_via_agent
-            commit_hash = await commit_via_agent(
-                workspace_id=workspace_id,
-                event_type="proposal.approved",
-                data={"proposal_id": proposal_id, "changes_summary": summary},
-                source="spec-agent"
-            )
+            try:
+                from app.agents.git_agent import commit_via_agent
+                commit_hash = await commit_via_agent(
+                    workspace_id=workspace_id,
+                    event_type="proposal.approved",
+                    data={"proposal_id": proposal_id, "changes_summary": summary},
+                    source="spec-agent"
+                )
+            except Exception as git_error:
+                logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
+                # Continue with approval even if Git fails
         # Update proposal status
         prop["status"] = "approved"
         if commit_hash:
