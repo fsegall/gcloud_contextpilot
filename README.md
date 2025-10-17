@@ -302,9 +302,47 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🔒 Security Note
+## 🔒 Security & API Keys
 
-**API Keys in Git History:** Early development commits may contain test API keys. All keys have been rotated and are no longer valid. Current production keys are stored securely in Google Cloud Secret Manager.
+### Current Beta Model (Shared API Key)
+
+For the **beta launch and hackathon**, ContextPilot uses a **shared Gemini API key** to provide zero-friction onboarding:
+
+- ✅ **Install and use immediately** - no configuration needed
+- ✅ **Rate limited** (100 requests/hour per IP) for fair usage
+- ✅ **Abuse detection** active to prevent misuse
+- ✅ **Free tier** sufficient for beta testing (1,500 requests/day)
+
+**Why shared key for beta?**
+This design decision prioritizes **user experience** during the evaluation phase. Similar to how GitHub Copilot and Cursor handle early access, we want judges and early adopters to experience ContextPilot without setup friction.
+
+### 🔮 Bring Your Own Key (BYOK) - Coming Soon
+
+**Post-hackathon (Week 1)**, we're implementing user-provided API keys:
+
+```json
+{
+  "contextpilot.aiProvider": "shared" | "own-key",
+  "contextpilot.geminiApiKey": "your-api-key-here"
+}
+```
+
+**Benefits:**
+- 🚀 Unlimited usage (you control quota)
+- 🔒 Enhanced privacy (your key, your data)
+- 💰 Pay-as-you-go pricing (Google's Gemini rates)
+- ⚡ Priority processing (no shared queue)
+
+**Freemium Model:**
+- **Free:** 10 proposals/day on shared key
+- **BYOK:** Unlimited with your own Gemini API key
+- **Enterprise:** Dedicated infrastructure + support
+
+See [ROADMAP.md](ROADMAP.md) for implementation timeline.
+
+### Historical API Keys
+
+**Note:** Early development commits may contain test API keys in archived documentation. All keys have been rotated and are no longer valid. Current production keys are stored securely in Google Cloud Secret Manager.
 
 ---
 

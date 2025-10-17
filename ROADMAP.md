@@ -9,7 +9,13 @@
 - [x] Achievements e gamificação
 - [x] Context summarization inteligente
 
-## 🔮 Fase 2: Web Dashboard & Blockchain (Q1 2026)
+## 🔮 Fase 2: BYOK + Web Dashboard (Q1 2026)
+- [ ] **Bring Your Own Key (BYOK)** - Week 1 Priority
+  - [ ] User-provided Gemini API keys
+  - [ ] Extension setting: `contextpilot.geminiApiKey`
+  - [ ] Backend support for custom keys
+  - [ ] Freemium model: 10 proposals/day free, BYOK unlimited
+  - [ ] Usage analytics per user
 - [ ] Web Dashboard para Project Managers
   - [ ] React + Vite + TailwindCSS interface
   - [ ] View proposals via web browser
