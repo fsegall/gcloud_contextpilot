@@ -1,0 +1,19 @@
+{
+  "agent_id": "spec",
+  "workspace_id": "default",
+  "created_at": "2025-10-17T20:25:59.194792",
+  "last_updated": "2025-10-17T20:40:24.197917",
+  "memory": {
+    "proposals_created": [
+      "spec-missing_doc-1760732759",
+      "spec-missing_doc-1760732769",
+      "spec-missing_doc-1760733603",
+      "spec-missing_doc-1760733614"
+    ]
+  },
+  "metrics": {
+    "events_processed": 0,
+    "events_published": 4,
+    "errors": 0
+  }
+}
