@@ -9,7 +9,7 @@ We're excited to have you join our community of developers building the future o
 ## 🎯 Ways to Contribute
 
 ### 🐛 Report Bugs
-Found a bug? Please [open an issue](https://github.com/fsegall/google-context-pilot/issues/new) with:
+Found a bug? Please [open an issue](https://github.com/fsegall/gcloud_contextpilot/issues/new) with:
 - Clear description of the problem
 - Steps to reproduce
 - Expected vs actual behavior
@@ -17,7 +17,7 @@ Found a bug? Please [open an issue](https://github.com/fsegall/google-context-pi
 - Your environment (OS, VS Code version, extension version)
 
 ### 💡 Suggest Features
-Have an idea? [Start a discussion](https://github.com/fsegall/google-context-pilot/discussions) or open a feature request issue.
+Have an idea? [Start a discussion](https://github.com/fsegall/gcloud_contextpilot/discussions) or open a feature request issue.
 
 ### 🔧 Submit Code
 Ready to code? Follow the guidelines below!
@@ -150,7 +150,7 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 # Fork on GitHub first
 git clone https://github.com/YOUR_USERNAME/google-context-pilot.git
 cd google-context-pilot
-git remote add upstream https://github.com/fsegall/google-context-pilot.git
+git remote add upstream https://github.com/fsegall/gcloud_contextpilot.git
 ```
 
 ### 2. Create Branch
@@ -344,7 +344,7 @@ Contributors will be:
 
 - **GitHub Issues**: Bug reports and feature requests
 - **GitHub Discussions**: Questions and ideas
-- **Email**: hello@livre.solutions (for private matters)
+- **Email**: contact@livresoltech.com (for private matters)
 
 ---
 

@@ -148,7 +148,7 @@ Track your development progress with detailed metrics:
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](https://github.com/fsegall/google-context-pilot) for details.
+We welcome contributions! Please see our [Contributing Guide](https://github.com/fsegall/gcloud_contextpilot) for details.
 
 ## 📄 License
 
@@ -156,13 +156,13 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support
 
-- **Issues**: [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
+- **Issues**: [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
 - **Discord**: [ContextPilot Community](https://discord.gg/contextpilot)
-- **Email**: support@contextpilot.ai
+- **Email**: contact@livresoltech.com
 
 ## 🏢 About Livre Solutions
 
-**ContextPilot** is developed by [**Livre Solutions**](https://livre.solutions), a technology company focused on creating innovative AI-powered tools for developers and teams.
+**ContextPilot** is developed by [**Livre Solutions**](https://livre.solutions), a technology company focused on creating innovative AI and Web3 applications.
 
 **Our Mission**: Empower developers with intelligent automation and gamification to boost productivity and make coding more rewarding.
 
@@ -170,7 +170,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - 🌐 Website: [livre.solutions](https://livre.solutions)
 - 🐦 Twitter: [@livresolutions](https://twitter.com/livresolutions)
 - 💼 LinkedIn: [Livre Solutions](https://linkedin.com/company/livre-solutions)
-- 📧 Contact: hello@livre.solutions
+- 📧 Contact: contact@livresoltech.com
 
 ---
 

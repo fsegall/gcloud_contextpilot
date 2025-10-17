@@ -75,7 +75,7 @@ curl -X POST "https://contextpilot-backend-581368740395.us-central1.run.app/prop
   -H "Content-Type: application/json" | jq .
 
 # 4. Verificar GitHub Actions
-# Vá para: https://github.com/fsegall/google-context-pilot/actions
+# Vá para: https://github.com/fsegall/gcloud_contextpilot/actions
 # Deve aparecer um workflow "Apply ContextPilot Proposals" rodando!
 ```
 

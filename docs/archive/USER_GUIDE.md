@@ -125,9 +125,9 @@ ContextPilot is your AI-powered development assistant that makes coding more pro
 - **Refresh**: Reload VS Code window if needed
 
 ### **Getting Help:**
-- **GitHub Issues**: [Report bugs](https://github.com/fsegall/google-context-pilot/issues)
+- **GitHub Issues**: [Report bugs](https://github.com/fsegall/gcloud_contextpilot/issues)
 - **Discord**: [Community support](https://discord.gg/contextpilot)
-- **Email**: support@contextpilot.ai
+- **Email**: contact@livresoltech.com
 
 ## 🔮 What's Coming
 

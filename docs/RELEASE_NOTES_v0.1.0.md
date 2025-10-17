@@ -73,9 +73,9 @@ After installation, configure your backend API URL in settings:
 
 ### 📚 Documentation
 
-- [README](https://github.com/fsegall/google-context-pilot/blob/main/extension/README.md)
-- [Security Guide](https://github.com/fsegall/google-context-pilot/blob/main/SECURITY.md)
-- [Roadmap](https://github.com/fsegall/google-context-pilot/blob/main/ROADMAP.md)
+- [README](https://github.com/fsegall/gcloud_contextpilot/blob/main/extension/README.md)
+- [Security Guide](https://github.com/fsegall/gcloud_contextpilot/blob/main/SECURITY.md)
+- [Roadmap](https://github.com/fsegall/gcloud_contextpilot/blob/main/ROADMAP.md)
 
 ### 🎉 What's Next?
 
@@ -89,13 +89,13 @@ After installation, configure your backend API URL in settings:
 
 We'd love to hear from you!
 
-- 🐛 **Bugs**: [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
-- 💡 **Ideas**: [Discussions](https://github.com/fsegall/google-context-pilot/discussions)
-- 📧 **Email**: hello@livre.solutions
+- 🐛 **Bugs**: [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
+- 💡 **Ideas**: [Discussions](https://github.com/fsegall/gcloud_contextpilot/discussions)
+- 📧 **Email**: contact@livresoltech.com
 
 ### 🏢 About Livre Solutions
 
-ContextPilot is developed by [Livre Solutions](https://livre.solutions), focused on creating innovative AI-powered tools for developers.
+ContextPilot is developed by [Livre Solutions](https://livre.solutions), focused on creating innovative AI and Web3 applications.
 
 ---
 

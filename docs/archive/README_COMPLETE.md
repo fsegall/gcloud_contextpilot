@@ -127,7 +127,7 @@ gcloud run deploy contextpilot-backend \
 
 ```bash
 # Aprovar via web dashboard
-# Workflow deve rodar em: https://github.com/fsegall/google-context-pilot/actions
+# Workflow deve rodar em: https://github.com/fsegall/gcloud_contextpilot/actions
 ```
 
 ---

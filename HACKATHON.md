@@ -331,11 +331,11 @@ Response to Extension
 
 ## 🔗 Important Links
 
-- **GitHub Repository:** https://github.com/fsegall/google-context-pilot
+- **GitHub Repository:** https://github.com/fsegall/gcloud_contextpilot
 - **Extension Download:** https://github.com/fsegall/gcloud_contextpilot/releases/tag/v0.1.0
 - **Live Backend API:** https://contextpilot-backend-581368740395.us-central1.run.app
 - **Health Check:** https://contextpilot-backend-581368740395.us-central1.run.app/health
-- **Documentation:** https://github.com/fsegall/google-context-pilot/tree/main/docs
+- **Documentation:** https://github.com/fsegall/gcloud_contextpilot/tree/main/docs
 - **Devpost Submission:** [Link TBD]
 
 ---
@@ -442,7 +442,7 @@ Special thanks to:
 
 **Team:** Livre Solutions  
 **Developer:** Felipe Segall ([@fsegall](https://github.com/fsegall))  
-**Email:** hello@livre.solutions  
+**Email:** contact@livresoltech.com  
 **Website:** https://livre.solutions
 
 ---

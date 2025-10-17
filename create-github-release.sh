@@ -127,9 +127,9 @@ After installation, configure your backend API URL in settings:
 
 ### 📚 Documentation
 
-- [README](https://github.com/fsegall/google-context-pilot/blob/main/extension/README.md)
-- [Security Guide](https://github.com/fsegall/google-context-pilot/blob/main/SECURITY.md)
-- [Roadmap](https://github.com/fsegall/google-context-pilot/blob/main/ROADMAP.md)
+- [README](https://github.com/fsegall/gcloud_contextpilot/blob/main/extension/README.md)
+- [Security Guide](https://github.com/fsegall/gcloud_contextpilot/blob/main/SECURITY.md)
+- [Roadmap](https://github.com/fsegall/gcloud_contextpilot/blob/main/ROADMAP.md)
 
 ### 🎉 What's Next?
 
@@ -143,8 +143,8 @@ After installation, configure your backend API URL in settings:
 
 We'd love to hear from you!
 
-- 🐛 **Bugs**: [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
-- 💡 **Ideas**: [Discussions](https://github.com/fsegall/google-context-pilot/discussions)
+- 🐛 **Bugs**: [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
+- 💡 **Ideas**: [Discussions](https://github.com/fsegall/gcloud_contextpilot/discussions)
 - 📧 **Email**: hello@livre.solutions
 
 ### 🏢 About Livre Solutions
@@ -179,10 +179,10 @@ if [ $? -eq 0 ]; then
     echo "🎉 SUCESSO! Release publicado!"
     echo ""
     echo "📍 Release URL:"
-    echo "   https://github.com/fsegall/google-context-pilot/releases/tag/$VERSION"
+    echo "   https://github.com/fsegall/gcloud_contextpilot/releases/tag/$VERSION"
     echo ""
     echo "📥 Download direto do .vsix:"
-    echo "   https://github.com/fsegall/google-context-pilot/releases/download/$VERSION/contextpilot-0.1.0.vsix"
+    echo "   https://github.com/fsegall/gcloud_contextpilot/releases/download/$VERSION/contextpilot-0.1.0.vsix"
     echo ""
     echo "💡 Compartilhe com usuários:"
     echo "   1. Download: [link acima]"

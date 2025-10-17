@@ -148,7 +148,7 @@ See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for d
 
 ```bash
 # Clone repository
-git clone https://github.com/fsegall/google-context-pilot.git
+git clone https://github.com/fsegall/gcloud_contextpilot.git
 cd google-context-pilot
 
 # Setup backend
@@ -259,8 +259,8 @@ See [ROADMAP.md](ROADMAP.md) for detailed roadmap.
 We welcome contributions! ContextPilot is open source and community-driven.
 
 ### Ways to Contribute
-- 🐛 Report bugs via [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
-- 💡 Suggest features via [Discussions](https://github.com/fsegall/google-context-pilot/discussions)
+- 🐛 Report bugs via [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
+- 💡 Suggest features via [Discussions](https://github.com/fsegall/gcloud_contextpilot/discussions)
 - 🔧 Submit pull requests (see [CONTRIBUTING.md](CONTRIBUTING.md))
 - 📖 Improve documentation
 - 🎨 Design improvements
@@ -290,7 +290,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🏢 About Livre Solutions
 
-**ContextPilot** is developed by [**Livre Solutions**](https://livre.solutions), a technology company focused on creating innovative AI-powered tools for developers and teams.
+**ContextPilot** is developed by [**Livre Solutions**](https://livre.solutions), a technology company focused on creating innovative AI and Web3 applications.
 
 **Our Mission**: Empower developers with intelligent automation and gamification to boost productivity and make coding more rewarding.
 
@@ -298,14 +298,15 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - 🌐 Website: [livre.solutions](https://livre.solutions)
 - 🐦 Twitter: [@livresolutions](https://twitter.com/livresolutions)
 - 💼 LinkedIn: [Livre Solutions](https://linkedin.com/company/livre-solutions)
-- 📧 Contact: hello@livre.solutions
+- 📧 Contact: contact@livresoltech.com
 
 ---
 
 ## 🆘 Support
 
-- **Issues**: [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
-- **Email**: support@contextpilot.ai
+- **Issues**: [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/fsegall/gcloud_contextpilot/discussions)
+- **Email**: contact@livresoltech.com
 - **Documentation**: [docs/INDEX.md](docs/INDEX.md)
 
 ---

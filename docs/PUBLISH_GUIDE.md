@@ -48,7 +48,7 @@ Publicar a extensão **ContextPilot by Livre Solutions** no VS Code Marketplace 
    ```
    Publisher Name: Livre Solutions
    Publisher ID: livresolutions (deve ser único!)
-   Email: hello@livre.solutions
+   Email: contact@livresoltech.com
    Website: https://livre.solutions
    Description: AI-powered tools for developers
    ```
