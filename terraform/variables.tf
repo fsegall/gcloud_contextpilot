@@ -24,3 +24,9 @@ variable "environment" {
   default     = "production"
 }
 
+variable "billing_account_id" {
+  description = "Google Cloud Billing Account ID (format: XXXXXX-XXXXXX-XXXXXX)"
+  type        = string
+  default     = "015692-3F1860-6F330A"
+}
+

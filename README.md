@@ -1,315 +1,345 @@
-# 🧠 ContextPilot - AI Agents + Web3 Incentive Layer
+# 🚀 ContextPilot - AI-Powered Development Assistant
 
-> **Multi-agent AI system for developer productivity with blockchain-based rewards**
+**By [Livre Solutions](https://livre.solutions)**
 
-[![Cloud Run](https://img.shields.io/badge/Cloud%20Run-Ready-4285F4?logo=googlecloud)](https://cloud.google.com/run)
-[![Polygon](https://img.shields.io/badge/Polygon-Mainnet-8247E5?logo=polygon)](https://polygon.technology)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
-Built for the **Cloud Run Hackathon 2025** - AI Agents Category
+> Transform your development workflow with intelligent AI agents, automated documentation, and gamification rewards.
 
 ---
 
-## 📖 Overview
+## 🏆 **Hackathon Entry**
 
-**ContextPilot** helps developers manage project context through intelligent AI agents while rewarding contributions with CPT tokens on Polygon blockchain.
+> **This project was developed for the [Cloud Run Hackathon](https://run.devpost.com/) hosted on Devpost.**
+> 
+> **Category:** AI Agents  
+> **Challenge:** Build a multi-agent application deployed on Cloud Run  
+> **Deadline:** November 10, 2025
 
-### The Problem
-- Developers lose project context when switching tasks
-- No measurable incentives for quality documentation
-- Manual tracking of milestones and progress
-- Fragmented project state across tools
+[![Cloud Run Hackathon](https://img.shields.io/badge/Hackathon-Cloud%20Run%202025-4285F4?logo=googlecloud&logoColor=white)](https://run.devpost.com/)
+[![Cloud Run](https://img.shields.io/badge/Cloud%20Run-Deployed-4285F4?logo=googlecloud)](https://cloud.google.com/run)
+[![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-blue?logo=visualstudiocode)](https://github.com/fsegall/gcloud_contextpilot/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/fsegall/gcloud_contextpilot)](https://github.com/fsegall/gcloud_contextpilot/releases)
+
+**🎯 Devpost Submission:** [View on Devpost](https://devpost.com/software/contextpilot) _(coming soon)_
+
+---
+
+---
+
+## 📖 What is ContextPilot?
+
+**ContextPilot** is an AI-powered development assistant that helps you:
+
+- 📝 **Maintain documentation automatically** through specialized AI agents
+- 🤖 **Get intelligent code change proposals** with one-click approval
+- 🎮 **Earn rewards** (CPT tokens) for productive development actions
+- 📊 **Track project context** in real-time across your entire codebase
+- ✅ **Automate git commits** with semantic messages
+
+### The Problem We Solve
+
+- 😓 Developers lose project context when switching tasks
+- 📄 Documentation becomes outdated quickly
+- 🔄 Manual git operations are time-consuming
+- 🎯 No measurable incentives for code quality
 
 ### Our Solution
-- **5 Specialized AI Agents** that collaborate via Google ADK
-- **CPT Token** rewards for valuable contributions
-- **Blockchain-verified** impact tracking
-- **Real-time coaching** with micro-actions
+
+- 🤖 **Multi-Agent System**: 6 specialized AI agents working together
+- 🎮 **Gamification**: CPT tokens, achievements, daily streaks
+- ⚡ **One-Click Workflows**: Approve proposals and commit automatically
+- 🔒 **Local-First**: Your code stays on your machine
 
 ---
 
-## 🏆 Hackathon Category: AI Agents
+## ✨ Key Features
 
-✅ **Multi-agent system** with 5 specialized agents  
-✅ **Google Agent Development Kit (ADK)** for coordination  
-✅ **Cloud Run** deployment (Services + Jobs + Workers)  
-✅ **Gemini** for LLM reasoning (can switch from OpenAI)  
-✅ **Real-world problem** solving with measurable impact
+### 🤖 Multi-Agent System
 
----
+| Agent | Purpose |
+|-------|---------|
+| **Spec Agent** | Generates and maintains documentation |
+| **Git Agent** | Intelligent semantic commits |
+| **Context Agent** | Real-time project analysis |
+| **Coach Agent** | Personalized development tips |
+| **Milestone Agent** | Progress tracking |
+| **Strategy Agent** | Pattern analysis and improvements |
 
-## 🤖 AI Agents
+All agents communicate via **Google Cloud Pub/Sub** and share state in **Firestore**.
 
-| Agent | Purpose | Cloud Run Type |
-|-------|---------|---------------|
-| **Context** | Index repo state, detect changes | Job |
-| **Spec** | Curate .md artifacts, validate docs | Service |
-| **Strategy** | Analyze patterns, suggest improvements | Job |
-| **Milestone** | Track progress, create checkpoints | Worker Pool |
-| **Git** | Git operations, branches, rollbacks | Service |
-| **Coach** | Pragmatic guidance, unblocking, micro-actions | Service |
+### 🎮 Gamification & Rewards
 
-All agents communicate via **Pub/Sub** event bus and share state in **Firestore**.
+- **CPT Tokens**: Earn points for productive actions
+  - +10 CPT for approving proposals
+  - +5 CPT for documentation updates
+  - +20 CPT for milestone completion
+- **Achievements**: Unlock badges (First Approval, Productivity Pro, Context Champion)
+- **Daily Streaks**: Build consistent development habits
+- **Leaderboards**: Compete with other developers (coming soon)
 
----
+### 📊 Smart Change Proposals
 
-## 🪙 CPT Token (Web3 Layer)
+AI agents analyze your code and propose:
+- Documentation improvements
+- Code refactoring suggestions
+- Architecture updates
+- Missing specs
 
-### Dual-Purpose Token
-1. **Reward Token**: Earn CPT by contributing (commits, docs, reviews)
-2. **Utility Token**: Spend CPT on premium features
-
-### Tokenomics
-- **Max Supply per Cycle**: 1,000,000 CPT / 30 days
-- **Burn Mechanism**: Inactive accounts (30+ days) auto-burn
-- **Distribution**: Off-chain accumulation → On-chain batch minting
-- **Blockchain**: Polygon PoS (low fees, fast)
-
-See [TOKENOMICS.md](TOKENOMICS.md) for full economics.
+You review and approve with **one click** - automatic git commit included!
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-Frontend (React + RainbowKit)
+VS Code Extension (Local)
     ↓
-FastAPI Backend (Cloud Run Service)
-    ├─► AI Agents (Pub/Sub coordination)
-    ├─► Rewards Engine (Firestore + Blockchain)
-    └─► CPT Smart Contract (Polygon)
+Google Cloud Run (Backend API)
+    ├─► Multi-Agent System (Pub/Sub coordination)
+    ├─► Firestore (Proposals & State)
+    ├─► Gemini API (AI Generation)
+    └─► Secret Manager (API Keys)
+    
+Local Git
+    ↑
+Automatic Commits (After Approval)
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design.
+**Key Design Decisions:**
+- 🔒 **Local Git Operations**: Code never leaves your machine
+- ☁️ **Cloud-Powered AI**: Leverage GCP's Gemini for intelligence
+- 🎯 **Event-Driven**: Agents react to events, not polls
+- 🔐 **Secure**: Rate limiting, abuse detection, secrets management
+
+See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for details.
 
 ---
 
 ## 🚀 Quick Start
 
+### Option 1: Install VS Code Extension (Recommended)
+
+1. **Download from GitHub Release:**
+   ```bash
+   # Download the .vsix file
+   curl -LO https://github.com/fsegall/gcloud_contextpilot/releases/download/v0.1.0/contextpilot-0.1.0.vsix
+   
+   # Install in VS Code/Cursor
+   code --install-extension contextpilot-0.1.0.vsix
+   ```
+
+2. **Or install via UI:**
+   - Download `.vsix` from [Releases](https://github.com/fsegall/gcloud_contextpilot/releases)
+   - VS Code: Extensions → `...` → Install from VSIX...
+
+3. **Configure API URL** (Settings):
+   ```json
+   {
+     "contextpilot.apiUrl": "https://contextpilot-backend-581368740395.us-central1.run.app"
+   }
+   ```
+
+4. **Start using:**
+   - Open any project
+   - Look for ContextPilot icon (🚀) in sidebar
+   - View proposals, approve changes, earn CPT!
+
+### Option 2: Run Backend Locally
+
 ```bash
-# 1. Clone repo
-git clone https://github.com/yourorg/google-context-pilot.git
+# Clone repository
+git clone https://github.com/fsegall/google-context-pilot.git
 cd google-context-pilot
 
-# 2. Install dependencies
-cd back-end && pip install -r requirements.txt
-cd ../front-end && npm install
-cd ../contracts && forge install
+# Setup backend
+cd back-end
+python -m venv .venv
+source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
+pip install -r requirements.txt
 
-# 3. Deploy smart contract to testnet
-cd contracts && ./scripts/deploy.sh
+# Configure environment
+cp .env.example .env
+# Edit .env with your GOOGLE_API_KEY (Gemini)
 
-# 4. Run locally
-cd back-end && uvicorn app.server:app --reload  # Terminal 1
-cd front-end && npm run dev                      # Terminal 2
+# Run server
+uvicorn app.server:app --reload --port 8000
 
-# 5. Open http://localhost:5173
+# Extension will connect to http://localhost:8000
 ```
 
-See [QUICKSTART.md](QUICKSTART.md) for detailed setup.
-
----
-
-## 🎯 Key Features
-
-### For Developers
-- ✅ **Automated Context Tracking**: Agents monitor your repo
-- ✅ **Change Proposals**: Agents suggest, you approve (never auto-modify code)
-- ✅ **Actionable Coaching**: Micro-tasks (≤25 min)
-- ✅ **IDE Integration**: VSCode/Cursor extensions (coming soon)
-- ✅ **Earn While You Code**: CPT rewards for contributions
-- ✅ **Leaderboard**: Compete with peers
-
-### For Teams
-- ✅ **Standardized Checkpoints**: Git-backed milestones
-- ✅ **Quantifiable Impact**: Token-based metrics
-- ✅ **Cross-Project Insights**: BigQuery analytics
-
-### Technical Highlights
-- ✅ **Event-Driven**: Pub/Sub coordination
-- ✅ **Pluggable Adapters**: Off-chain ↔ On-chain switchable
-- ✅ **Cloud-Native**: Fully serverless (Cloud Run)
-- ✅ **Secure**: OpenZeppelin contracts, Secret Manager
-
----
-
-## 📊 Tech Stack
-
-### Backend
-- **Google Cloud Run** (Services + Jobs + Workers)
-- **FastAPI** (Python REST API)
-- **Firestore** (NoSQL database)
-- **Pub/Sub** (Event bus)
-- **BigQuery** (Analytics)
-
-### Frontend
-- **React** + TypeScript + Vite
-- **RainbowKit** (Wallet connection)
-- **wagmi** + **viem** (Ethereum interactions)
-- **TailwindCSS** + **shadcn/ui**
-
-### Blockchain
-- **Polygon** PoS (Mainnet + Mumbai testnet)
-- **Solidity** + **Foundry** (Smart contracts)
-- **OpenZeppelin** (Audited libraries)
-
-### AI/LLM
-- **OpenAI GPT-4** (current)
-- **Google Gemini** (ready to switch)
-- **Agent Development Kit** (ADK)
-
----
-
-## 📈 Rewards System
-
-### Earning CPT
-
-| Action | Points |
-|--------|--------|
-| CLI usage | +10 |
-| Documentation | +5 |
-| Strategy implemented | +15 |
-| Milestone completed | +20 |
-| Coach action done | +10 |
-
-### Utility Consumption
-
-| Action | Cost |
-|--------|------|
-| Gemini API call | -2 |
-| Premium agent | -5 |
-| Analytics export | -3 |
-
-### Flow
-
-```
-Developer Action
-    ↓
-Agent Detects
-    ↓
-Firestore: +Points (instant)
-    ↓
-Daily Batch Job
-    ↓
-Smart Contract: mint() → Polygon
-    ↓
-Wallet Balance Updated
-```
-
----
-
-## 🎬 Demo
-
-### Video (3 min)
-- **Problem**: Context loss & lack of incentives
-- **Solution**: Multi-agent system + CPT rewards
-- **Demo**: Commit → Agents → Rewards → Leaderboard
-
-### Try It Live
-- **Testnet Demo**: [demo.contextpilot.dev](https://demo.contextpilot.dev)
-- **Contract**: [mumbai.polygonscan.com/...](https://mumbai.polygonscan.com/)
-
----
-
-## 🏅 Hackathon Submission
-
-### What We Built
-1. ✅ **5 AI Agents** using Google ADK
-2. ✅ **CPT Smart Contract** (ERC-20 + custom logic)
-3. ✅ **Cloud Run Deployment** (multi-service)
-4. ✅ **Web3 Integration** (RainbowKit + viem)
-5. ✅ **Rewards Engine** (off-chain + on-chain)
-
-### Google Cloud Services Used
-- **Cloud Run** (Services, Jobs, Worker Pools)
-- **Firestore** (Database)
-- **Google Blockchain Node Engine** (Polygon PoS nodes)
-- **Cloud Storage** (Snapshots)
-- **BigQuery** (Analytics)
-- **Pub/Sub** (Event bus)
-- **Secret Manager** (Keys)
-- **Cloud Build** (CI/CD)
-- **Cloud Scheduler** (Cron jobs)
-
-### Bonus Points
-- ✅ **Blog Post**: "Building ContextPilot with Cloud Run" (Medium)
-- ✅ **Social Posts**: #CloudRunHackathon
-- ✅ **Multiple Services**: Frontend + API + Workers
-- ✅ **Gemini Ready**: Easy switch from OpenAI
+See [docs/deployment/QUICKSTART.md](docs/deployment/QUICKSTART.md) for detailed setup.
 
 ---
 
 ## 📚 Documentation
 
-Comprehensive documentation is available in the [`docs/`](docs/) directory:
+### For Users
+- **[Extension README](extension/README.md)** - How to use the VS Code extension
+- **[User Guide](docs/guides/EXTENSION_DEVELOPMENT.md)** - Getting started
+- **[Troubleshooting](SECURITY.md)** - Common issues
 
-- **[📚 Documentation Index](docs/INDEX.md)** - Start here for complete navigation
-- **[🏗️ Architecture](docs/architecture/)** - System design, agents, events, tokenomics
-- **[🚀 Deployment](docs/deployment/)** - Setup guides, deployment instructions
-- **[📖 Guides](docs/guides/)** - Implementation guides and tutorials
-- **[📊 Progress](docs/progress/)** - Development progress reports
-- **[🤖 Agent Contracts](docs/agents/)** - Individual agent specifications
+### For Developers
+- **[Architecture](docs/architecture/ARCHITECTURE.md)** - System design
+- **[Agents](docs/architecture/AGENTS.md)** - Multi-agent system
+- **[Custom Artifacts](docs/architecture/CUSTOM_ARTIFACTS.md)** - Spec-driven development
+- **[API Documentation](back-end/README.md)** - Backend API reference
 
-### Quick Links
-- **Getting Started**: [docs/deployment/QUICKSTART.md](docs/deployment/QUICKSTART.md)
-- **For Judges**: See [docs/INDEX.md](docs/INDEX.md) → "For Hackathon Judges"
-- **Architecture Deep Dive**: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)
+### For Hackathon Judges
+- **[Deployment Guide](docs/deployment/DEPLOYMENT.md)** - How we use Cloud Run
+- **[Security & Protection](SECURITY.md)** - Rate limiting and abuse detection
+- **[Roadmap](ROADMAP.md)** - Future vision including blockchain
+
+### Project Documentation
+- **[📚 Full Documentation Index](docs/INDEX.md)** - Complete navigation
+- **[🏗️ Architecture Docs](docs/architecture/)** - Design decisions
+- **[🚀 Deployment Guides](docs/deployment/)** - Setup and deployment
+- **[🤖 Agent Specifications](docs/agents/)** - Individual agent contracts
+
+---
+
+## 🛡️ Security & Protection
+
+ContextPilot implements multiple layers of protection:
+
+- **Rate Limiting**: 100 requests/hour per IP
+- **Abuse Detection**: Automatic blacklisting of malicious patterns
+- **Budget Alerts**: GCP cost monitoring and alerts
+- **Local Git**: Your code never leaves your machine
+- **Secret Management**: API keys secured in GCP Secret Manager
+
+See [SECURITY.md](SECURITY.md) for complete security documentation.
+
+---
+
+## 🎯 Google Cloud Services Used
+
+| Service | Purpose |
+|---------|---------|
+| **Cloud Run** | Backend API (serverless) |
+| **Pub/Sub** | Event bus for agent communication |
+| **Firestore** | NoSQL database for proposals and state |
+| **Secret Manager** | Secure API key storage |
+| **Container Registry** | Docker image storage |
+| **Cloud Build** | CI/CD pipeline |
+| **Monitoring** | Dashboards and alerts |
+| **Gemini API** | AI-powered agent intelligence |
+
+**Infrastructure as Code:** Fully deployed with [Terraform](terraform/) for deterministic, reproducible infrastructure.
+
+---
+
+## 🗺️ Roadmap
+
+### ✅ Phase 1: Beta Launch (Current)
+- Multi-agent system with 6 specialized agents
+- VS Code extension with gamification
+- Google Cloud Run backend
+- Local git integration
+- GitHub Release distribution
+
+### 🔜 Phase 2: Blockchain Integration
+- On-chain CPT token minting (Polygon)
+- Leaderboards and competitive features
+- Cross-project analytics
+- Team collaboration
+
+### 🚀 Phase 3: Scale & Enterprise
+- VS Code Marketplace publication
+- Open VSX Registry
+- Custom agent creation
+- Enterprise features (team dashboards, analytics)
+- Multi-IDE support
+
+See [ROADMAP.md](ROADMAP.md) for detailed roadmap.
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md).
+We welcome contributions! ContextPilot is open source and community-driven.
+
+### Ways to Contribute
+- 🐛 Report bugs via [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
+- 💡 Suggest features via [Discussions](https://github.com/fsegall/google-context-pilot/discussions)
+- 🔧 Submit pull requests (see [CONTRIBUTING.md](CONTRIBUTING.md))
+- 📖 Improve documentation
+- 🎨 Design improvements
 
 ### Development Setup
 ```bash
-# Install pre-commit hooks
-pip install pre-commit
-pre-commit install
+# Backend
+cd back-end
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pytest
 
-# Run tests
-cd back-end && pytest
-cd contracts && forge test
-cd front-end && npm test
+# Extension
+cd extension
+npm install
+npm run compile
+npm test
 ```
 
 ---
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE)
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-## 👥 Team
+## 🏢 About Livre Solutions
 
-Built by developers, for developers.
+**ContextPilot** is developed by [**Livre Solutions**](https://livre.solutions), a technology company focused on creating innovative AI-powered tools for developers and teams.
 
-- **Felipe Segall** - [@fsegall](https://github.com/fsegall)
-- With AI assistance from: Claude, ChatGPT, Gemini
+**Our Mission**: Empower developers with intelligent automation and gamification to boost productivity and make coding more rewarding.
+
+**Connect with us:**
+- 🌐 Website: [livre.solutions](https://livre.solutions)
+- 🐦 Twitter: [@livresolutions](https://twitter.com/livresolutions)
+- 💼 LinkedIn: [Livre Solutions](https://linkedin.com/company/livre-solutions)
+- 📧 Contact: hello@livre.solutions
+
+---
+
+## 🆘 Support
+
+- **Issues**: [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
+- **Email**: support@contextpilot.ai
+- **Documentation**: [docs/INDEX.md](docs/INDEX.md)
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **Google Cloud** for Cloud Run & infrastructure
-- **Polygon** for fast & cheap transactions
-- **OpenZeppelin** for secure smart contracts
-- **RainbowKit** for beautiful wallet UX
+- **Google Cloud** for Cloud Run, Pub/Sub, Firestore, and Gemini API
+- **VS Code** team for the excellent extension API
+- **OpenZeppelin** for secure smart contract libraries
+- **Polygon** for fast and affordable blockchain infrastructure
+- **Open source community** for inspiration and tools
 
 ---
 
-## 🔗 Links
+## 📊 Project Stats
 
-- **GitHub**: [github.com/yourorg/contextpilot](https://github.com/yourorg/contextpilot)
-- **Demo**: [demo.contextpilot.dev](https://demo.contextpilot.dev)
-- **Docs**: [docs.contextpilot.dev](https://docs.contextpilot.dev)
-- **Discord**: [discord.gg/contextpilot](https://discord.gg/contextpilot)
+- **6 AI Agents** working in coordination
+- **15+ endpoints** in production API
+- **100% serverless** architecture
+- **Rate limited** and abuse-protected
+- **Local-first** git operations
+- **Cloud-powered** AI intelligence
 
 ---
 
-**Built for Cloud Run Hackathon 2025 🚀**
+**Made with ❤️ by Livre Solutions for developers who love productivity and gamification!**
 
-[View on Devpost](https://devpost.com/software/contextpilot) • [Demo Video](https://youtube.com/...)
+**#AI #VSCode #Productivity #CloudRun #Gemini #GoogleCloud #Hackathon**
 
+---
 
+## 🏅 Hackathon Entry
+
+**Category**: AI Agents  
+**Event**: Google Cloud Run Hackathon 2025  
+**Demo**: [Extension Download](https://github.com/fsegall/gcloud_contextpilot/releases/v0.1.0)  
+**Live Backend**: [API Health Check](https://contextpilot-backend-581368740395.us-central1.run.app/health)

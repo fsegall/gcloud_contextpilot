@@ -1,9 +1,10 @@
 {
   "name": "contextpilot",
-  "displayName": "ContextPilot",
-  "description": "AI-powered context management with multi-agent system and blockchain rewards",
+  "displayName": "ContextPilot by Livre Solutions",
+  "description": "AI-powered context management with multi-agent system and blockchain rewards. By Livre Solutions.",
   "version": "0.1.0",
-  "publisher": "contextpilot",
+  "publisher": "livresoltech",
+  "icon": "assets/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/fsegall/google-context-pilot"
@@ -58,6 +59,11 @@
         "command": "contextpilot.viewRewards",
         "title": "ContextPilot: View CPT Balance",
         "icon": "$(star)"
+      },
+      {
+        "command": "contextpilot.viewRelatedFiles",
+        "title": "ContextPilot: View Related Files",
+        "icon": "$(file-text)"
       },
       {
         "command": "contextpilot.askCoach",
@@ -182,6 +188,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "contextpilot.viewRelatedFiles",
+          "when": "view == contextpilot.proposals && viewItem == proposal",
+          "group": "navigation"
+        },
         {
           "command": "contextpilot.approveProposal",
           "when": "view == contextpilot.proposals && viewItem == proposal",

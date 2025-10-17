@@ -77,8 +77,29 @@ export async function approveProposal(
       vscode.window.showErrorMessage('Failed to approve proposal in backend');
       return;
     }
+
+    // 5. Add rewards
+    try {
+      const { RewardsService } = await import('../services/rewards');
+      const rewards = new RewardsService();
+      const userId = 'local_dev'; // TODO: Get actual user ID
+      const userReward = await rewards.addCPT(userId, 10, 'approve_proposal');
+      
+      // Show reward notification
+      vscode.window.showInformationMessage(
+        `🎉 +10 CPT! Total: ${userReward.cptBalance} CPT`,
+        'View Rewards'
+      ).then(selection => {
+        if (selection === 'View Rewards') {
+          vscode.commands.executeCommand('contextpilot.viewRewards');
+        }
+      });
+    } catch (rewardError) {
+      console.warn('[approveProposal] Reward system error:', rewardError);
+      // Don't fail the approval for reward errors
+    }
     
-    // 5. Apply changes locally
+    // 6. Apply changes locally
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -564,5 +585,133 @@ function getRewardsWebviewContent(balance: any, leaderboard: any[]): string {
     </div>
 </body>
 </html>`;
+}
+
+export async function viewRelatedFiles(service: ContextPilotService, proposalId: string): Promise<void> {
+    try {
+        // Get proposal details
+        const proposal = await service.getProposal(proposalId);
+        if (!proposal) {
+            vscode.window.showErrorMessage('Proposal not found');
+            return;
+        }
+
+        // Get related files from proposal
+        const relatedFiles: string[] = [];
+        
+        // Add files from proposed changes
+        if (proposal.proposed_changes) {
+            for (const change of proposal.proposed_changes) {
+                if (change.file_path && !relatedFiles.includes(change.file_path)) {
+                    relatedFiles.push(change.file_path);
+                }
+            }
+        }
+
+        // Add context files if available
+        const contextFiles = [
+            'README.md',
+            'project_scope.md',
+            'ARCHITECTURE.md',
+            'project_checklist.md',
+            'daily_checklist.md'
+        ];
+
+        // Show files in a quick pick
+        if (relatedFiles.length === 0) {
+            vscode.window.showInformationMessage('No related files found for this proposal');
+            return;
+        }
+
+        const fileItems = relatedFiles.map(filePath => ({
+            label: `$(file) ${filePath}`,
+            description: 'Related file',
+            filePath: filePath
+        }));
+
+        // Add context files option
+        fileItems.push({
+            label: '$(folder) View Context Files',
+            description: 'Show project context files',
+            filePath: 'context_files'
+        });
+
+        const selectedItem = await vscode.window.showQuickPick(fileItems, {
+            placeHolder: `Related files for: ${proposal.title}`,
+            title: 'View Related Files'
+        });
+
+        if (!selectedItem) return;
+
+        if (selectedItem.filePath === 'context_files') {
+            // Show context files
+            const contextItems = contextFiles.map(filePath => ({
+                label: `$(file-text) ${filePath}`,
+                description: 'Project context file',
+                filePath: filePath
+            }));
+
+            const contextFile = await vscode.window.showQuickPick(contextItems, {
+                placeHolder: 'Select context file to view',
+                title: 'Project Context Files'
+            });
+
+            if (contextFile) {
+                await openFileInEditor(contextFile.filePath);
+            }
+        } else {
+            // Open the selected file
+            await openFileInEditor(selectedItem.filePath);
+        }
+
+    } catch (error) {
+        console.error('[viewRelatedFiles] Error:', error);
+        vscode.window.showErrorMessage(`Failed to view related files: ${error}`);
+    }
+}
+
+async function openFileInEditor(filePath: string): Promise<void> {
+    try {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceRoot) {
+            vscode.window.showErrorMessage('No workspace folder open');
+            return;
+        }
+
+        const fullPath = require('path').join(workspaceRoot, filePath);
+        const uri = vscode.Uri.file(fullPath);
+
+        // Check if file exists
+        try {
+            await vscode.workspace.fs.stat(uri);
+        } catch (error) {
+            // File doesn't exist, offer to create it
+            const createFile = await vscode.window.showWarningMessage(
+                `File ${filePath} doesn't exist. Create it?`,
+                'Create File',
+                'Cancel'
+            );
+
+            if (createFile === 'Create File') {
+                // Create directory if needed
+                const dirPath = require('path').dirname(fullPath);
+                await vscode.workspace.fs.createDirectory(vscode.Uri.file(dirPath));
+                
+                // Create empty file
+                await vscode.workspace.fs.writeFile(uri, new Uint8Array());
+                vscode.window.showInformationMessage(`Created ${filePath}`);
+            } else {
+                return;
+            }
+        }
+
+        // Open file in editor
+        const document = await vscode.workspace.openTextDocument(uri);
+        await vscode.window.showTextDocument(document);
+
+    } catch (error) {
+        console.error('[openFileInEditor] Error:', error);
+        vscode.window.showErrorMessage(`Failed to open file: ${error}`);
+    }
 }
 

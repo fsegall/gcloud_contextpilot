@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body, Query, HTTPException
+from fastapi import FastAPI, Body, Query, HTTPException, Request
 from typing import Optional
 from app.git_context_manager import Git_Context_Manager
 from datetime import datetime
@@ -12,9 +12,13 @@ from datetime import datetime, timezone
 from fastapi import Body, Query
 import logging
 from fastapi.middleware.cors import CORSMiddleware
+from collections import defaultdict
+from time import time
+
 # Temporarily commented - install dependencies later
 # from app.routers import rewards, proposals, events
 from app.agents.spec_agent import SpecAgent
+from app.middleware.abuse_detection import abuse_detector
 from app.utils.workspace_manager import get_workspace_path
 from app.repositories.proposal_repository import get_proposal_repository
 import os
@@ -25,26 +29,90 @@ from pathlib import Path
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('server.log', mode='w'),
-        logging.StreamHandler()
-    ],
-    force=True
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("server.log", mode="w"), logging.StreamHandler()],
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
 CONTEXT_PILOT_URL = "http://localhost:8000"
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 app = FastAPI(
     title="ContextPilot API",
     description="Manage long-term project scope using Git + LLMs + Web3 incentives. Stay aligned and intentional.",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
+
+# Simple in-memory rate limiter
+rate_limit_store = defaultdict(list)
+
+
+def check_rate_limit(
+    client_ip: str, max_requests: int = 100, window_seconds: int = 3600
+) -> bool:
+    """
+    Rate limiting: max_requests per window_seconds per IP.
+    Default: 100 requests/hour per IP
+    """
+    now = time()
+    cutoff = now - window_seconds
+
+    # Clean old requests
+    rate_limit_store[client_ip] = [
+        timestamp for timestamp in rate_limit_store[client_ip] if timestamp > cutoff
+    ]
+
+    # Check limit
+    if len(rate_limit_store[client_ip]) >= max_requests:
+        return False
+
+    # Add current request
+    rate_limit_store[client_ip].append(now)
+    return True
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting and abuse detection to all requests"""
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Skip rate limiting for health check
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    # Check for abuse patterns
+    abuse_check = abuse_detector.check_request(request)
+    if abuse_check["should_block"]:
+        logger.error(f"🚫 Blocking request from {client_ip}: {abuse_check['reason']}")
+        raise HTTPException(
+            status_code=403, detail="Access denied due to suspicious activity."
+        )
+
+    if abuse_check["suspicious"]:
+        logger.warning(
+            f"⚠️ Suspicious request from {client_ip}: {abuse_check['reason']}"
+        )
+
+    # Check rate limit (100 req/hour per IP)
+    if not check_rate_limit(client_ip, max_requests=100, window_seconds=3600):
+        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        abuse_detector.record_error(client_ip, 429)
+        raise HTTPException(
+            status_code=429, detail="Rate limit exceeded. Try again later."
+        )
+
+    response = await call_next(request)
+
+    # Record errors for abuse detection
+    if response.status_code >= 400:
+        abuse_detector.record_error(client_ip, response.status_code)
+
+    return response
+
 
 # Add CORS middleware
 app.add_middleware(
@@ -68,34 +136,39 @@ def get_manager(workspace_id: str = "default"):
 @app.get("/context")
 def get_context(workspace_id: str = Query("default")):
     logger.info(f"GET /context called with workspace_id: {workspace_id}")
-    
+
     try:
         logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
         manager = get_manager(workspace_id)
-        
+
         logger.info("Getting project context...")
         context = manager.get_project_context()
         logger.info("Context retrieved successfully")
-        
+
         return context
-        
+
     except Exception as e:
         logger.error(f"Error in context endpoint: {str(e)}")
         return {"error": f"Failed to get context: {str(e)}"}
 
+
 @app.get("/context/milestones")
 def get_milestones(workspace_id: str = Query("default")):
     manager = get_manager(workspace_id)
-    print('context', manager.get_project_context())
+    print("context", manager.get_project_context())
     context = manager.get_project_context()
     checkpoint = context.get("checkpoint", {})
     milestones = checkpoint.get("milestones", [])
-    print('milestones', milestones)
+    print("milestones", milestones)
     return {"milestones": milestones}
 
 
 @app.post("/commit")
-def manual_commit(message: str = "Manual context update", agent: str = "manual", workspace_id: str = Query("default")):
+def manual_commit(
+    message: str = "Manual context update",
+    agent: str = "manual",
+    workspace_id: str = Query("default"),
+):
     manager = get_manager(workspace_id)
     commit = manager.commit_changes(message=message, agent=agent)
     return {"status": "success", "commit": commit}
@@ -122,11 +195,11 @@ def get_log(workspace_id: str = Query("default")):
 @app.get("/coach")
 def get_coach_tip(workspace_id: str = Query("default")):
     logger.info(f"GET /coach called with workspace_id: {workspace_id}")
-    
+
     try:
         logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
         manager = get_manager(workspace_id)
-        
+
         logger.info("Getting project context...")
         state = manager.get_project_context()
         checkpoint = state.get("checkpoint")
@@ -139,7 +212,7 @@ def get_coach_tip(workspace_id: str = Query("default")):
         today = datetime.today().date()
         milestones = checkpoint.get("milestones", [])
         status = checkpoint.get("current_status", "No current status recorded.")
-        
+
         logger.info(f"Current status: {status}")
         logger.info(f"Number of milestones: {len(milestones)}")
         logger.info(f"Number of history entries: {len(history)}")
@@ -174,14 +247,20 @@ def get_coach_tip(workspace_id: str = Query("default")):
                 return {"tip": tip}
             elif days_left == 0:
                 logger.info("Generated deadline tip")
-                return {"tip": f"Today is the deadline for '{name}'! Time to wrap it up 🎯"}
+                return {
+                    "tip": f"Today is the deadline for '{name}'! Time to wrap it up 🎯"
+                }
             else:
                 logger.info("Generated milestone reminder tip")
-                return {"tip": f"{days_left} day(s) left until the milestone '{name}'. Stay focused and make progress today!"}
+                return {
+                    "tip": f"{days_left} day(s) left until the milestone '{name}'. Stay focused and make progress today!"
+                }
 
         logger.info("No milestones found, generating default tip")
-        return {"tip": "No milestones found. You can add one to help guide your progress!"}
-        
+        return {
+            "tip": "No milestones found. You can add one to help guide your progress!"
+        }
+
     except Exception as e:
         logger.error(f"Error in coach endpoint: {str(e)}")
         return {"tip": f"Error generating coach tip: {str(e)}"}
@@ -193,40 +272,44 @@ def update_checkpoint(
     goal: str = Body(...),
     current_status: str = Body(...),
     milestones: list[dict] = Body(...),
-    workspace_id: str = Query("default")
+    workspace_id: str = Query("default"),
 ):
     logger.info(f"POST /update called with workspace_id: {workspace_id}")
     logger.info(f"Project name: {project_name}")
     logger.info(f"Goal: {goal}")
     logger.info(f"Current status: {current_status}")
     logger.info(f"Number of milestones: {len(milestones)}")
-    
+
     try:
         logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
         manager = get_manager(workspace_id)
-        
+
         logger.info("Getting current project context...")
         state = manager.get_project_context()
-        
+
         logger.info("Updating checkpoint data...")
-        state["checkpoint"].update({
-            "project_name": project_name,
-            "goal": goal,
-            "current_status": current_status,
-            "milestones": milestones,
-        })
-        
+        state["checkpoint"].update(
+            {
+                "project_name": project_name,
+                "goal": goal,
+                "current_status": current_status,
+                "milestones": milestones,
+            }
+        )
+
         logger.info("Writing updated context to files...")
         manager.write_context(state)
-        
+
         logger.info("Committing changes...")
-        commit = manager.commit_changes(message="Checkpoint updated via API", agent="update")
+        commit = manager.commit_changes(
+            message="Checkpoint updated via API", agent="update"
+        )
         logger.info(f"Commit successful with hash: {commit}")
-        
+
         response = {"status": "updated", "commit": commit}
         logger.info("Update endpoint completed successfully")
         return response
-        
+
     except Exception as e:
         logger.error(f"Error in update endpoint: {str(e)}")
         return {"status": "error", "message": f"Failed to update checkpoint: {str(e)}"}
@@ -255,14 +338,19 @@ def get_summary(workspace_id: str = Query("default")):
         "project_name": checkpoint.get("project_name"),
         "goal": checkpoint.get("goal"),
         "status": checkpoint.get("current_status"),
-        "milestones": remaining
+        "milestones": remaining,
     }
 
 
 @app.post("/reflect")
-def reflect(style: LLMRequest = Body(default="motivational"), workspace_id: str = Query("default")):
+def reflect(
+    style: LLMRequest = Body(default="motivational"),
+    workspace_id: str = Query("default"),
+):
     manager = get_manager(workspace_id)
-    prompt = f"Gere uma reflexão de coaching no estilo '{style}' com base no contexto atual."
+    prompt = (
+        f"Gere uma reflexão de coaching no estilo '{style}' com base no contexto atual."
+    )
     context = manager.get_project_context()
     try:
         result = manager.query_llm(prompt=prompt, context=context)
@@ -288,8 +376,7 @@ def llm_history(workspace_id: str = Query("default")):
     manager = get_manager(workspace_id)
     context = manager.get_project_context()
     llm_commits = [
-        entry for entry in context.get("history", [])
-        if entry.get("agent") == "llm"
+        entry for entry in context.get("history", []) if entry.get("agent") == "llm"
     ]
     return {"llm_commits": llm_commits}
 
@@ -300,7 +387,10 @@ def validate_goal(workspace_id: str = Query("default")):
     context = manager.get_project_context()
     goal = context.get("checkpoint", {}).get("goal", "")
     if not goal:
-        return {"valid": False, "feedback": "Nenhum objetivo encontrado no contexto atual."}
+        return {
+            "valid": False,
+            "feedback": "Nenhum objetivo encontrado no contexto atual.",
+        }
 
     prompt = f"Avalie se este objetivo é claro, mensurável e realista: '{goal}'"
     try:
@@ -314,11 +404,13 @@ class Milestone(BaseModel):
     name: str
     due: str  # Format: YYYY-MM-DD
 
+
 class ContextPayload(BaseModel):
     project_name: str
     goal: str
     initial_status: str
     milestones: List[Milestone]
+
 
 @app.post("/generate-context")
 async def generate_context(payload: ContextPayload, workspace_id: str = "default"):
@@ -327,62 +419,64 @@ async def generate_context(payload: ContextPayload, workspace_id: str = "default
     logger.info(f"Goal: {payload.goal}")
     logger.info(f"Initial status: {payload.initial_status}")
     logger.info(f"Number of milestones: {len(payload.milestones)}")
-    
+
     try:
         logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
         manager = get_manager(workspace_id)
-        
+
         # Create initial context structure
         context = {
             "checkpoint": {
                 "project_name": payload.project_name,
                 "goal": payload.goal,
                 "current_status": payload.initial_status,
-                "milestones": [milestone.dict() for milestone in payload.milestones]
+                "milestones": [milestone.dict() for milestone in payload.milestones],
             },
-            "history": []
+            "history": [],
         }
         logger.info("Context structure created successfully")
-        
+
         # Write the context to files
         logger.info("Writing context to files...")
         manager.write_context(context)
         logger.info("Context written to files successfully")
-        
+
         # Commit the changes
-        commit_message = f"Initial context generated for project: {payload.project_name}"
+        commit_message = (
+            f"Initial context generated for project: {payload.project_name}"
+        )
         logger.info(f"Committing changes with message: {commit_message}")
-        commit = manager.commit_changes(message=commit_message, agent="generate-context")
+        commit = manager.commit_changes(
+            message=commit_message, agent="generate-context"
+        )
         logger.info(f"Commit successful with hash: {commit}")
-        
+
         response = {
             "status": "success",
             "message": f"Context generated successfully for project: {payload.project_name}",
             "commit": commit,
-            "context": context
+            "context": context,
         }
         logger.info("Generate context endpoint completed successfully")
         return response
-        
+
     except Exception as e:
         logger.error(f"Error in generate-context endpoint: {str(e)}")
-        return {
-            "status": "error",
-            "message": f"Failed to generate context: {str(e)}"
-        }
-    
+        return {"status": "error", "message": f"Failed to generate context: {str(e)}"}
+
+
 @app.post("/context/commit-task")
 def commit_task(
     task_name: str = Body(...),
     agent: str = Body(...),
     notes: str = Body(...),
-    workspace_id: str = Query("default")
+    workspace_id: str = Query("default"),
 ):
     logger.info(f"POST /context/commit-task called with workspace_id: {workspace_id}")
     logger.info(f"Task name: {task_name}")
     logger.info(f"Agent: {agent}")
     logger.info(f"Notes: {notes}")
-    
+
     try:
         logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
         manager = get_manager(workspace_id)
@@ -405,10 +499,11 @@ def commit_task(
         response = {"status": "success", "commit": commit}
         logger.info("Commit task endpoint completed successfully")
         return response
-        
+
     except Exception as e:
         logger.error(f"Error in commit-task endpoint: {str(e)}")
         return {"status": "error", "message": f"Failed to commit task: {str(e)}"}
+
 
 @app.post("/context/push")
 def push_context(
@@ -417,23 +512,29 @@ def push_context(
     branch: str = Query("main"),
     auto_commit: bool = Query(False),
     commit_message: str = Query("Auto final sync"),
-    agent: str = Query("manual")
+    agent: str = Query("manual"),
 ):
     logger.info(f"POST /context/push called for workspace_id: {workspace_id}")
     try:
         manager = get_manager(workspace_id)
 
         if auto_commit:
-            final_commit_hash = manager.commit_changes(message=commit_message, agent=agent)
+            final_commit_hash = manager.commit_changes(
+                message=commit_message, agent=agent
+            )
             logger.info(f"Final commit hash before push: {final_commit_hash}")
 
             # 🔒 Safety check extra
             if manager.repo.is_dirty(untracked_files=True):
-                logger.info("Extra changes detected even after final commit. Forcing last safety commit...")
+                logger.info(
+                    "Extra changes detected even after final commit. Forcing last safety commit..."
+                )
                 manager.repo.git.add(A=True)
                 extra_message = f"Final safety auto-commit before push by {agent}"
                 extra_commit = manager.repo.index.commit(extra_message)
-                logger.info(f"✅ Safety commit created with hash: {extra_commit.hexsha}")
+                logger.info(
+                    f"✅ Safety commit created with hash: {extra_commit.hexsha}"
+                )
 
         res = manager.push_changes(remote_name=remote_name, branch=branch)
 
@@ -442,7 +543,7 @@ def push_context(
                 "status": "success",
                 "message": "Changes pushed successfully",
                 "push_details": res["details"],
-                "commit": final_commit_hash
+                "commit": final_commit_hash,
             }
         else:
             return {"status": "error", "message": res["message"]}
@@ -451,7 +552,6 @@ def push_context(
         return {"status": "error", "message": str(e)}
 
 
-    
 @app.post("/context/close-cycle")
 def close_cycle(workspace_id: str = Query("default")):
     logger.info(f"POST /context/close-cycle called for workspace_id: {workspace_id}")
@@ -469,6 +569,7 @@ def close_cycle(workspace_id: str = Query("default")):
 
 # ===== ENDPOINTS FOR EXTENSION (MOCK FOR TESTING) =====
 
+
 @app.get("/health")
 def health_check():
     """Health check for extension connectivity"""
@@ -476,8 +577,20 @@ def health_check():
     return {
         "status": "ok",
         "version": "2.0.0",
-        "agents": ["context", "spec", "strategy", "milestone", "git", "coach"]
+        "agents": ["context", "spec", "strategy", "milestone", "git", "coach"],
     }
+
+
+@app.get("/admin/abuse-stats")
+def get_abuse_stats():
+    """
+    Get abuse detection statistics (admin endpoint)
+
+    In production, this should require authentication!
+    """
+    logger.info("GET /admin/abuse-stats called")
+    return abuse_detector.get_stats()
+
 
 @app.get("/agents/status")
 def get_agents_status():
@@ -488,50 +601,49 @@ def get_agents_status():
             "agent_id": "context",
             "name": "Context Agent",
             "status": "active",
-            "last_activity": "Just now"
+            "last_activity": "Just now",
         },
         {
             "agent_id": "spec",
             "name": "Spec Agent",
             "status": "active",
-            "last_activity": "5 minutes ago"
+            "last_activity": "5 minutes ago",
         },
         {
             "agent_id": "strategy",
             "name": "Strategy Agent",
             "status": "idle",
-            "last_activity": "1 hour ago"
+            "last_activity": "1 hour ago",
         },
         {
             "agent_id": "milestone",
             "name": "Milestone Agent",
             "status": "active",
-            "last_activity": "10 minutes ago"
+            "last_activity": "10 minutes ago",
         },
         {
             "agent_id": "git",
             "name": "Git Agent",
             "status": "active",
-            "last_activity": "2 minutes ago"
+            "last_activity": "2 minutes ago",
         },
         {
             "agent_id": "coach",
             "name": "Coach Agent",
             "status": "active",
-            "last_activity": "Just now"
-        }
+            "last_activity": "Just now",
+        },
     ]
 
+
 @app.post("/agents/coach/ask")
-def coach_ask(
-    user_id: str = Body(...),
-    question: str = Body(...)
-):
+def coach_ask(user_id: str = Body(...), question: str = Body(...)):
     """Ask the coach agent a question (mock for now)"""
     logger.info(f"POST /agents/coach/ask - user: {user_id}, question: {question}")
     # TODO: Integrate with actual coach agent
     mock_answer = f"Great question! For '{question}', I recommend: 1) Break it into smaller tasks, 2) Write tests first, 3) Document as you go. Let me know if you need more specific guidance!"
     return {"answer": mock_answer}
+
 
 @app.get("/proposals/mock")
 def get_mock_proposals():
@@ -547,11 +659,11 @@ def get_mock_proposals():
                 {
                     "file_path": "src/api.ts",
                     "change_type": "update",
-                    "description": "Wrap fetch calls in try-catch blocks"
+                    "description": "Wrap fetch calls in try-catch blocks",
                 }
             ],
             "status": "pending",
-            "created_at": "2025-10-14T10:30:00Z"
+            "created_at": "2025-10-14T10:30:00Z",
         },
         {
             "id": "prop-002",
@@ -562,37 +674,35 @@ def get_mock_proposals():
                 {
                     "file_path": "src/api.ts",
                     "change_type": "update",
-                    "description": "Add JSDoc comments with examples"
+                    "description": "Add JSDoc comments with examples",
                 }
             ],
             "status": "pending",
-            "created_at": "2025-10-14T10:45:00Z"
-        }
+            "created_at": "2025-10-14T10:45:00Z",
+        },
     ]
+
 
 @app.get("/rewards/balance/mock")
 def get_mock_balance(user_id: str = Query("test")):
     """Get mock rewards balance for testing"""
     logger.info(f"GET /rewards/balance/mock called for user: {user_id}")
-    return {
-        "balance": 150,
-        "total_earned": 300,
-        "pending_rewards": 50
-    }
+    return {"balance": 150, "total_earned": 300, "pending_rewards": 50}
 
 
 # ===== GIT AGENT ENDPOINTS =====
+
 
 @app.post("/git/event")
 async def trigger_git_event(
     workspace_id: str = Query("default"),
     event_type: str = Body(...),
     data: dict = Body(...),
-    source: str = Body("manual")
+    source: str = Body("manual"),
 ):
     """
     Trigger Git Agent to handle an event
-    
+
     Example:
     ```json
     {
@@ -606,37 +716,32 @@ async def trigger_git_event(
     ```
     """
     from app.agents.git_agent import commit_via_agent
-    
+
     logger.info(f"POST /git/event - workspace: {workspace_id}, type: {event_type}")
-    
+
     try:
         commit_hash = await commit_via_agent(
-            workspace_id=workspace_id,
-            event_type=event_type,
-            data=data,
-            source=source
+            workspace_id=workspace_id, event_type=event_type, data=data, source=source
         )
-        
+
         if commit_hash:
             return {
                 "status": "success",
                 "message": "Git Agent processed event and created commit",
-                "commit_hash": commit_hash
+                "commit_hash": commit_hash,
             }
         else:
             return {
                 "status": "skipped",
-                "message": "Git Agent decided not to commit (changes not significant)"
+                "message": "Git Agent decided not to commit (changes not significant)",
             }
     except Exception as e:
         logger.error(f"Error processing git event: {str(e)}")
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        return {"status": "error", "message": str(e)}
 
 
 # ===== SPEC AGENT ENDPOINTS =====
+
 
 @app.post("/agents/spec/analyze")
 async def spec_analyze(workspace_id: str = Query("default")):
@@ -644,7 +749,10 @@ async def spec_analyze(workspace_id: str = Query("default")):
     logger.info(f"POST /agents/spec/analyze - workspace: {workspace_id}")
     try:
         workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv("GCP_PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")))
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
         agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
         issues = await agent.validate_docs()
         return {"issues": issues, "count": len(issues)}
@@ -662,7 +770,10 @@ async def spec_get_proposals(workspace_id: str = Query("default")):
     logger.info(f"GET /agents/spec/proposals - workspace: {workspace_id}")
     try:
         workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv("GCP_PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")))
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
         agent = SpecAgent(workspace_path=workspace_path, project_id=project_id)
         issues: List[Dict] = await agent.validate_docs()
 
@@ -671,20 +782,22 @@ async def spec_get_proposals(workspace_id: str = Query("default")):
         for idx, issue in enumerate(issues, start=1):
             title = f"Docs issue: {issue.get('file', 'unknown')}"
             description = issue.get("message", issue.get("type", "issue"))
-            proposals.append({
-                "id": f"spec-{idx}",
-                "agent_id": "spec",
-                "title": title,
-                "description": description,
-                "proposed_changes": [
-                    {
-                        "file_path": issue.get("file", "docs/"),
-                        "change_type": "update",
-                        "description": description
-                    }
-                ],
-                "status": "pending"
-            })
+            proposals.append(
+                {
+                    "id": f"spec-{idx}",
+                    "agent_id": "spec",
+                    "title": title,
+                    "description": description,
+                    "proposed_changes": [
+                        {
+                            "file_path": issue.get("file", "docs/"),
+                            "change_type": "update",
+                            "description": description,
+                        }
+                    ],
+                    "status": "pending",
+                }
+            )
 
         return {"proposals": proposals, "count": len(proposals)}
     except Exception as e:
@@ -696,20 +809,20 @@ async def spec_get_proposals(workspace_id: str = Query("default")):
 async def approve_proposal_mvp(
     workspace_id: str = Query("default"),
     proposal_id: str = Body(...),
-    summary: str = Body(...)
+    summary: str = Body(...),
 ):
     """Approval trigger that calls the Git Agent (MVP, no persistence)."""
-    logger.info(f"POST /proposals/approve-mvp - {proposal_id} (workspace: {workspace_id})")
+    logger.info(
+        f"POST /proposals/approve-mvp - {proposal_id} (workspace: {workspace_id})"
+    )
     try:
         from app.agents.git_agent import commit_via_agent
+
         commit_hash = await commit_via_agent(
             workspace_id=workspace_id,
             event_type="proposal.approved",
-            data={
-                "proposal_id": proposal_id,
-                "changes_summary": summary
-            },
-            source="spec-agent"
+            data={"proposal_id": proposal_id, "changes_summary": summary},
+            source="spec-agent",
         )
         return {"status": "approved", "commit_hash": commit_hash}
     except Exception as e:
@@ -718,6 +831,7 @@ async def approve_proposal_mvp(
 
 
 # ===== PROPOSALS PERSISTENCE (MVP - JSON + MD in workspace) =====
+
 
 def _proposals_paths(workspace_id: str) -> Dict[str, Path]:
     ws = Path(get_workspace_path(workspace_id))
@@ -728,6 +842,7 @@ def _proposals_paths(workspace_id: str) -> Dict[str, Path]:
         "dir": proposals_dir,
     }
 
+
 def _read_proposals(json_path: Path) -> List[Dict]:
     """Read proposals from proposals.json (legacy)"""
     if json_path.exists():
@@ -737,68 +852,79 @@ def _read_proposals(json_path: Path) -> List[Dict]:
             return []
     return []
 
+
 def _read_proposals_from_dir(proposals_dir: Path) -> List[Dict]:
     """Read all proposals from proposals/ directory (new format with diffs)"""
     if not proposals_dir.exists():
         return []
-    
+
     proposals = []
     for json_file in proposals_dir.glob("*.json"):
         try:
-            with open(json_file, 'r') as f:
+            with open(json_file, "r") as f:
                 proposal = json.load(f)
                 proposals.append(proposal)
         except Exception as e:
             logger.error(f"Error reading proposal {json_file}: {e}")
-    
+
     # Sort by created_at (newest first)
-    proposals.sort(key=lambda p: p.get('created_at', ''), reverse=True)
+    proposals.sort(key=lambda p: p.get("created_at", ""), reverse=True)
     return proposals
+
 
 def _write_proposals(json_path: Path, proposals: List[Dict]):
     json_path.write_text(json.dumps(proposals, indent=2), encoding="utf-8")
 
 
 def _auto_approve_enabled() -> bool:
-    val = os.getenv("CONTEXTPILOT_AUTO_APPROVE_PROPOSALS", os.getenv("CP_AUTO_APPROVE_PROPOSALS", "false"))
+    val = os.getenv(
+        "CONTEXTPILOT_AUTO_APPROVE_PROPOSALS",
+        os.getenv("CP_AUTO_APPROVE_PROPOSALS", "false"),
+    )
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
 async def _trigger_github_workflow(proposal_id: str, proposal: Dict) -> bool:
     """
     Trigger GitHub Actions workflow to apply proposal.
-    
+
     Uses repository_dispatch event to trigger the workflow.
     """
-    github_token = os.getenv('GITHUB_TOKEN')
-    github_repo = os.getenv('GITHUB_REPO', 'fsegall/google-context-pilot')  # Format: owner/repo
-    
+    github_token = os.getenv("GITHUB_TOKEN")
+    github_repo = os.getenv(
+        "GITHUB_REPO", "fsegall/google-context-pilot"
+    )  # Format: owner/repo
+
     if not github_token:
         logger.warning("[API] GITHUB_TOKEN not set, skipping GitHub trigger")
         return False
-    
+
     url = f"https://api.github.com/repos/{github_repo}/dispatches"
     headers = {
-        'Authorization': f'token {github_token}',
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
     }
-    
+
     payload = {
-        'event_type': 'proposal-approved',
-        'client_payload': {
-            'proposal_id': proposal_id,
-            'title': proposal.get('title', ''),
-            'description': proposal.get('description', ''),
-            'workspace_id': proposal.get('workspace_id', 'contextpilot')
-        }
+        "event_type": "proposal-approved",
+        "client_payload": {
+            "proposal_id": proposal_id,
+            "title": proposal.get("title", ""),
+            "description": proposal.get("description", ""),
+            "workspace_id": proposal.get("workspace_id", "contextpilot"),
+        },
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, headers=headers, timeout=10.0)
+            response = await client.post(
+                url, json=payload, headers=headers, timeout=10.0
+            )
             response.raise_for_status()
-            logger.info(f"[API] GitHub Actions triggered successfully for {proposal_id}")
+            logger.info(
+                f"[API] GitHub Actions triggered successfully for {proposal_id}"
+            )
             return True
     except Exception as e:
         logger.error(f"[API] Failed to trigger GitHub Actions: {e}")
@@ -808,39 +934,41 @@ async def _trigger_github_workflow(proposal_id: str, proposal: Dict) -> bool:
 @app.get("/proposals")
 async def list_proposals(workspace_id: str = Query("default")):
     """List all proposals with diffs"""
-    
+
     # Try Firestore first (if enabled)
-    if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
         try:
             from app.repositories.proposal_repository import get_proposal_repository
+
             repo = get_proposal_repository()
             proposals = repo.list(workspace_id=workspace_id)
             logger.info(f"[API] Listed {len(proposals)} proposals from Firestore")
             return {"proposals": proposals, "count": len(proposals)}
         except Exception as e:
             logger.error(f"[API] Firestore error, falling back to local: {e}")
-    
+
     # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
-    
+
     # Try new format first (individual JSON files with diffs)
     proposals = _read_proposals_from_dir(paths["dir"])
-    
+
     # Fallback to legacy format if no proposals in dir
     if not proposals:
         proposals = _read_proposals(paths["json"])
-    
+
     return {"proposals": proposals, "count": len(proposals)}
 
 
 @app.get("/proposals/{proposal_id}")
 async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
     """Get a single proposal by ID with full diff"""
-    
+
     # Try Firestore first (if enabled)
-    if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
         try:
             from app.repositories.proposal_repository import get_proposal_repository
+
             repo = get_proposal_repository()
             proposal = repo.get(proposal_id)
             if proposal:
@@ -848,26 +976,26 @@ async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
                 return proposal
         except Exception as e:
             logger.error(f"[API] Firestore error, falling back to local: {e}")
-    
+
     # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
-    
+
     # Try to read from individual file
     proposal_file = paths["dir"] / f"{proposal_id}.json"
     if proposal_file.exists():
         try:
-            with open(proposal_file, 'r') as f:
+            with open(proposal_file, "r") as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"Error reading proposal {proposal_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to read proposal: {e}")
-    
+
     # Fallback: search in proposals.json
     proposals = _read_proposals(paths["json"])
     for p in proposals:
-        if p.get('id') == proposal_id:
+        if p.get("id") == proposal_id:
             return p
-    
+
     raise HTTPException(status_code=404, detail="Proposal not found")
 
 
@@ -875,11 +1003,18 @@ async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
 async def create_proposals_from_spec(workspace_id: str = Query("default")):
     """Generate proposals from SpecAgent with diffs, persist to Firestore."""
     logger.info(f"POST /proposals/create - workspace: {workspace_id}")
-    
+
     try:
         workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv("GCP_PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")))
-        agent = SpecAgent(workspace_path=workspace_path, workspace_id=workspace_id, project_id=project_id)
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
+        agent = SpecAgent(
+            workspace_path=workspace_path,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
         issues: List[Dict] = await agent.validate_docs()
 
         # Create proposals with actual diffs using agent's method
@@ -890,7 +1025,7 @@ async def create_proposals_from_spec(workspace_id: str = Query("default")):
                 new_proposals.append(proposal_id)
 
         # Count total proposals in Firestore
-        if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+        if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
             repo = get_proposal_repository()
             all_proposals = repo.list(workspace_id=workspace_id)
             total = len(all_proposals)
@@ -908,72 +1043,112 @@ async def create_proposals_from_spec(workspace_id: str = Query("default")):
         return {"created": 0, "error": str(e)}
 
 
-@app.post("/proposals/{proposal_id}/approve")
-async def approve_proposal(
-    proposal_id: str,
-    workspace_id: str = Query("default")
+@app.get("/context/summary")
+async def get_context_summary(
+    proposal_type: str = Query("general"), workspace_id: str = Query("default")
 ):
+    """Generate intelligent context summary for new chat sessions."""
+    try:
+        from app.agents.spec_agent import SpecAgent
+
+        # Get workspace path
+        workspace_path = get_workspace_path(workspace_id)
+        if not workspace_path:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        # Initialize Spec Agent
+        spec_agent = SpecAgent(
+            workspace_path=workspace_path,
+            workspace_id=workspace_id,
+            project_id=os.getenv("GCP_PROJECT_ID"),
+        )
+
+        # Generate context summary
+        context = spec_agent.generate_context_summary(proposal_type)
+
+        return {
+            "context": context,
+            "proposal_type": proposal_type,
+            "workspace_id": workspace_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating context summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposals/{proposal_id}/approve")
+async def approve_proposal(proposal_id: str, workspace_id: str = Query("default")):
     # Try Firestore first (if enabled)
-    if os.getenv('FIRESTORE_ENABLED', 'false').lower() == 'true':
+    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
         try:
             from app.repositories.proposal_repository import get_proposal_repository
+
             repo = get_proposal_repository()
             prop = repo.get(proposal_id)
-            
+
             if not prop:
                 return {"status": "not_found"}
-            
+
             summary = prop.get("description", "")
             commit_hash = None
-            
+
             if _auto_approve_enabled():
                 try:
                     from app.agents.git_agent import commit_via_agent
+
                     commit_hash = await commit_via_agent(
                         workspace_id=workspace_id,
                         event_type="proposal.approved",
-                        data={"proposal_id": proposal_id, "workspace_id": workspace_id, "changes_summary": summary},
-                        source="spec-agent"
+                        data={
+                            "proposal_id": proposal_id,
+                            "workspace_id": workspace_id,
+                            "changes_summary": summary,
+                        },
+                        source="spec-agent",
                     )
                 except Exception as git_error:
                     logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
                     # Continue with approval even if Git fails
-            
+
             # Update status in Firestore
             repo.approve(proposal_id, commit_hash)
-            
+
             # Trigger GitHub Actions workflow for cloud deployment
             github_triggered = False
-            if os.getenv('ENVIRONMENT') == 'production' and not commit_hash:
+            if os.getenv("ENVIRONMENT") == "production" and not commit_hash:
                 try:
                     github_triggered = await _trigger_github_workflow(proposal_id, prop)
-                    logger.info(f"[API] GitHub Actions triggered for proposal {proposal_id}")
+                    logger.info(
+                        f"[API] GitHub Actions triggered for proposal {proposal_id}"
+                    )
                 except Exception as gh_error:
                     logger.warning(f"[API] GitHub trigger failed: {gh_error}")
-            
+
             return {
                 "status": "approved",
                 "commit_hash": commit_hash,
                 "auto_committed": bool(commit_hash),
-                "github_triggered": github_triggered
+                "github_triggered": github_triggered,
             }
         except Exception as e:
             logger.error(f"[API] Firestore approve error: {e}")
             return {"status": "error", "error": str(e)}
-    
+
     # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
-    
+
     # Try to read from individual file first (new format)
     proposal_file = paths["dir"] / f"{proposal_id}.json"
     if proposal_file.exists():
-        with open(proposal_file, 'r') as f:
+        with open(proposal_file, "r") as f:
             prop = json.load(f)
     else:
         # Fallback to proposals.json (legacy)
         proposals = _read_proposals(paths["json"])
         prop = next((p for p in proposals if p.get("id") == proposal_id), None)
-    
+
     if not prop:
         return {"status": "not_found"}
 
@@ -983,11 +1158,12 @@ async def approve_proposal(
         if _auto_approve_enabled():
             try:
                 from app.agents.git_agent import commit_via_agent
+
                 commit_hash = await commit_via_agent(
                     workspace_id=workspace_id,
                     event_type="proposal.approved",
                     data={"proposal_id": proposal_id, "changes_summary": summary},
-                    source="spec-agent"
+                    source="spec-agent",
                 )
             except Exception as git_error:
                 logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
@@ -996,10 +1172,10 @@ async def approve_proposal(
         prop["status"] = "approved"
         if commit_hash:
             prop["commit_hash"] = commit_hash
-        
+
         # Save to individual file if it exists
         if proposal_file.exists():
-            with open(proposal_file, 'w') as f:
+            with open(proposal_file, "w") as f:
                 json.dump(prop, f, indent=2)
         else:
             # Save to proposals.json (legacy)
@@ -1014,7 +1190,11 @@ async def approve_proposal(
                 md_content += f"**Commit:** {commit_hash}\n"
             md_path.write_text(md_content, encoding="utf-8")
 
-        return {"status": "approved", "commit_hash": commit_hash, "auto_committed": bool(commit_hash)}
+        return {
+            "status": "approved",
+            "commit_hash": commit_hash,
+            "auto_committed": bool(commit_hash),
+        }
     except Exception as e:
         logger.error(f"Error approving proposal: {str(e)}")
         return {"status": "error", "error": str(e)}
@@ -1022,9 +1202,7 @@ async def approve_proposal(
 
 @app.post("/proposals/{proposal_id}/reject")
 async def reject_proposal(
-    proposal_id: str,
-    workspace_id: str = Query("default"),
-    reason: str = Body("")
+    proposal_id: str, workspace_id: str = Query("default"), reason: str = Body("")
 ):
     paths = _proposals_paths(workspace_id)
     proposals = _read_proposals(paths["json"])

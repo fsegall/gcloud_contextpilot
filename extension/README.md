@@ -1,236 +1,179 @@
-# 🧠 ContextPilot Extension
+# 🚀 ContextPilot
 
-AI-powered context management extension for VSCode/Cursor with multi-agent system and blockchain rewards.
+**By [Livre Solutions](https://livre.solutions)**
 
-## Features
+**AI-Powered Development Assistant with Multi-Agent System & Gamification**
 
-### 🤖 Multi-Agent System
-- **6 specialized AI agents** working together to improve your code
-- Real-time agent status tracking
-- Intelligent suggestions and automated improvements
+Transform your development workflow with intelligent AI agents that manage documentation, automate commits, and reward your progress with gamification!
 
-### 📋 Change Proposals
-- Review AI-generated code changes before they're applied
-- Approve/reject proposals with a single click
-- See detailed diffs and explanations
+## ✨ Features
 
-### ⭐ CPT Rewards
-- Earn CPT tokens for good development practices
-- View your balance directly in the status bar
-- Track your position on the leaderboard
+### 🤖 **Multi-Agent System**
+- **Spec Agent**: Automatically generates and maintains documentation
+- **Git Agent**: Intelligent semantic commits with conventional format
+- **Context Agent**: Real-time project analysis and insights
+- **Coach Agent**: Personalized development tips and guidance
+- **Milestone Agent**: Progress tracking and goal management
 
-### 💬 Coach Agent
-- Ask questions about your project
-- Get actionable advice and micro-actions
-- Pragmatic guidance when you're stuck
+### 🎮 **Gamification & Rewards**
+- **CPT Tokens**: Earn ContextPilot Tokens for productive actions
+- **Achievements**: Unlock badges for milestones and streaks
+- **Daily Streaks**: Build consistent development habits
+- **Leaderboards**: Compete with other developers worldwide
+- **Rewards System**: Get rewarded for documentation, commits, and improvements
 
-### 🔄 Context Management
-- Automatic context tracking
-- One-click context commits
-- Persistent project state
+### ⚡ **Developer Experience**
+- **Instant Commits**: One-click proposal approval with automatic Git commits
+- **Smart Context**: Intelligent project context summarization
+- **File Management**: Easy access to related files and documentation
+- **Real-time Updates**: Live project status and agent activities
 
----
+## 🚀 Quick Start
 
-## 🚀 Installation
+### 1. **Installation**
+```bash
+# Via VS Code Marketplace
+# Search for "ContextPilot" and install
 
-### From VSIX (Development)
-1. Download the `.vsix` file
-2. Open VSCode/Cursor
-3. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac)
-4. Type "Install from VSIX"
-5. Select the downloaded file
+# Or install from VSIX
+code --install-extension contextpilot-0.1.0.vsix
+```
 
-### From Marketplace (Coming Soon)
-Search for "ContextPilot" in the Extensions marketplace.
+### 2. **First Use**
+1. Open any project in VS Code
+2. Look for the 🚀 ContextPilot icon in the sidebar
+3. Wait for "Connected to ContextPilot!" status
+4. Explore the Change Proposals section
 
----
+### 3. **Earn Your First Rewards**
+- Click the ✓ button next to any proposal
+- Watch your CPT balance increase: "🎉 +10 CPT!"
+- Check the Rewards section to see your progress
 
-## ⚙️ Configuration
-
-Go to Settings > Extensions > ContextPilot:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `contextpilot.apiUrl` | `http://localhost:8000` | ContextPilot API URL |
-| `contextpilot.userId` | `""` | Your ContextPilot user ID |
-| `contextpilot.walletAddress` | `""` | Your wallet address for CPT rewards |
-| `contextpilot.autoConnect` | `true` | Auto-connect on startup |
-| `contextpilot.showNotifications` | `true` | Show agent activity notifications |
-
----
-
-## 🎯 Usage
-
-### Quick Start
-
-1. **Connect to Backend**
-   - Press `Ctrl+Shift+P`
-   - Type "ContextPilot: Connect"
-   - Or enable `autoConnect` in settings
-
-2. **View Change Proposals**
-   - Click the ContextPilot icon in the sidebar
-   - Review pending proposals
-   - Click ✓ to approve or ✗ to reject
-
-3. **Check Your Rewards**
-   - Your CPT balance shows in the status bar
-   - Click it to see detailed breakdown
-   - View the leaderboard
-
-4. **Ask the Coach**
-   - Press `Ctrl+Shift+P`
-   - Type "ContextPilot: Ask Coach"
-   - Get instant advice
-
-### Commands
+## 🎯 Commands
 
 | Command | Description | Shortcut |
 |---------|-------------|----------|
-| `ContextPilot: Connect` | Connect to backend | - |
-| `ContextPilot: Disconnect` | Disconnect from backend | - |
-| `ContextPilot: View Change Proposals` | Open proposals panel | - |
-| `ContextPilot: Approve Proposal` | Approve a proposal | Click ✓ |
-| `ContextPilot: Reject Proposal` | Reject a proposal | Click ✗ |
-| `ContextPilot: View CPT Balance` | Show rewards details | Click status bar |
-| `ContextPilot: Ask Coach` | Ask the Coach Agent | - |
-| `ContextPilot: Commit Context` | Save current context | - |
-| `ContextPilot: Refresh Status` | Refresh all views | - |
+| `ContextPilot: Connect` | Connect to backend services | - |
+| `ContextPilot: View Proposals` | Show all pending proposals | - |
+| `ContextPilot: Approve Proposal` | Approve and commit changes | - |
+| `ContextPilot: View Rewards` | Show CPT balance and achievements | - |
+| `ContextPilot: Ask Coach` | Get personalized development tips | - |
 
----
+## 🏆 Rewards & Achievements
 
-## 🏗️ Architecture
+### **CPT Earning Actions:**
+- ✅ **Approve Proposal**: +10 CPT
+- 📚 **Create Documentation**: +25 CPT
+- 🔧 **Fix Issues**: +15 CPT
+- 🔥 **Daily Streak**: +5 CPT
+- 🏆 **Week Warrior**: +100 CPT (7-day streak)
 
-```
-┌─────────────────────────────────────┐
-│     VSCode/Cursor Extension         │
-│  ┌─────────────────────────────┐   │
-│  │  Sidebar Views              │   │
-│  │  - Change Proposals         │   │
-│  │  - Rewards                  │   │
-│  │  - Agents Status            │   │
-│  │  - Coach                    │   │
-│  └─────────────────────────────┘   │
-│                │                    │
-│  ┌─────────────▼───────────────┐   │
-│  │  ContextPilot Service       │   │
-│  │  - API Client               │   │
-│  │  - Change Tracking          │   │
-│  └─────────────┬───────────────┘   │
-└────────────────┼────────────────────┘
-                 │ HTTP
-┌────────────────▼────────────────────┐
-│     ContextPilot Backend (FastAPI)  │
-│  ┌──────────────────────────────┐  │
-│  │  6 AI Agents                 │  │
-│  │  Context • Spec • Strategy   │  │
-│  │  Milestone • Git • Coach     │  │
-│  └──────────────────────────────┘  │
-│                │                    │
-│  ┌─────────────▼───────────────┐   │
-│  │  Rewards Engine              │   │
-│  │  CPT Token on Sepolia        │   │
-│  └──────────────────────────────┘   │
-└─────────────────────────────────────┘
+### **Achievement Badges:**
+- 🎯 **First Approval**: Approve your first proposal
+- 📚 **Documentation Master**: Create comprehensive docs
+- 🔥 **Week Warrior**: 7-day activity streak
+- 🚀 **Productivity Pro**: 100+ CPT earned
+- 💎 **Context Champion**: 1000+ CPT earned
+
+## 🔧 Configuration
+
+### **Settings**
+```json
+{
+  "contextpilot.apiUrl": "https://contextpilot-backend-581368740395.us-central1.run.app",
+  "contextpilot.autoApprove": false,
+  "contextpilot.showRewards": true
+}
 ```
 
----
+### **Workspace Setup**
+1. Ensure your project is a Git repository
+2. Have at least one `.md` file (README.md recommended)
+3. Grant necessary permissions when prompted
 
-## 🎬 Demo
+## 🌟 Use Cases
 
-### 1. Change Proposal Workflow
-```
-Code Change → Context Agent Detects → Strategy Agent Analyzes
-    → Change Proposal Created → Developer Reviews in Sidebar
-    → Approve → Git Agent Applies → CPT Tokens Earned 🎉
-```
+### **Documentation Management**
+- Automatically detect missing documentation
+- Generate comprehensive project docs
+- Keep documentation in sync with code changes
 
-### 2. Ask Coach
-```
-Developer: "How can I improve my API design?"
-Coach Agent: "Consider these 3 micro-actions:
-  1. Add request validation
-  2. Implement rate limiting
-  3. Document endpoints with OpenAPI"
-```
+### **Code Quality**
+- Identify potential improvements
+- Suggest best practices
+- Track technical debt
 
----
+### **Team Collaboration**
+- Share proposals across team members
+- Maintain consistent coding standards
+- Track team productivity metrics
 
-## 🔧 Development
+## 🔮 Roadmap
 
-### Prerequisites
-- Node.js 18+
-- TypeScript
-- VSCode Extension API
+### **Phase 1: Core Features** ✅
+- [x] Multi-agent system
+- [x] Gamification & rewards
+- [x] Local Git integration
+- [x] Cloud backend (Google Cloud)
 
-### Build from Source
-```bash
-cd extension
-npm install
-npm run compile
-```
+### **Phase 2: Blockchain Integration** 🔮
+- [ ] Polygon network support
+- [ ] CPT Token (ERC-20) deployment
+- [ ] Wallet connection
+- [ ] Onchain rewards & DeFi
 
-### Run in Development
-1. Open `extension/` in VSCode
-2. Press F5 to start Extension Development Host
-3. Test the extension
+### **Phase 3: Enterprise Features** 🌟
+- [ ] Team collaboration
+- [ ] Advanced analytics
+- [ ] Custom AI models
+- [ ] White-label solutions
 
-### Package
-```bash
-npm run package  # Creates .vsix file
-```
+## 🛠️ Technical Stack
 
----
+- **Frontend**: VS Code Extension (TypeScript)
+- **Backend**: Google Cloud Run (Python/FastAPI)
+- **Database**: Google Cloud Firestore
+- **Messaging**: Google Cloud Pub/Sub
+- **AI**: Google Gemini API
+- **Future**: Polygon Blockchain Integration
 
-## 🐛 Troubleshooting
+## 📊 Metrics & Analytics
 
-### "Failed to connect to ContextPilot API"
-- Ensure the backend is running: `cd back-end && python -m app.server`
-- Check `contextpilot.apiUrl` in settings
-- Verify firewall/network settings
-
-### "No proposals showing"
-- Make sure you've committed context: `ContextPilot: Commit Context`
-- Check if agents are running: View "Agents Status" panel
-- Refresh: `ContextPilot: Refresh Status`
-
-### "Balance shows 0 CPT"
-- Configure your `contextpilot.walletAddress` in settings
-- Approve at least one proposal to earn rewards
-- Check the backend logs for reward tracking
-
----
-
-## 📚 Documentation
-
-- **[Architecture](../docs/architecture/ARCHITECTURE.md)** - System design
-- **[Agent Autonomy](../docs/architecture/AGENT_AUTONOMY.md)** - How agents work
-- **[IDE Extension Spec](../docs/architecture/IDE_EXTENSION_SPEC.md)** - Full specification
-- **[Deployment Guide](../docs/deployment/DEPLOYMENT.md)** - Setup instructions
-
----
+Track your development progress with detailed metrics:
+- **Productivity Score**: Based on commits, documentation, and improvements
+- **Consistency Rating**: Daily activity and streak maintenance
+- **Quality Index**: Code quality and documentation completeness
+- **Team Ranking**: Compare with other developers globally
 
 ## 🤝 Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](../CONTRIBUTING.md).
-
----
+We welcome contributions! Please see our [Contributing Guide](https://github.com/fsegall/google-context-pilot) for details.
 
 ## 📄 License
 
-MIT License - see [LICENSE](../LICENSE)
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+- **Issues**: [GitHub Issues](https://github.com/fsegall/google-context-pilot/issues)
+- **Discord**: [ContextPilot Community](https://discord.gg/contextpilot)
+- **Email**: support@contextpilot.ai
+
+## 🏢 About Livre Solutions
+
+**ContextPilot** is developed by [**Livre Solutions**](https://livre.solutions), a technology company focused on creating innovative AI-powered tools for developers and teams.
+
+**Our Mission**: Empower developers with intelligent automation and gamification to boost productivity and make coding more rewarding.
+
+**Connect with us**:
+- 🌐 Website: [livre.solutions](https://livre.solutions)
+- 🐦 Twitter: [@livresolutions](https://twitter.com/livresolutions)
+- 💼 LinkedIn: [Livre Solutions](https://linkedin.com/company/livre-solutions)
+- 📧 Contact: hello@livre.solutions
 
 ---
 
-## 🔗 Links
+**Made with ❤️ by Livre Solutions for developers who love productivity and gamification!**
 
-- **GitHub**: [github.com/fsegall/google-context-pilot](https://github.com/fsegall/google-context-pilot)
-- **Documentation**: [docs/INDEX.md](../docs/INDEX.md)
-- **Backend API**: [back-end/openapi.yaml](../back-end/openapi.yaml)
-
----
-
-**Built for Cloud Run Hackathon 2025** 🚀
-
-Made with ❤️ by developers, for developers.
-
+*Start your journey to more productive, rewarding development today!*

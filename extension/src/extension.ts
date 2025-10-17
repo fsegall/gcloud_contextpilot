@@ -100,6 +100,15 @@ export function activate(context: vscode.ExtensionContext) {
       await commands.viewRewards(contextPilotService);
     }),
 
+    vscode.commands.registerCommand('contextpilot.viewRelatedFiles', async (item: any) => {
+      const proposalId = typeof item === 'string' ? item : item?.proposal?.id;
+      if (!proposalId) {
+        vscode.window.showErrorMessage('No proposal ID provided');
+        return;
+      }
+      await commands.viewRelatedFiles(contextPilotService, proposalId);
+    }),
+
     vscode.commands.registerCommand('contextpilot.askCoach', async () => {
       await commands.askCoach(contextPilotService, coachProvider);
     }),

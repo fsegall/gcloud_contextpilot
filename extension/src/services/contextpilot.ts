@@ -119,7 +119,7 @@ export class ContextPilotService {
     try {
       // Force real endpoint for testing
       const response = await this.client.get('/proposals', {
-        params: { workspace_id: 'contextpilot' }
+        params: { workspace_id: 'default', status: 'pending' }
       });
       console.log('[ContextPilot] Raw response:', response.data);
       const arr = Array.isArray(response.data) ? response.data : response.data?.proposals || [];

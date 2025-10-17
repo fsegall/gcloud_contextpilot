@@ -583,5 +583,248 @@ if __name__ == "__main__":
         )
         print(f"Template: {template_path}")
     
+    def generate_context_summary(self, proposal_type: str = "general") -> str:
+        """
+        Generate intelligent context summary for new chat sessions.
+        
+        Args:
+            proposal_type: Type of proposal to tailor context
+            
+        Returns:
+            Condensed context summary
+        """
+        try:
+            # 1. Analyze key .md files
+            key_files = self._get_crucial_md_files()
+            
+            # 2. Get git log for recent context
+            git_context = self._get_git_context()
+            
+            # 3. Generate project status
+            project_status = self._get_project_status()
+            
+            # 4. Create condensed summary
+            context_prompt = self._build_context_prompt(
+                key_files, git_context, project_status, proposal_type
+            )
+            
+            logger.info(f"[SpecAgent] Generated context summary for {proposal_type}")
+            return context_prompt
+            
+        except Exception as e:
+            logger.error(f"[SpecAgent] Error generating context: {e}")
+            return self._get_basic_context()
+
+    def _get_crucial_md_files(self) -> Dict[str, str]:
+        """Get content from crucial .md files."""
+        crucial_files = {
+            "README.md": "Project overview and setup",
+            "project_scope.md": "Project goals and scope", 
+            "ARCHITECTURE.md": "System architecture",
+            "project_checklist.md": "Development checklist",
+            "daily_checklist.md": "Daily progress tracking"
+        }
+        
+        content = {}
+        for filename, description in crucial_files.items():
+            file_path = self.workspace_path / filename
+            if file_path.exists():
+                try:
+                    content[filename] = {
+                        "description": description,
+                        "content": file_path.read_text(encoding='utf-8')[:2000]  # Limit size
+                    }
+                except Exception as e:
+                    logger.warning(f"[SpecAgent] Could not read {filename}: {e}")
+                    content[filename] = {"description": description, "content": "File exists but could not be read"}
+            else:
+                content[filename] = {"description": description, "content": "File not found"}
+                
+        return content
+
+    def _get_git_context(self) -> Dict:
+        """Get rich git context using Git Agent."""
+        try:
+            from app.agents.git_agent import GitAgent
+            
+            # Initialize Git Agent for context
+            git_agent = GitAgent(
+                workspace_path=str(self.workspace_path),
+                workspace_id=self.workspace_id,
+                project_id=self.project_id
+            )
+            
+            # Get rich git context
+            git_context = git_agent.get_git_context_for_proposal("spec")
+            
+            # Format for template compatibility
+            formatted_commits = []
+            for commit in git_context.get("recent_commits", []):
+                formatted_commits.append(f"{commit.get('hash', '')} {commit.get('message', '')}")
+            
+            return {
+                "recent_commits": formatted_commits[:5],  # Last 5 for template
+                "total_commits": git_context.get("total_commits", 0),
+                "current_branch": git_context.get("current_branch", "unknown"),
+                "modified_files": git_context.get("modified_files", []),
+                "weekly_commits": git_context.get("weekly_commit_count", 0),
+                "rich_context": git_context  # Full context for advanced use
+            }
+                
+        except Exception as e:
+            logger.warning(f"[SpecAgent] Could not get git context via Git Agent: {e}")
+            # Fallback to basic git log
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["git", "log", "--oneline", "-10", "--format=%h %s"],
+                    cwd=self.workspace_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if result.returncode == 0:
+                    return {
+                        "recent_commits": result.stdout.strip().split('\n')[:5],
+                        "total_commits": len(result.stdout.strip().split('\n')),
+                        "current_branch": "unknown",
+                        "modified_files": [],
+                        "weekly_commits": 0
+                    }
+                else:
+                    return {"recent_commits": [], "total_commits": 0}
+                    
+            except Exception as e2:
+                logger.warning(f"[SpecAgent] Fallback git context also failed: {e2}")
+                return {"recent_commits": [], "total_commits": 0}
+
+    def _get_project_status(self) -> Dict:
+        """Get current project status."""
+        return {
+            "phase": "Hackathon + Product Launch",
+            "goal": "AI-powered context management with multi-agent system",
+            "stack": "Cloud Run + Firestore + Pub/Sub + Gemini + VSCode Extension",
+            "status": "Core functionality complete, fine-tuning phase",
+            "workspace_id": self.workspace_id
+        }
+
+    def _build_context_prompt(self, key_files: Dict, git_context: Dict, project_status: Dict, proposal_type: str) -> str:
+        """Build the final context prompt using template."""
+        try:
+            # Try to use template first
+            template_path = self.templates_path / "quick_reference.md"
+            if template_path.exists():
+                template_content = template_path.read_text(encoding='utf-8')
+                return self._render_template(
+                    template_content, key_files, git_context, project_status, proposal_type
+                )
+        except Exception as e:
+            logger.warning(f"[SpecAgent] Could not use template, falling back to basic: {e}")
+        
+        # Fallback to basic context
+        return self._build_basic_context_prompt(key_files, git_context, project_status, proposal_type)
+
+    def _render_template(self, template_content: str, key_files: Dict, git_context: Dict, project_status: Dict, proposal_type: str) -> str:
+        """Render template with context data."""
+        # Simple template rendering (could use Jinja2 in future)
+        context = template_content
+        
+        # Replace template variables
+        context = context.replace("{{ phase }}", project_status['phase'])
+        context = context.replace("{{ goal }}", project_status['goal'])
+        context = context.replace("{{ stack }}", project_status['stack'])
+        context = context.replace("{{ status }}", project_status['status'])
+        context = context.replace("{{ workspace_id }}", project_status['workspace_id'])
+        context = context.replace("{{ proposal_type }}", proposal_type)
+        context = context.replace("{{ agent }}", "Spec Agent")
+        context = context.replace("{{ timestamp }}", datetime.now(timezone.utc).isoformat())
+        context = context.replace("{{ total_commits }}", str(git_context.get('total_commits', 0)))
+        
+        # Replace commits
+        commits_text = ""
+        for commit in git_context.get('recent_commits', []):
+            commits_text += f"- {commit}\n"
+        context = context.replace("{% for commit in recent_commits %}\n- {{ commit }}\n{% endfor %}", commits_text.strip())
+        
+        # Replace file contents
+        context = context.replace("{{ readme_content }}", key_files.get("README.md", {}).get("content", ""))
+        context = context.replace("{{ scope_content }}", key_files.get("project_scope.md", {}).get("content", ""))
+        context = context.replace("{{ architecture_content }}", key_files.get("ARCHITECTURE.md", {}).get("content", ""))
+        context = context.replace("{{ checklist_content }}", key_files.get("project_checklist.md", {}).get("content", ""))
+        context = context.replace("{{ daily_checklist_content }}", key_files.get("daily_checklist.md", {}).get("content", ""))
+        
+        # Handle conditional content - Replace template variables with actual content
+        # This is a simple string replacement approach since we're not using a real template engine
+        for filename in ["README.md", "project_scope.md", "ARCHITECTURE.md", "project_checklist.md", "daily_checklist.md"]:
+            content = key_files.get(filename, {}).get("content", "")
+            var_name = filename.lower().replace('.md', '')
+            
+            # Replace the variable placeholder with actual content or "File not found"
+            if content and content != "File not found":
+                # Truncate content to 500 chars
+                truncated = content[:500] + ('...' if len(content) > 500 else '')
+                context = context.replace(f"{{{{ {var_name}_content }}}}", truncated)
+            else:
+                context = context.replace(f"{{{{ {var_name}_content }}}}", "*File not found*")
+        
+        return context
+
+    def _build_basic_context_prompt(self, key_files: Dict, git_context: Dict, project_status: Dict, proposal_type: str) -> str:
+        """Build basic context prompt without template."""
+        context = f"""# ContextPilot - Quick Reference
+
+## Project Status
+- **Phase**: {project_status['phase']}
+- **Goal**: {project_status['goal']}
+- **Stack**: {project_status['stack']}
+- **Status**: {project_status['status']}
+- **Workspace**: {project_status['workspace_id']}
+
+## Recent Development Context
+**Last 5 Commits:**
+"""
+        
+        for commit in git_context.get('recent_commits', []):
+            context += f"- {commit}\n"
+            
+        context += f"\n**Total Commits**: {git_context.get('total_commits', 0)}\n\n"
+
+        context += "## Key Project Artifacts\n"
+        for filename, data in key_files.items():
+            context += f"### {filename}\n"
+            context += f"*{data['description']}*\n\n"
+            if data['content'] != "File not found":
+                # Truncate and add ellipsis if too long
+                content = data['content'][:500] + "..." if len(data['content']) > 500 else data['content']
+                context += f"```\n{content}\n```\n\n"
+            else:
+                context += "*File not found*\n\n"
+
+        context += f"""## Current Context
+- **Proposal Type**: {proposal_type}
+- **Agent**: Spec Agent
+- **Timestamp**: {datetime.now(timezone.utc).isoformat()}
+
+## Instructions
+Use this context to understand the project state and make informed decisions about proposals.
+Focus on consistency with existing architecture and project goals.
+"""
+        
+        return context
+
+    def _get_basic_context(self) -> str:
+        """Fallback basic context if generation fails."""
+        return f"""# ContextPilot Project
+
+**Phase**: Hackathon + Product Launch
+**Goal**: AI-powered context management with multi-agent system  
+**Stack**: Cloud Run + Firestore + Pub/Sub + Gemini + VSCode Extension
+**Status**: Core functionality complete
+**Workspace**: {self.workspace_id}
+
+*Note: Detailed context generation failed, using basic context.*
+"""
+
     asyncio.run(test())
 

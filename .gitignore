@@ -92,3 +92,21 @@ mnemonic.txt
 # Lockfiles (keep package-lock but not bun.lockb for clarity)
 bun.lockb
 
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+terraform/budget.tf.bak
+
+# Extension packaging
+extension/*.vsix
+extension/out/
+
+# Python virtual environments
+back-end/.venv/
+back-end/venv/
+
+# Archive/temp docs (keep in repo but note as archive)
+# docs/archive/ is intentionally tracked for history
+
