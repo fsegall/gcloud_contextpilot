@@ -105,11 +105,10 @@ jobs:
           
           # Create commit message
           COMMIT_MSG="feat(contextpilot): ${TITLE}
-
-Applied by ContextPilot Bot via GitHub Actions.
-
-Proposal-ID: ${PROPOSAL_ID}
-Automated: true"
+          
+          Applied by ContextPilot Bot via GitHub Actions.
+          Proposal-ID: ${PROPOSAL_ID}
+          Automated: true"
           
           # Commit
           git commit -m "$COMMIT_MSG"
