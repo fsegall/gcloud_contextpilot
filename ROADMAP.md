@@ -9,12 +9,17 @@
 - [x] Achievements e gamificação
 - [x] Context summarization inteligente
 
-## 🔮 Fase 2: Blockchain Integration (Próxima Semana)
+## 🔮 Fase 2: Web Dashboard & Blockchain (Q1 2026)
+- [ ] Web Dashboard para Project Managers
+  - [ ] React + Vite + TailwindCSS interface
+  - [ ] View proposals via web browser
+  - [ ] Approve/reject proposals remotely
+  - [ ] Team collaboration features
+  - [ ] Analytics and insights dashboard
 - [ ] Polygon network integration
 - [ ] CPT Token (ERC-20) deployment
-- [ ] Wallet connection na extension
+- [ ] Wallet connection (RainbowKit)
 - [ ] Migration de rewards offchain → onchain
-- [ ] DeFi features (staking, yield)
 - [ ] NFT achievements
 
 ## 🌟 Fase 3: Google Cloud Web3 (Futuro)

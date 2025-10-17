@@ -302,6 +302,12 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
+## 🔒 Security Note
+
+**API Keys in Git History:** Early development commits may contain test API keys. All keys have been rotated and are no longer valid. Current production keys are stored securely in Google Cloud Secret Manager.
+
+---
+
 ## 🆘 Support
 
 - **Issues**: [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
