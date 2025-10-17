@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./back-end
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8080"
+    environment:
+      - PORT=8080
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-local-dev}
+      - FIRESTORE_ENABLED=false
+      - USE_PUBSUB=false
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - CONTEXTPILOT_AUTO_APPROVE_PROPOSALS=false
+    volumes:
+      - ./back-end:/app
+      - /app/.venv  # Exclude venv from volume
+    command: uvicorn app.server:app --host 0.0.0.0 --port 8080 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - contextpilot
+
+networks:
+  contextpilot:
+    driver: bridge
+
+# Usage:
+#
+# 1. Create .env file in project root:
+#    GOOGLE_API_KEY=your-gemini-api-key-here
+#
+# 2. Run:
+#    docker-compose up
+#
+# 3. Backend will be available at:
+#    http://localhost:8000
+#
+# 4. Configure extension:
+#    Settings → contextpilot.apiUrl → http://localhost:8000
+#
+# 5. Test:
+#    curl http://localhost:8000/health
+#
+# Note: This runs in local mode (no Firestore/Pub/Sub).
+#       For full Cloud Run experience, use Terraform deployment.
+

@@ -1,0 +1,370 @@
+openapi: 3.0.0
+info:
+  title: ContextPilot API
+  description: |
+    Multi-agent AI system for developer productivity deployed on Google Cloud Run.
+    
+    **Features:**
+    - Multi-agent system with 6 specialized agents
+    - AI-powered proposal generation
+    - Gamification with CPT tokens
+    - Rate limiting and abuse protection
+    
+    **For Hackathon Judges:**
+    - Try the extension: https://github.com/fsegall/gcloud_contextpilot/releases
+    - View source: https://github.com/fsegall/gcloud_contextpilot
+    
+  version: 2.0.0
+  contact:
+    name: Livre Solutions
+    email: contact@livresoltech.com
+    url: https://livre.solutions
+  license:
+    name: MIT
+    url: https://github.com/fsegall/gcloud_contextpilot/blob/main/LICENSE
+
+servers:
+  - url: https://contextpilot-backend-581368740395.us-central1.run.app
+    description: Production (Google Cloud Run)
+
+tags:
+  - name: Health
+    description: Service health and status
+  - name: Proposals
+    description: Change proposal management
+  - name: Agents
+    description: AI agent status and operations
+  - name: Context
+    description: Project context and summarization
+  - name: Admin
+    description: Administrative endpoints
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Check if the API is running and healthy
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: "2.0.0"
+                  agents:
+                    type: array
+                    items:
+                      type: string
+                    example: ["context", "spec", "strategy", "milestone", "git", "coach"]
+
+  /proposals:
+    get:
+      tags: [Proposals]
+      summary: List proposals
+      description: Get all proposals for a workspace, optionally filtered by status
+      parameters:
+        - name: workspace_id
+          in: query
+          required: true
+          schema:
+            type: string
+            default: default
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+      responses:
+        '200':
+          description: List of proposals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Proposal'
+                  count:
+                    type: integer
+
+  /proposals/{proposal_id}:
+    get:
+      tags: [Proposals]
+      summary: Get proposal by ID
+      parameters:
+        - name: proposal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Proposal details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Proposal'
+        '404':
+          description: Proposal not found
+
+  /proposals/create:
+    post:
+      tags: [Proposals]
+      summary: Create new proposal
+      description: Create a new change proposal (used by agents)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workspace_id
+                - agent_id
+                - title
+                - description
+                - proposed_changes
+              properties:
+                workspace_id:
+                  type: string
+                agent_id:
+                  type: string
+                title:
+                  type: string
+                description:
+                  type: string
+                proposed_changes:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ProposedChange'
+      responses:
+        '200':
+          description: Proposal created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: integer
+                  total:
+                    type: integer
+
+  /proposals/{proposal_id}/approve:
+    post:
+      tags: [Proposals]
+      summary: Approve proposal
+      description: Mark proposal as approved and trigger Git Agent
+      parameters:
+        - name: proposal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Proposal approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  commit_hash:
+                    type: string
+                    nullable: true
+
+  /proposals/{proposal_id}/reject:
+    post:
+      tags: [Proposals]
+      summary: Reject proposal
+      parameters:
+        - name: proposal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Proposal rejected
+
+  /agents/status:
+    get:
+      tags: [Agents]
+      summary: Get all agents status
+      description: Get status of all 6 AI agents
+      responses:
+        '200':
+          description: Agents status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentStatus'
+
+  /context/summary:
+    get:
+      tags: [Context]
+      summary: Get project context summary
+      description: Generate condensed project summary for AI (recent commits, crucial docs, status)
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          schema:
+            type: string
+            default: default
+        - name: proposal_type
+          in: query
+          required: false
+          schema:
+            type: string
+            default: general
+      responses:
+        '200':
+          description: Context summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                    description: Condensed project context (2K tokens)
+
+  /admin/abuse-stats:
+    get:
+      tags: [Admin]
+      summary: Get abuse detection statistics
+      description: View rate limiting and abuse detection stats (for monitoring)
+      responses:
+        '200':
+          description: Abuse statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blacklisted_ips:
+                    type: integer
+                  suspicious_ips:
+                    type: integer
+                  monitored_ips:
+                    type: integer
+                  blacklist:
+                    type: array
+                    items:
+                      type: string
+                  suspicious:
+                    type: array
+                    items:
+                      type: string
+
+components:
+  schemas:
+    Proposal:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "spec-missing_doc-1760664997"
+        workspace_id:
+          type: string
+          example: "default"
+        agent_id:
+          type: string
+          example: "spec"
+        title:
+          type: string
+          example: "Add authentication documentation"
+        description:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        proposed_changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProposedChange'
+        diff:
+          $ref: '#/components/schemas/Diff'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ProposedChange:
+      type: object
+      properties:
+        file_path:
+          type: string
+          example: "docs/AUTH.md"
+        change_type:
+          type: string
+          enum: [create, update, delete]
+        description:
+          type: string
+        before:
+          type: string
+          nullable: true
+        after:
+          type: string
+          nullable: true
+        diff:
+          type: string
+          nullable: true
+
+    Diff:
+      type: object
+      properties:
+        format:
+          type: string
+          enum: [unified, git-patch]
+        content:
+          type: string
+
+    AgentStatus:
+      type: object
+      properties:
+        agent_id:
+          type: string
+          example: "spec"
+        name:
+          type: string
+          example: "Spec Agent"
+        status:
+          type: string
+          enum: [active, idle, error]
+        last_activity:
+          type: string
+          format: date-time
+
+  securitySchemes:
+    RateLimiting:
+      type: apiKey
+      in: header
+      name: X-Real-IP
+      description: |
+        Rate limiting: 100 requests/hour per IP address.
+        Abuse detection active for duplicate requests and bot patterns.
+
+security:
+  - RateLimiting: []
+
