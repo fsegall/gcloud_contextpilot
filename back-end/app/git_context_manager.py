@@ -1,3 +1,15 @@
+"""
+Git Context Manager - Legacy Implementation
+
+Note: This module contains legacy code from early development.
+Current git operations are handled by:
+- GitAgent (back-end/app/agents/git_agent.py) for Cloud Run
+- Extension (extension/src/commands/index.ts) for local operations
+
+This file is preserved for historical reference and potential future use.
+Some comments remain in Portuguese from original development.
+"""
+
 import os
 import git
 import yaml

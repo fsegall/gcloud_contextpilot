@@ -481,7 +481,7 @@ def commit_task(
         logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
         manager = get_manager(workspace_id)
 
-        # ✅ Logar histórico
+        # Log to history
         logger.info("Logging task history...")
         manager.log_history(message=notes, agent=agent)
 

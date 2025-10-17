@@ -12,7 +12,12 @@ GCP_PROJECT_ID=your-gcp-project-id
 GITHUB_TOKEN=your-github-token
 FIRESTORE_ENABLED=false
 USE_PUBSUB=false
+# For production on GCP and Cloud Run:
+# FIRESTORE_ENABLED=true   # Uses Firestore (persistent, scalable)
+# USE_PUBSUB=true          # Uses Pub/Sub (async, multi-agent)
 ```
+
+
 
 ## Quick Start
 
