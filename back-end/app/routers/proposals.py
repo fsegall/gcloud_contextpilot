@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from typing import List, Optional
 import logging
 from datetime import datetime, timezone
+import os
+import httpx
 
 from app.models.proposal import (
     ChangeProposal,
@@ -26,6 +28,44 @@ router = APIRouter(prefix="/proposals", tags=["proposals"])
 # Initialize Firestore
 db = firestore.AsyncClient()
 proposals_col = db.collection("change_proposals")
+
+
+async def trigger_github_action(proposal_id: str):
+    """
+    Trigger GitHub Action via repository_dispatch webhook.
+    
+    Requires GITHUB_TOKEN and GITHUB_REPO environment variables.
+    """
+    github_token = os.getenv("GITHUB_TOKEN")
+    github_repo = os.getenv("GITHUB_REPO", "fsegall/gcloud_contextpilot")
+    
+    if not github_token:
+        logger.warning("⚠️ GITHUB_TOKEN not set, skipping GitHub Action trigger")
+        return
+    
+    url = f"https://api.github.com/repos/{github_repo}/dispatches"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {github_token}",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+    payload = {
+        "event_type": "proposal-approved",
+        "client_payload": {
+            "proposal_id": proposal_id
+        }
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, headers=headers, timeout=10.0)
+            
+            if response.status_code == 204:
+                logger.info(f"✅ GitHub Action triggered for proposal: {proposal_id}")
+            else:
+                logger.error(f"❌ GitHub Action trigger failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.error(f"❌ Error triggering GitHub Action: {e}")
 
 
 @router.post("/create", response_model=ChangeProposal)
@@ -227,6 +267,9 @@ async def approve_proposal(
         )
         
         logger.info(f"✅ Proposal approved: {proposal_id}")
+        
+        # Trigger GitHub Action via repository_dispatch webhook
+        await trigger_github_action(proposal_id)
         
         return {
             "status": "approved",
