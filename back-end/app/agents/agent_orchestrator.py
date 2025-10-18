@@ -268,7 +268,7 @@ Topic: "{topic}"
 Give a brief (2 sentences max), specific perspective from your role. Be actionable."""
 
             # Use latest Gemini 2.5 Flash Preview for best speed
-            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent"
+            url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
             payload = {"contents": [{"parts": [{"text": prompt}]}]}
             headers = {"Content-Type": "application/json"}
 

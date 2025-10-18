@@ -5,7 +5,7 @@
 ### Method 1: Command Palette (Recommended - works for all)
 1. Press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Linux/Windows)
 2. Type: **"Extensions: Install from VSIX..."**
-3. Select file: `contextpilot-BUNDLED-v0.2.1.vsix`
+3. Select file: `extension/contextpilot-0.2.1.vsix`
 4. Restart VS Code/Cursor completely
 
 ---
@@ -23,7 +23,7 @@ Then **restart VS Code/Cursor completely**.
 ### Method 3: Manual Installation (Cursor only - if command palette doesn't work)
 ```bash
 cd extension/
-unzip -q contextpilot-BUNDLED-v0.2.1.vsix -d /tmp/contextpilot-install
+unzip -q extension/contextpilot-0.2.1.vsix -d /tmp/contextpilot-install
 mkdir -p ~/.cursor/extensions/livresoltech.contextpilot-0.2.1
 cp -r /tmp/contextpilot-install/extension/* ~/.cursor/extensions/livresoltech.contextpilot-0.2.1/
 rm -rf /tmp/contextpilot-install

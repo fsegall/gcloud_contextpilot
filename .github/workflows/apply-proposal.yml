@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       proposal_id:
-        description: 'Proposal ID to apply'
+        description: "Proposal ID to apply"
         required: true
         type: string
 
@@ -15,19 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Configure Git
         run: |
           git config user.name "ContextPilot Bot"
           git config user.email "bot@contextpilot.ai"
-      
+
       - name: Get proposal ID
         id: proposal
         run: |
@@ -36,35 +36,35 @@ jobs:
           else
             echo "proposal_id=${{ github.event.inputs.proposal_id }}" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Fetch proposal from Firestore
         id: fetch
         run: |
           PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
           API_URL="https://contextpilot-backend-581368740395.us-central1.run.app"
-          
+
           echo "Fetching proposal: $PROPOSAL_ID"
-          
+
           # Get proposal from API
           curl -s "${API_URL}/proposals/${PROPOSAL_ID}?workspace_id=contextpilot" \
             -o proposal.json
-          
+
           # Check if proposal exists
           if ! jq -e '.id' proposal.json > /dev/null 2>&1; then
             echo "❌ Proposal not found or invalid response"
             cat proposal.json
             exit 1
           fi
-          
+
           # Extract proposal details
           TITLE=$(jq -r '.title' proposal.json)
           STATUS=$(jq -r '.status // "pending"' proposal.json)
-          
+
           echo "title=$TITLE" >> $GITHUB_OUTPUT
           echo "status=$STATUS" >> $GITHUB_OUTPUT
-          
+
           echo "✅ Proposal fetched: $TITLE (status: $STATUS)"
-      
+
       - name: Apply changes
         run: |
           # Extract proposed changes from proposal
@@ -88,54 +88,51 @@ jobs:
               echo "  ✅ Updated: $file_path"
             fi
           done
-      
+
       - name: Commit and push changes
         run: |
           PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
           TITLE="${{ steps.fetch.outputs.title }}"
-          
+
           # Check if there are changes
           if git diff --quiet && git diff --cached --quiet; then
             echo "ℹ️  No changes to commit"
             exit 0
           fi
-          
+
           # Stage all changes
           git add -A
-          
+
           # Create commit message
           COMMIT_MSG="feat(contextpilot): ${TITLE}
-          
+
           Applied by ContextPilot Bot via GitHub Actions.
           Proposal-ID: ${PROPOSAL_ID}
           Automated: true"
-          
+
           # Commit
           git commit -m "$COMMIT_MSG"
-          
+
           # Push
           git push origin main
-          
+
           echo "✅ Changes committed and pushed!"
-      
+
       - name: Update proposal status in Firestore
         if: success()
         run: |
           PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
           API_URL="https://contextpilot-backend-581368740395.us-central1.run.app"
           COMMIT_HASH=$(git rev-parse HEAD)
-          
+
           echo "Updating proposal $PROPOSAL_ID with commit hash $COMMIT_HASH"
-          
+
           # Update proposal with commit hash
           # Note: This would require a new API endpoint to update commit hash
           echo "✅ Commit hash: $COMMIT_HASH"
-      
+
       - name: Comment on failure
         if: failure()
         run: |
           echo "❌ Failed to apply proposal ${{ steps.proposal.outputs.proposal_id }}"
           echo "Check the logs above for details."
-
-
-

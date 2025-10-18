@@ -177,23 +177,15 @@ export class ContextPilotService {
 
   async getBalance(): Promise<Balance> {
     try {
-      // Use mock endpoint if in test mode or if regular endpoint fails
-      const endpoint = this.testMode ? '/rewards/balance/mock' : '/rewards/balance';
-      const response = await this.client.get(endpoint, {
+      // Use mock endpoint for demo (rewards system not yet deployed)
+      const response = await this.client.get('/rewards/balance/mock', {
         params: { user_id: this.userId },
       });
       console.log(`[ContextPilot] Balance: ${response.data.balance} CPT`);
       return response.data;
     } catch (error) {
       console.error('Failed to fetch balance:', error);
-      // Fallback to mock endpoint
-      try {
-        const response = await this.client.get('/rewards/balance/mock');
-        console.log(`[ContextPilot] Using mock balance (fallback)`);
-        return response.data;
-      } catch {
-        return { balance: 0, total_earned: 0, pending_rewards: 0 };
-      }
+      return { balance: 0, total_earned: 0, pending_rewards: 0 };
     }
   }
 
@@ -303,7 +295,8 @@ export class ContextPilotService {
   async triggerRetrospective(workspaceId: string = 'default', topic?: string): Promise<any> {
     try {
       const response = await this.client.post('/agents/retrospective/trigger', {
-        trigger: topic || 'manual',
+        trigger: 'manual',
+        trigger_topic: topic,  // The discussion topic for agents
         use_llm: true  // Enable AI-powered insights
       }, {
         params: { workspace_id: workspaceId }

@@ -581,6 +581,15 @@ def health_check():
     }
 
 
+@app.post("/admin/clear-blacklist")
+def clear_blacklist():
+    """Clear the IP blacklist (for development)"""
+    abuse_detector.blacklist.clear()
+    abuse_detector.error_counts.clear()
+    logger.info("🧹 Blacklist cleared")
+    return {"message": "Blacklist cleared successfully"}
+
+
 @app.get("/admin/abuse-stats")
 def get_abuse_stats():
     """
@@ -681,6 +690,14 @@ def get_mock_proposals():
             "created_at": "2025-10-14T10:45:00Z",
         },
     ]
+
+
+@app.get("/rewards/balance")
+def get_balance(user_id: str = Query("test")):
+    """Get rewards balance for user"""
+    logger.info(f"GET /rewards/balance called for user: {user_id}")
+    # For now, return mock data (integrate with actual rewards system later)
+    return {"balance": 150, "total_earned": 300, "pending_rewards": 50}
 
 
 @app.get("/rewards/balance/mock")
@@ -1229,6 +1246,7 @@ async def trigger_agent_retrospective(
     workspace_id: str = Query("default"),
     trigger: str = Body("manual"),
     use_llm: bool = Body(False),
+    trigger_topic: Optional[str] = Body(None),
 ):
     """
     Trigger a retrospective meeting between agents.
@@ -1243,11 +1261,14 @@ async def trigger_agent_retrospective(
         workspace_id: Workspace identifier
         trigger: What triggered the retrospective (e.g., "manual", "milestone_complete", "cycle_end")
         use_llm: Whether to use Gemini LLM for narrative synthesis
+        trigger_topic: Optional topic for agent discussion
 
     Returns:
         Retrospective summary with agent insights
     """
-    logger.info(f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}")
+    logger.info(
+        f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}, topic: {trigger_topic}"
+    )
 
     try:
         from app.agents.retrospective_agent import trigger_retrospective
@@ -1262,20 +1283,15 @@ async def trigger_agent_retrospective(
         retrospective = await trigger_retrospective(
             workspace_id=workspace_id,
             trigger=trigger,
-            gemini_api_key=gemini_api_key
+            gemini_api_key=gemini_api_key,
+            trigger_topic=trigger_topic,
         )
 
-        return {
-            "status": "success",
-            "retrospective": retrospective
-        }
+        return {"status": "success", "retrospective": retrospective}
 
     except Exception as e:
         logger.error(f"Error triggering retrospective: {str(e)}")
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/agents/retrospective/list")
@@ -1301,13 +1317,15 @@ async def list_retrospectives(workspace_id: str = Query("default")):
                 with open(json_file, "r") as f:
                     retro = json.load(f)
                     # Return summary only (not full data)
-                    retrospectives.append({
-                        "retrospective_id": retro.get("retrospective_id"),
-                        "timestamp": retro.get("timestamp"),
-                        "trigger": retro.get("trigger"),
-                        "insights_count": len(retro.get("insights", [])),
-                        "action_items_count": len(retro.get("action_items", []))
-                    })
+                    retrospectives.append(
+                        {
+                            "retrospective_id": retro.get("retrospective_id"),
+                            "timestamp": retro.get("timestamp"),
+                            "trigger": retro.get("trigger"),
+                            "insights_count": len(retro.get("insights", [])),
+                            "action_items_count": len(retro.get("action_items", [])),
+                        }
+                    )
             except Exception as e:
                 logger.error(f"Error reading retrospective {json_file}: {e}")
 
@@ -1319,18 +1337,24 @@ async def list_retrospectives(workspace_id: str = Query("default")):
 
 
 @app.get("/agents/retrospective/{retrospective_id}")
-async def get_retrospective(retrospective_id: str, workspace_id: str = Query("default")):
+async def get_retrospective(
+    retrospective_id: str, workspace_id: str = Query("default")
+):
     """
     Get a specific retrospective by ID.
 
     Returns:
         Full retrospective data
     """
-    logger.info(f"GET /agents/retrospective/{retrospective_id} - workspace: {workspace_id}")
+    logger.info(
+        f"GET /agents/retrospective/{retrospective_id} - workspace: {workspace_id}"
+    )
 
     try:
         workspace_path = get_workspace_path(workspace_id)
-        retro_file = Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
+        retro_file = (
+            Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
+        )
 
         if not retro_file.exists():
             raise HTTPException(status_code=404, detail="Retrospective not found")

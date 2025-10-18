@@ -61,7 +61,10 @@ class RetrospectiveAgent(BaseAgent):
             self.increment_metric("errors")
 
     async def conduct_retrospective(
-        self, trigger: str = "manual", gemini_api_key: Optional[str] = None
+        self,
+        trigger: str = "manual",
+        gemini_api_key: Optional[str] = None,
+        trigger_topic: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Conduct a retrospective meeting between agents.
@@ -69,11 +72,14 @@ class RetrospectiveAgent(BaseAgent):
         Args:
             trigger: What triggered the retrospective (e.g., "manual", "milestone_complete", "cycle_end")
             gemini_api_key: Optional Gemini API key for LLM synthesis
+            trigger_topic: Optional topic for agent discussion
 
         Returns:
             Retrospective summary with agent insights and action items
         """
-        logger.info(f"[RetrospectiveAgent] Starting retrospective (trigger: {trigger})")
+        logger.info(
+            f"[RetrospectiveAgent] Starting retrospective (trigger: {trigger}, topic: {trigger_topic})"
+        )
 
         # 1. Gather agent metrics
         agent_metrics = self._collect_agent_metrics()
@@ -86,7 +92,7 @@ class RetrospectiveAgent(BaseAgent):
 
         # 4. Generate insights
         insights = self._generate_insights(
-            agent_metrics, agent_learnings, event_summary, trigger
+            agent_metrics, agent_learnings, event_summary, trigger, trigger_topic
         )
 
         # 5. Propose action items
@@ -144,32 +150,33 @@ class RetrospectiveAgent(BaseAgent):
     def _collect_agent_metrics(self) -> Dict[str, Dict]:
         """Collect metrics from all agents (live or from state files)"""
         metrics = {}
-        
+
         # Try to use orchestrator for real-time metrics from live agents
         try:
             from app.agents.agent_orchestrator import AgentOrchestrator
-            
+
             orchestrator = AgentOrchestrator(
-                workspace_id=self.workspace_id,
-                workspace_path=self.workspace_path
+                workspace_id=self.workspace_id, workspace_path=self.workspace_path
             )
-            
+
             # Initialize agents to get current state
             orchestrator.initialize_agents()
-            
+
             # Get real-time metrics
             metrics = orchestrator.get_agent_metrics()
-            
-            logger.info(f"[RetrospectiveAgent] Collected live metrics from {len(metrics)} agents")
-            
+
+            logger.info(
+                f"[RetrospectiveAgent] Collected live metrics from {len(metrics)} agents"
+            )
+
             # Shutdown agents
             orchestrator.shutdown_agents()
-            
+
             if metrics:
                 return metrics
         except Exception as e:
             logger.warning(f"[RetrospectiveAgent] Could not get live metrics: {e}")
-        
+
         # Fallback to reading state files
         state_dir = Path(self.workspace_path) / ".agent_state"
 
@@ -266,6 +273,7 @@ class RetrospectiveAgent(BaseAgent):
         agent_metrics: Dict,
         agent_learnings: Dict,
         event_summary: Dict,
+        trigger: str = "manual",
         trigger_topic: str = None,
     ) -> List[str]:
         """Generate insights from collected data"""
@@ -327,31 +335,38 @@ class RetrospectiveAgent(BaseAgent):
         # Try to use AgentOrchestrator for real agent perspectives
         try:
             from app.agents.agent_orchestrator import AgentOrchestrator
-            
+
             logger.info("[RetrospectiveAgent] Initializing agents for discussion...")
             orchestrator = AgentOrchestrator(
-                workspace_id=self.workspace_id,
-                workspace_path=self.workspace_path
+                workspace_id=self.workspace_id, workspace_path=self.workspace_path
             )
-            
+
             # Initialize all available agents
             orchestrator.initialize_agents()
-            
+
             # Get perspectives from real agents
             perspectives = orchestrator.get_agent_perspectives(topic)
-            
-            if perspectives:
-                logger.info(f"[RetrospectiveAgent] Got {len(perspectives)} real agent perspectives")
+
+            # Require at least 3 agents for a proper discussion
+            # If we have fewer, fall back to LLM-generated discussion
+            if perspectives and len(perspectives) >= 3:
+                logger.info(
+                    f"[RetrospectiveAgent] Got {len(perspectives)} real agent perspectives"
+                )
                 for p in perspectives:
                     discussion_insights.append(
                         f"{p['emoji']} {p['name']}: {p['response']}"
                     )
-                
+
                 # Shutdown agents after discussion
                 orchestrator.shutdown_agents()
                 return discussion_insights
             else:
-                logger.warning("[RetrospectiveAgent] No agent perspectives received, falling back to LLM")
+                logger.warning(
+                    f"[RetrospectiveAgent] Only got {len(perspectives) if perspectives else 0} perspectives, need at least 3. Falling back to LLM"
+                )
+                # Shutdown any initialized agents
+                orchestrator.shutdown_agents()
         except Exception as e:
             logger.warning(f"[RetrospectiveAgent] Orchestrator failed: {e}, trying LLM")
 
@@ -359,7 +374,7 @@ class RetrospectiveAgent(BaseAgent):
         return self._llm_agent_discussion(topic)
 
     def _llm_agent_discussion(self, topic: str) -> List[str]:
-        """Generate agent perspectives using LLM"""
+        """Generate agent perspectives using LLM - single call for all agents"""
         # Get API key
         gemini_api_key = os.getenv("GOOGLE_API_KEY")
         if not gemini_api_key:
@@ -399,57 +414,87 @@ class RetrospectiveAgent(BaseAgent):
                 ),
             ]
 
-            # Use Gemini to generate each agent's perspective
-            url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-pro:generateContent"
-            discussion_insights = []
+            # Build a comprehensive prompt for all agents at once
+            prompt = f"""You are simulating a multi-agent development team discussing a topic.
 
-            for agent_name, expertise in agents:
-                prompt = f"""You are the {agent_name} in a multi-agent development system.
+Topic: "{topic}"
 
-Your expertise: {expertise}
+Generate a brief (1-2 sentence) perspective from EACH of the following agents:
 
-The team is discussing: "{topic}"
+{chr(10).join(f"{i+1}. {name} - Expertise: {expertise}" for i, (name, expertise) in enumerate(agents))}
 
-Provide a brief (1-2 sentence) perspective on this topic from your role's viewpoint. Be specific and actionable.
-Focus on what YOUR agent should do or recommend regarding this topic.
+Format your response as exactly 6 lines, one per agent, like:
+📦 Context Agent: [perspective]
+📋 Spec Agent: [perspective]
+🔧 Git Agent: [perspective]
+🎯 Coach Agent: [perspective]
+🏁 Milestone Agent: [perspective]
+🧠 Strategy Agent: [perspective]
 
-Response format: Just the perspective text, no preamble."""
+Make each perspective specific, actionable, and focused on that agent's role.
+NO preamble, just the 6 lines."""
 
-                payload = {"contents": [{"parts": [{"text": prompt}]}]}
-                headers = {"Content-Type": "application/json"}
+            # Single API call for all perspectives
+            url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            headers = {"Content-Type": "application/json"}
 
-                response = requests.post(
-                    f"{url}?key={gemini_api_key}",
-                    json=payload,
-                    headers=headers,
-                    timeout=10,
+            logger.info("[RetrospectiveAgent] Calling Gemini for agent discussion...")
+            logger.debug(
+                f"[RetrospectiveAgent] API Key present: {bool(gemini_api_key)}"
+            )
+
+            response = requests.post(
+                f"{url}?key={gemini_api_key}",
+                json=payload,
+                headers=headers,
+                timeout=15,
+            )
+
+            logger.info(
+                f"[RetrospectiveAgent] Gemini response status: {response.status_code}"
+            )
+            if response.status_code != 200:
+                logger.error(
+                    f"[RetrospectiveAgent] Gemini error response: {response.text[:500]}"
                 )
 
-                if response.status_code == 200:
-                    result = response.json()
-                    perspective = (
-                        result.get("candidates", [{}])[0]
-                        .get("content", {})
-                        .get("parts", [{}])[0]
-                        .get("text", "")
-                        .strip()
-                    )
-                    if perspective:
-                        discussion_insights.append(f"{agent_name}: {perspective}")
-                else:
-                    # Fallback for this agent
-                    discussion_insights.append(f"{agent_name}: [Analysis pending]")
+            if response.status_code == 200:
+                result = response.json()
+                full_response = (
+                    result.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
 
-            return (
-                discussion_insights
-                if discussion_insights
-                else self._fallback_agent_discussion(topic)
-            )
+                if full_response:
+                    # Split into lines and clean up
+                    perspectives = [
+                        line.strip()
+                        for line in full_response.split("\n")
+                        if line.strip()
+                    ]
+                    logger.info(
+                        f"[RetrospectiveAgent] Got {len(perspectives)} perspectives from LLM"
+                    )
+                    return (
+                        perspectives
+                        if len(perspectives) >= 3
+                        else self._fallback_agent_discussion(topic)
+                    )
+                else:
+                    logger.warning("[RetrospectiveAgent] Empty LLM response")
+                    return self._fallback_agent_discussion(topic)
+            else:
+                logger.error(
+                    f"[RetrospectiveAgent] LLM API error: {response.status_code}"
+                )
+                return self._fallback_agent_discussion(topic)
 
         except Exception as e:
-            logger.error(
-                f"[RetrospectiveAgent] LLM discussion generation failed: {e}"
-            )
+            logger.error(f"[RetrospectiveAgent] LLM discussion generation failed: {e}")
             return self._fallback_agent_discussion(topic)
 
     def _fallback_agent_discussion(self, topic: str) -> List[str]:
@@ -677,15 +722,21 @@ Keep the tone encouraging and constructive. Maximum 200 words.
             )
             return None
 
-        # Get high priority actions
+        # Get high and medium priority actions
         high_priority_actions = [
             item for item in action_items if item.get("priority") == "high"
         ]
+        medium_priority_actions = [
+            item for item in action_items if item.get("priority") == "medium"
+        ]
 
-        # If no high priority, use all actions
-        actions_to_propose = (
-            high_priority_actions if high_priority_actions else action_items[:3]
-        )
+        # Prioritize high, then include medium if needed, or all actions
+        if high_priority_actions:
+            actions_to_propose = high_priority_actions
+        elif medium_priority_actions:
+            actions_to_propose = medium_priority_actions[:3]
+        else:
+            actions_to_propose = action_items[:3]
 
         if not actions_to_propose:
             return None
@@ -773,8 +824,12 @@ Implementing these changes will:
             # Check if Firestore is enabled
             if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
                 repo = get_proposal_repository()
+                
+                # Generate proposal ID
+                proposal_id = f"retro-proposal-{retrospective['retrospective_id']}"
 
                 proposal_data = {
+                    "id": proposal_id,
                     "workspace_id": self.workspace_id,
                     "agent_id": "retrospective",
                     "title": proposal_title,
@@ -795,7 +850,7 @@ Implementing these changes will:
                     },
                 }
 
-                proposal_id = repo.create(proposal_data)
+                repo.create(proposal_data)
                 logger.info(
                     f"[RetrospectiveAgent] Proposal created in Firestore: {proposal_id}"
                 )
@@ -851,6 +906,7 @@ async def trigger_retrospective(
     workspace_id: str = "default",
     trigger: str = "manual",
     gemini_api_key: Optional[str] = None,
+    trigger_topic: Optional[str] = None,
 ) -> Dict:
     """
     Trigger a retrospective (used by API endpoint).
@@ -859,6 +915,7 @@ async def trigger_retrospective(
         workspace_id: Workspace identifier
         trigger: What triggered the retrospective
         gemini_api_key: Optional Gemini API key
+        trigger_topic: Optional topic for agent discussion
 
     Returns:
         Retrospective summary
@@ -870,7 +927,7 @@ async def trigger_retrospective(
 
     agent = RetrospectiveAgent(workspace_id=workspace_id, project_id=project_id)
     retrospective = await agent.conduct_retrospective(
-        trigger=trigger, gemini_api_key=gemini_api_key
+        trigger=trigger, gemini_api_key=gemini_api_key, trigger_topic=trigger_topic
     )
 
     return retrospective
