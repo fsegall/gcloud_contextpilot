@@ -78,6 +78,34 @@ code --install-extension contextpilot-0.1.0.vsix
 
 ## 🔧 Configuration
 
+### **Backend URL**
+
+The extension connects to the ContextPilot backend API. By default, it uses the production Cloud Run instance:
+
+```typescript
+// Production (default)
+const apiUrl = 'https://contextpilot-backend-581368740395.us-central1.run.app';
+
+// Development (local testing)
+const apiUrl = 'http://localhost:8000';
+```
+
+**To switch between dev and prod:**
+1. Edit `extension/src/extension.ts` line 19
+2. Rebuild: `npm run webpack`
+3. Reinstall: `npx @vscode/vsce package`
+
+### **Environment Differences**
+
+| Feature | Local Dev | Production (Cloud) |
+|---------|-----------|-------------------|
+| Backend URL | `localhost:8000` | `*.run.app` |
+| Workspace Storage | Local `.contextpilot/` | Firestore |
+| Event Bus | In-memory | Google Pub/Sub |
+| Default Workspace | `default` | `default` |
+
+**Important**: Proposals are stored per workspace. The extension now searches **all workspaces** to avoid missing proposals created in different workspace contexts.
+
 ### **Settings**
 ```json
 {
@@ -91,6 +119,8 @@ code --install-extension contextpilot-0.1.0.vsix
 1. Ensure your project is a Git repository
 2. Have at least one `.md` file (README.md recommended)
 3. Grant necessary permissions when prompted
+
+**Note**: If proposals don't appear, check that the backend's `workspace_id` matches where proposals are stored. The extension queries all workspaces by default.
 
 ## 🌟 Use Cases
 

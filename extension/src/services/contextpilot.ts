@@ -117,9 +117,9 @@ export class ContextPilotService {
   async getProposals(): Promise<ChangeProposal[]> {
     console.log('[ContextPilot] getProposals() called');
     try {
-      // Force real endpoint for testing
+      // Fetch from all workspaces (no workspace_id filter)
       const response = await this.client.get('/proposals', {
-        params: { workspace_id: 'default', status: 'pending' }
+        params: { status: 'pending' }
       });
       console.log('[ContextPilot] Raw response:', response.data);
       const arr = Array.isArray(response.data) ? response.data : response.data?.proposals || [];
