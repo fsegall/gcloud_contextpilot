@@ -74,6 +74,12 @@ jobs:
             .after as $content |
             "\($path)|\($type)|\($content)"' proposal.json | \
           while IFS='|' read -r file_path change_type content; do
+            # Skip empty or invalid file paths
+            if [ -z "$file_path" ] || [ "$file_path" = "null" ]; then
+              echo "  ⚠️  Skipping invalid file path"
+              continue
+            fi
+            
             echo "Applying $change_type to $file_path"
             
             if [ "$change_type" = "delete" ]; then
