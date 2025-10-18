@@ -149,7 +149,7 @@
       "properties": {
         "contextpilot.apiUrl": {
           "type": "string",
-          "default": "https://contextpilot-backend-581368740395.us-central1.run.app",
+          "default": "http://localhost:8000",
           "description": "ContextPilot API URL"
         },
         "contextpilot.autoConnect": {

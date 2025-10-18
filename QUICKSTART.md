@@ -1,205 +1,258 @@
-# ⚡ ContextPilot - Quick Start Guide
+# 🚀 Quick Start Guide
 
-**Get up and running in 2 minutes!**
+Get ContextPilot running in **5 minutes**!
 
----
+## 📋 Prerequisites
 
-## 🎯 For Hackathon Judges & Evaluators
+- **VS Code** or **Cursor** editor
+- **Git** installed
+- **Internet connection** (for API access)
 
-### Option 1: Install Extension (Recommended - 2 minutes)
+## 🎯 Choose Your Testing Method
 
-**Try the full ContextPilot experience:**
+### Option A: Extension Only (Easiest - 2 minutes)
 
-```bash
-# 1. Download extension
-curl -LO https://github.com/fsegall/gcloud_contextpilot/releases/download/v0.1.1/contextpilot-0.1.1.vsix
+Perfect for trying out the extension with our hosted backend.
 
-# 2. Install in VS Code/Cursor
-code --install-extension contextpilot-0.1.1.vsix
+1. **Download the Extension**
+   - Go to [GitHub Releases](https://github.com/fsegall/gcloud_contextpilot/releases/latest)
+   - Download `contextpilot-0.2.1.vsix`
 
-# 3. Open VS Code, look for ContextPilot icon (🚀) in sidebar
+2. **Install in VS Code**
+   ```bash
+   code --install-extension contextpilot-0.2.1.vsix
+   ```
 
-# 4. Done! Extension connects automatically to our Cloud Run backend
-```
+   **OR in Cursor:**
+   ```bash
+   cursor --install-extension contextpilot-0.2.1.vsix
+   ```
 
-**What you'll see:**
-- 📋 AI-generated proposals in sidebar
-- 🎮 CPT token balance and rewards
-- ✅ One-click approve → Auto git commit
-- 🏆 Achievement notifications
+   **OR via GUI:**
+   - Open VS Code/Cursor
+   - `Cmd/Ctrl+Shift+P` → `Extensions: Install from VSIX...`
+   - Select the downloaded `.vsix` file
 
-**No configuration needed!** Uses shared Gemini API key (rate-limited for fair usage).
+3. **Configure (Optional)**
+   - The extension connects to our hosted backend by default
+   - Open settings: `Cmd/Ctrl+,` → search "ContextPilot"
+   - API URL is pre-configured: `https://contextpilot-api-123456789.us-central1.run.app`
 
----
-
-### Option 2: Test Backend API (1 minute)
-
-**See Cloud Run in action:**
-
-```bash
-# Health check
-curl https://contextpilot-backend-581368740395.us-central1.run.app/health
-
-# Get proposals
-curl "https://contextpilot-backend-581368740395.us-central1.run.app/proposals?workspace_id=default&status=pending"
-
-# Get agent status
-curl https://contextpilot-backend-581368740395.us-central1.run.app/agents/status
-
-# View abuse protection stats
-curl https://contextpilot-backend-581368740395.us-central1.run.app/admin/abuse-stats
-```
-
-**Explore the API:** [OpenAPI Spec](https://contextpilot-backend-581368740395.us-central1.run.app/docs)
+4. **Test It!**
+   - Open any project folder
+   - `Cmd/Ctrl+Shift+P` → `ContextPilot: Start Agent Retrospective`
+   - Enter a discussion topic (e.g., "How can we improve code quality?")
+   - Watch the magic happen! ✨
 
 ---
 
-### Option 3: Deploy Your Own (30 minutes)
+### Option B: Full Local Setup (5 minutes)
 
-**Deploy full infrastructure with Terraform:**
+For developers who want to run everything locally.
 
+#### 1. Clone the Repository
 ```bash
-# 1. Clone repository
 git clone https://github.com/fsegall/gcloud_contextpilot.git
 cd gcloud_contextpilot
-
-# 2. Authenticate with Google Cloud
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-
-# 3. Create Gemini API key
-# Visit: https://makersuite.google.com/app/apikey
-# Copy your key
-
-# 4. Deploy infrastructure
-cd terraform
-terraform init
-terraform apply
-
-# 5. Add API key to Secret Manager
-echo -n "YOUR_GEMINI_KEY" | gcloud secrets versions add GOOGLE_API_KEY --data-file=-
-
-# 6. Build and deploy backend
-cd ../back-end
-docker build -t gcr.io/YOUR_PROJECT_ID/contextpilot-backend:latest .
-docker push gcr.io/YOUR_PROJECT_ID/contextpilot-backend:latest
-gcloud run deploy contextpilot-backend \
-  --image gcr.io/YOUR_PROJECT_ID/contextpilot-backend:latest \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated
-
-# 7. Install extension and configure to use your backend
-code --install-extension ../extension/contextpilot-0.1.1.vsix
-# Settings → contextpilot.apiUrl → YOUR_CLOUD_RUN_URL
 ```
 
-**See:** [Deployment Guide](docs/deployment/DEPLOYMENT.md) for detailed steps.
+#### 2. Backend Setup (Choose One)
+
+**Option B1: Docker Compose (Recommended)**
+```bash
+cd back-end
+docker-compose up -d
+```
+
+Backend runs on: `http://localhost:8000`
+
+**Option B2: Python Direct**
+```bash
+cd back-end
+pip install -r requirements.txt
+uvicorn app.server:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### 3. Install Extension
+```bash
+cd ../extension
+code --install-extension contextpilot-0.2.1.vsix
+```
+
+#### 4. Configure for Local Backend
+Create `.vscode/settings.json` in your project:
+```json
+{
+  "contextpilot.apiUrl": "http://localhost:8000",
+  "contextpilot.autoConnect": true
+}
+```
+
+#### 5. Test It!
+- `Cmd/Ctrl+Shift+P` → `ContextPilot: Start Agent Retrospective`
+- Enter a topic and see results!
 
 ---
 
-## 🎬 Video Demo
+### Option C: API Testing (For Backend Devs)
 
-**Coming soon:** 3-minute walkthrough showing:
-1. Extension installation
-2. Viewing AI proposals
-3. One-click approval
-4. Automatic git commit
-5. Earning CPT tokens
+Test the API directly without the extension.
+
+#### 1. Start Backend
+```bash
+cd back-end
+docker-compose up -d
+# OR
+uvicorn app.server:app --reload
+```
+
+#### 2. Test with cURL
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Get agent status
+curl http://localhost:8000/agents/status
+
+# Trigger retrospective
+curl -X POST http://localhost:8000/agents/retrospective/trigger \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_id": "test-workspace", "trigger": "manual", "use_llm": false}'
+```
+
+#### 3. OpenAPI Spec
+Open `http://localhost:8000/docs` in your browser for interactive API documentation.
 
 ---
 
-## 📊 What You're Testing
+## 🎮 Key Features to Try
 
-### Multi-Agent System
-- **6 specialized agents** (Spec, Git, Context, Coach, Milestone, Strategy)
-- **Event-driven coordination** via Google Cloud Pub/Sub
-- **Persistent state** in Firestore
-- **AI generation** with Gemini 1.5 Flash
+### 1. Agent Retrospective (NEW! 🆕)
+```
+Cmd/Ctrl+Shift+P → ContextPilot: Start Agent Retrospective
+```
+- Suggest a discussion topic
+- Watch agents collaborate and analyze
+- Get actionable improvement proposals
+- See automatic code change suggestions
 
-### Cloud Run Architecture
-- **Serverless backend** (auto-scales 0-100 instances)
-- **Event bus** (Pub/Sub for agent communication)
-- **NoSQL database** (Firestore for proposals)
-- **Secret management** (API keys in Secret Manager)
-- **Monitoring** (dashboards, alerts, abuse detection)
+### 2. View Context
+```
+Cmd/Ctrl+Shift+P → ContextPilot: View Context
+```
+See AI-maintained project context.
 
-### Developer Experience
-- **VS Code integration** (native sidebar, commands)
-- **Local git operations** (code never leaves machine)
-- **One-click workflows** (approve → commit → reward)
-- **Gamification** (CPT tokens, achievements, streaks)
+### 3. Check Agents
+```
+Cmd/Ctrl+Shift+P → ContextPilot: Show Agents
+```
+Monitor all 7 specialized agents.
+
+### 4. Review Proposals
+```
+Cmd/Ctrl+Shift+P → ContextPilot: View Proposals
+```
+See AI-generated code improvement suggestions.
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Extension not connecting?
-```bash
-# Check backend is online
-curl https://contextpilot-backend-581368740395.us-central1.run.app/health
+### Extension Not Loading?
 
-# Reload VS Code window
-Ctrl+Shift+P → "Developer: Reload Window"
-```
-
-### No proposals showing?
-```bash
-# Create test proposal
-curl -X POST "https://contextpilot-backend-581368740395.us-central1.run.app/proposals/create" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspace_id": "default",
-    "agent_id": "spec",
-    "title": "Test proposal",
-    "description": "Testing ContextPilot",
-    "proposed_changes": [
-      {
-        "file_path": "TEST.md",
-        "change_type": "create",
-        "description": "Test file",
-        "after": "# Test\n\nThis is a test."
-      }
-    ]
-  }'
-
-# Refresh extension
-Click refresh button in ContextPilot sidebar
-```
-
-### Extension installed but no icon?
+**VS Code:**
 ```bash
 # Verify installation
 code --list-extensions | grep contextpilot
-
 # Should show: livresoltech.contextpilot
-
-# If not showing, reinstall:
-code --uninstall-extension livresoltech.contextpilot
-code --install-extension contextpilot-0.1.1.vsix
 ```
 
+**Cursor:**
+```bash
+cursor --list-extensions | grep contextpilot
+```
+
+If not found, try installing via GUI:
+- `Cmd/Ctrl+Shift+P` → `Extensions: Install from VSIX...`
+
+### "No Context Loaded" Error?
+
+1. **Check backend connection:**
+   - Open Developer Tools: `Help → Toggle Developer Tools`
+   - Check Console for errors
+
+2. **Verify API URL:**
+   - Settings → Extensions → ContextPilot → API URL
+   - Should be: `https://contextpilot-api-123456789.us-central1.run.app` (hosted)
+   - OR: `http://localhost:8000` (local)
+
+3. **Test backend directly:**
+   ```bash
+   curl https://contextpilot-api-123456789.us-central1.run.app/health
+   # Should return: {"status": "healthy"}
+   ```
+
+### Backend Issues (Local Setup)?
+
+1. **Check Docker:**
+   ```bash
+   docker-compose ps
+   # Should show contextpilot-backend running
+   ```
+
+2. **Check logs:**
+   ```bash
+   docker-compose logs -f
+   ```
+
+3. **Port already in use?**
+   ```bash
+   # Change port in docker-compose.yml
+   ports:
+     - "8001:8000"  # Use 8001 instead
+   ```
+
+### Extension Commands Not Appearing?
+
+1. **Reload window:**
+   - `Cmd/Ctrl+Shift+P` → `Developer: Reload Window`
+
+2. **Check extension is enabled:**
+   - Extensions view → Search "ContextPilot" → Should show "Enabled"
+
+3. **Reinstall:**
+   ```bash
+   code --uninstall-extension livresoltech.contextpilot
+   code --install-extension contextpilot-0.2.1.vsix
+   ```
+
 ---
 
-## 📚 More Information
+## 📚 Next Steps
 
 - **Full Documentation:** [README.md](README.md)
-- **Architecture Details:** [ARCHITECTURE.md](ARCHITECTURE.md)
-- **Hackathon Submission:** [HACKATHON.md](HACKATHON.md)
-- **Security & Protection:** [SECURITY.md](SECURITY.md)
-- **Project Roadmap:** [ROADMAP.md](ROADMAP.md)
+- **Architecture Deep Dive:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **API Reference:** [openapi.yaml](openapi.yaml)
+- **Security Details:** [SECURITY.md](SECURITY.md)
+- **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
-## 🆘 Support
+## 💬 Need Help?
 
-**Questions?**
-- **GitHub Issues:** https://github.com/fsegall/gcloud_contextpilot/issues
+- **Issues:** [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
 - **Email:** contact@livresoltech.com
+- **Demo Video:** [Watch on YouTube](#) *(coming soon)*
 
 ---
 
-**Built with ❤️ by Livre Solutions for the Cloud Run Hackathon 2025**
+## 🎉 Success!
 
-**#CloudRunHackathon #AIAgents #VSCode**
+If you see the Agent Retrospective webview with beautiful formatted results, **you're all set!** 
 
+Try suggesting topics like:
+- "How can we improve test coverage?"
+- "What are the bottlenecks in our workflow?"
+- "How can agents collaborate better?"
+
+Watch as agents analyze, discuss, and propose improvements! 🤖✨

@@ -304,7 +304,7 @@ export class ContextPilotService {
     try {
       const response = await this.client.post('/agents/retrospective/trigger', {
         trigger: topic || 'manual',
-        use_llm: false
+        use_llm: true  // Enable AI-powered insights
       }, {
         params: { workspace_id: workspaceId }
       });

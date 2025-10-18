@@ -24,6 +24,17 @@
 
 ---
 
+## 🚀 **Quick Start**
+
+> **⚡ Get started in 5 minutes!** 
+
+**Try it now:**
+1. Download the [latest release](https://github.com/fsegall/gcloud_contextpilot/releases/latest) (`.vsix` file)
+2. Install: `code --install-extension contextpilot-0.2.1.vsix`
+3. Test: `Cmd/Ctrl+Shift+P` → `ContextPilot: Start Agent Retrospective`
+
+📘 **Full guide:** [QUICKSTART.md](QUICKSTART.md) | 📦 **Docker:** `docker-compose up` | 🔧 **API Docs:** `http://localhost:8000/docs`
+
 ---
 
 ## 📖 What is ContextPilot?
@@ -72,21 +83,24 @@ All agents communicate via **Google Cloud Pub/Sub** and share state in **Firesto
 
 #### 🆕 Agent Retrospectives (Hackathon Innovation)
 
-**The Retrospective Agent facilitates "meetings" where agents collaborate and learn:**
+**The Retrospective Agent facilitates "meetings" where real agents collaborate and learn:**
 
-- 📊 Collects metrics from all agents (events processed, errors, activity levels)
+- 🤖 **Instantiates real agent instances** (Spec, Git, Strategy agents)
+- 📊 **Collects live metrics** from all agents (events processed, errors, activity levels)
+- 💬 **Each agent provides LLM-generated perspectives** via Gemini 2.5 Flash
 - 🔍 Analyzes event bus patterns and agent collaboration
 - 💡 Generates insights about workflow efficiency
 - 🎯 Proposes actionable improvements
 - 📝 Creates detailed reports (JSON + Markdown)
-- 🤖 Optional LLM synthesis for narrative summaries
+- 🧠 **AI-powered summary** using Gemini 2.5 Pro
 
 **🎮 Interactive via Extension:**
 1. Open Command Palette: `Cmd/Ctrl+Shift+P`
 2. Run: `ContextPilot: Start Agent Retrospective`
 3. **Suggest a discussion topic** (e.g., "How can we improve test coverage?")
-4. Watch agents process and generate insights
-5. View beautiful formatted results in webview
+4. Watch **real agents** generate unique LLM-powered perspectives
+5. View beautiful formatted results with clickable file links
+6. Review AI synthesis and automated improvement proposals
 6. Get actionable recommendations with priorities (High/Medium/Low)
 7. **🔄 Automatic proposal creation** - High-priority actions become change proposals
 8. Approve the proposal to implement agent improvements

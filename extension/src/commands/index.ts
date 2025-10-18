@@ -759,6 +759,30 @@ export async function triggerRetrospective(service: ContextPilotService): Promis
             { enableScripts: true }
           );
           
+          // Handle messages from webview (for clickable links)
+          panel.webview.onDidReceiveMessage(
+            async (message) => {
+              if (message.command === 'openFile') {
+                const backendPath = '/home/fsegall/Desktop/New_Projects/google-context-pilot/back-end';
+                const workspaceId = getWorkspaceId();
+                
+                let filePath = '';
+                if (message.type === 'retrospective') {
+                  filePath = `${backendPath}/.contextpilot/workspaces/${workspaceId}/retrospectives/${message.retrospectiveId}.md`;
+                } else if (message.type === 'proposal') {
+                  filePath = `${backendPath}/.contextpilot/workspaces/${workspaceId}/proposals/${message.proposalId}.md`;
+                }
+                
+                if (filePath) {
+                  const uri = vscode.Uri.file(filePath);
+                  await vscode.window.showTextDocument(uri);
+                }
+              }
+            },
+            undefined,
+            []
+          );
+          
           panel.webview.html = getRetrospectiveWebviewContent(retro, topic);
           
           // Also show notification with summary
@@ -978,9 +1002,27 @@ function getRetrospectiveWebviewContent(retro: any, topic?: string): string {
     <div class="section">
         <h3>📁 Report Saved</h3>
         <p>Full retrospective saved to:<br/>
-        <code>workspaces/${getWorkspaceId()}/retrospectives/${retro.retrospective_id}.md</code></p>
-        ${retro.proposal_id ? `<p>Proposal saved to:<br/><code>workspaces/${getWorkspaceId()}/proposals/${retro.proposal_id}.md</code></p>` : ''}
+        <a href="#" onclick="openFile('retrospective')" style="color: var(--vscode-textLink-foreground); text-decoration: underline;">
+            workspaces/${getWorkspaceId()}/retrospectives/${retro.retrospective_id}.md
+        </a></p>
+        ${retro.proposal_id ? `
+        <p>Proposal saved to:<br/>
+        <a href="#" onclick="openFile('proposal')" style="color: var(--vscode-textLink-foreground); text-decoration: underline;">
+            workspaces/${getWorkspaceId()}/proposals/${retro.proposal_id}.md
+        </a></p>
+        ` : ''}
     </div>
+    <script>
+        const vscode = acquireVsCodeApi();
+        function openFile(type) {
+            vscode.postMessage({
+                command: 'openFile',
+                type: type,
+                retrospectiveId: '${retro.retrospective_id}',
+                proposalId: '${retro.proposal_id || ''}'
+            });
+        }
+    </script>
 </body>
 </html>`;
 }

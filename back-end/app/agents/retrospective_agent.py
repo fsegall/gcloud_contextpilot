@@ -86,7 +86,7 @@ class RetrospectiveAgent(BaseAgent):
 
         # 4. Generate insights
         insights = self._generate_insights(
-            agent_metrics, agent_learnings, event_summary
+            agent_metrics, agent_learnings, event_summary, trigger
         )
 
         # 5. Propose action items
@@ -114,13 +114,15 @@ class RetrospectiveAgent(BaseAgent):
 
         # 8. Save retrospective to workspace
         self._save_retrospective(retrospective)
-        
+
         # 9. Create improvement proposal from action items
         proposal_id = await self._create_improvement_proposal(retrospective)
         if proposal_id:
             retrospective["proposal_id"] = proposal_id
-            logger.info(f"[RetrospectiveAgent] Created improvement proposal: {proposal_id}")
-        
+            logger.info(
+                f"[RetrospectiveAgent] Created improvement proposal: {proposal_id}"
+            )
+
         # 10. Publish retrospective event
         await self.publish_event(
             topic=Topics.RETROSPECTIVE_EVENTS,
@@ -133,15 +135,42 @@ class RetrospectiveAgent(BaseAgent):
                 "proposal_id": proposal_id,
             },
         )
-        
+
         logger.info(
             f"[RetrospectiveAgent] Retrospective completed: {retrospective['retrospective_id']}"
         )
         return retrospective
 
     def _collect_agent_metrics(self) -> Dict[str, Dict]:
-        """Collect metrics from all agent state files"""
+        """Collect metrics from all agents (live or from state files)"""
         metrics = {}
+        
+        # Try to use orchestrator for real-time metrics from live agents
+        try:
+            from app.agents.agent_orchestrator import AgentOrchestrator
+            
+            orchestrator = AgentOrchestrator(
+                workspace_id=self.workspace_id,
+                workspace_path=self.workspace_path
+            )
+            
+            # Initialize agents to get current state
+            orchestrator.initialize_agents()
+            
+            # Get real-time metrics
+            metrics = orchestrator.get_agent_metrics()
+            
+            logger.info(f"[RetrospectiveAgent] Collected live metrics from {len(metrics)} agents")
+            
+            # Shutdown agents
+            orchestrator.shutdown_agents()
+            
+            if metrics:
+                return metrics
+        except Exception as e:
+            logger.warning(f"[RetrospectiveAgent] Could not get live metrics: {e}")
+        
+        # Fallback to reading state files
         state_dir = Path(self.workspace_path) / ".agent_state"
 
         if not state_dir.exists():
@@ -233,7 +262,11 @@ class RetrospectiveAgent(BaseAgent):
         return "none"
 
     def _generate_insights(
-        self, agent_metrics: Dict, agent_learnings: Dict, event_summary: Dict
+        self,
+        agent_metrics: Dict,
+        agent_learnings: Dict,
+        event_summary: Dict,
+        trigger_topic: str = None,
     ) -> List[str]:
         """Generate insights from collected data"""
         insights = []
@@ -279,7 +312,162 @@ class RetrospectiveAgent(BaseAgent):
                 f"⏸️ Idle agents: {', '.join(idle_agents)}. Consider reviewing their triggers."
             )
 
+        # NEW: Agent Discussion about the Topic
+        if trigger_topic:
+            insights.extend(
+                self._simulate_agent_discussion(trigger_topic, agent_metrics)
+            )
+
         return insights
+
+    def _simulate_agent_discussion(self, topic: str, agent_metrics: Dict) -> List[str]:
+        """Generate agent perspectives using real agent instances or LLM"""
+        discussion_insights = []
+
+        # Try to use AgentOrchestrator for real agent perspectives
+        try:
+            from app.agents.agent_orchestrator import AgentOrchestrator
+            
+            logger.info("[RetrospectiveAgent] Initializing agents for discussion...")
+            orchestrator = AgentOrchestrator(
+                workspace_id=self.workspace_id,
+                workspace_path=self.workspace_path
+            )
+            
+            # Initialize all available agents
+            orchestrator.initialize_agents()
+            
+            # Get perspectives from real agents
+            perspectives = orchestrator.get_agent_perspectives(topic)
+            
+            if perspectives:
+                logger.info(f"[RetrospectiveAgent] Got {len(perspectives)} real agent perspectives")
+                for p in perspectives:
+                    discussion_insights.append(
+                        f"{p['emoji']} {p['name']}: {p['response']}"
+                    )
+                
+                # Shutdown agents after discussion
+                orchestrator.shutdown_agents()
+                return discussion_insights
+            else:
+                logger.warning("[RetrospectiveAgent] No agent perspectives received, falling back to LLM")
+        except Exception as e:
+            logger.warning(f"[RetrospectiveAgent] Orchestrator failed: {e}, trying LLM")
+
+        # Fallback to LLM-generated perspectives
+        return self._llm_agent_discussion(topic)
+
+    def _llm_agent_discussion(self, topic: str) -> List[str]:
+        """Generate agent perspectives using LLM"""
+        # Get API key
+        gemini_api_key = os.getenv("GOOGLE_API_KEY")
+        if not gemini_api_key:
+            logger.warning(
+                "[RetrospectiveAgent] No GOOGLE_API_KEY for agent discussion"
+            )
+            return self._fallback_agent_discussion(topic)
+
+        try:
+            import requests
+
+            # Define agent roles and their expertise
+            agents = [
+                (
+                    "📦 Context Agent",
+                    "context management, knowledge indexing, and semantic retrieval",
+                ),
+                (
+                    "📋 Spec Agent",
+                    "technical specifications, requirements, and validation criteria",
+                ),
+                (
+                    "🔧 Git Agent",
+                    "version control, code changes, and commit automation",
+                ),
+                (
+                    "🎯 Coach Agent",
+                    "developer guidance, best practices, and team collaboration",
+                ),
+                (
+                    "🏁 Milestone Agent",
+                    "project progress tracking, deliverables, and completion criteria",
+                ),
+                (
+                    "🧠 Strategy Agent",
+                    "long-term planning, architectural decisions, and system evolution",
+                ),
+            ]
+
+            # Use Gemini to generate each agent's perspective
+            url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-pro:generateContent"
+            discussion_insights = []
+
+            for agent_name, expertise in agents:
+                prompt = f"""You are the {agent_name} in a multi-agent development system.
+
+Your expertise: {expertise}
+
+The team is discussing: "{topic}"
+
+Provide a brief (1-2 sentence) perspective on this topic from your role's viewpoint. Be specific and actionable.
+Focus on what YOUR agent should do or recommend regarding this topic.
+
+Response format: Just the perspective text, no preamble."""
+
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                headers = {"Content-Type": "application/json"}
+
+                response = requests.post(
+                    f"{url}?key={gemini_api_key}",
+                    json=payload,
+                    headers=headers,
+                    timeout=10,
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    perspective = (
+                        result.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "")
+                        .strip()
+                    )
+                    if perspective:
+                        discussion_insights.append(f"{agent_name}: {perspective}")
+                else:
+                    # Fallback for this agent
+                    discussion_insights.append(f"{agent_name}: [Analysis pending]")
+
+            return (
+                discussion_insights
+                if discussion_insights
+                else self._fallback_agent_discussion(topic)
+            )
+
+        except Exception as e:
+            logger.error(
+                f"[RetrospectiveAgent] LLM discussion generation failed: {e}"
+            )
+            return self._fallback_agent_discussion(topic)
+
+    def _fallback_agent_discussion(self, topic: str) -> List[str]:
+        """Fallback hardcoded discussion when LLM is unavailable"""
+        return [
+            f"📦 Context Agent: '{topic}' relates to our context management strategy. "
+            "We should ensure new content is properly indexed and tagged for retrieval.",
+            f"📋 Spec Agent: Regarding '{topic}', we need clear specifications for "
+            "content inclusion criteria and validation rules.",
+            f"🔧 Git Agent: For '{topic}', we should implement automated detection "
+            "of new .md files and trigger context updates on commits.",
+            f"🎯 Coach Agent: '{topic}' suggests we need better developer guidance "
+            "on when and how to add documentation to context.",
+            f"🏁 Milestone Agent: '{topic}' indicates we should track documentation "
+            "completeness as part of our milestone criteria.",
+            f"🧠 Strategy Agent: '{topic}' requires a strategic approach to content "
+            "curation and knowledge management across the project lifecycle.",
+        ]
 
     def _propose_action_items(self, insights: List[str]) -> List[Dict[str, str]]:
         """Propose action items based on insights"""
@@ -336,11 +524,10 @@ class RetrospectiveAgent(BaseAgent):
     ) -> str:
         """Use Gemini to create a narrative retrospective summary"""
         try:
-            import google.generativeai as genai
+            import requests
 
-            genai.configure(api_key=gemini_api_key)
-
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            # Use Gemini REST API v1 (stable version)
+            url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-pro:generateContent"
 
             prompt = f"""
 You are a retrospective facilitator for a multi-agent development system.
@@ -376,8 +563,29 @@ Please synthesize a concise retrospective summary in the following format:
 Keep the tone encouraging and constructive. Maximum 200 words.
 """
 
-            response = model.generate_content(prompt)
-            return response.text
+            # Call Gemini API
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+
+            headers = {"Content-Type": "application/json"}
+
+            response = requests.post(
+                f"{url}?key={gemini_api_key}", json=payload, headers=headers, timeout=30
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                text = (
+                    result.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                )
+                return text if text else "LLM synthesis unavailable."
+            else:
+                logger.error(
+                    f"[RetrospectiveAgent] Gemini API error: {response.status_code} - {response.text}"
+                )
+                return "LLM synthesis unavailable. See raw insights above."
 
         except Exception as e:
             logger.error(f"[RetrospectiveAgent] LLM synthesis failed: {e}")
@@ -454,33 +662,37 @@ Keep the tone encouraging and constructive. Maximum 200 words.
 """
 
         return md
-    
+
     async def _create_improvement_proposal(self, retrospective: Dict) -> Optional[str]:
         """
         Create a change proposal from retrospective action items.
-        
+
         This closes the feedback loop: retrospective → insights → proposal → code changes
         """
         action_items = retrospective.get("action_items", [])
-        
+
         if not action_items:
-            logger.info("[RetrospectiveAgent] No action items, skipping proposal creation")
+            logger.info(
+                "[RetrospectiveAgent] No action items, skipping proposal creation"
+            )
             return None
-        
+
         # Get high priority actions
         high_priority_actions = [
             item for item in action_items if item.get("priority") == "high"
         ]
-        
+
         # If no high priority, use all actions
-        actions_to_propose = high_priority_actions if high_priority_actions else action_items[:3]
-        
+        actions_to_propose = (
+            high_priority_actions if high_priority_actions else action_items[:3]
+        )
+
         if not actions_to_propose:
             return None
-        
+
         # Build proposal content
         proposal_title = "Agent System Improvements (from Retrospective)"
-        
+
         proposal_description = f"""# Agent System Improvements
 
 **Generated from Retrospective:** {retrospective['retrospective_id']}
@@ -491,31 +703,38 @@ Keep the tone encouraging and constructive. Maximum 200 words.
 After analyzing agent performance and collaboration patterns, the following improvements have been identified:
 
 """
-        
+
         # Add insights
         for insight in retrospective.get("insights", [])[:3]:
             proposal_description += f"- {insight}\n"
-        
+
         proposal_description += "\n## Proposed Changes\n\n"
-        
+
         # Add action items
         for i, item in enumerate(actions_to_propose, 1):
             proposal_description += f"### {i}. {item['action']}\n\n"
             proposal_description += f"**Priority:** {item['priority'].upper()}\n"
             proposal_description += f"**Assigned to:** {item['assigned_to']}\n\n"
-            
+
             # Add implementation guidance
-            if "error" in item['action'].lower():
+            if "error" in item["action"].lower():
                 proposal_description += "**Implementation:**\n"
                 proposal_description += "- Review error logs in `.agent_state/` files\n"
-                proposal_description += "- Add try-catch blocks around agent operations\n"
+                proposal_description += (
+                    "- Add try-catch blocks around agent operations\n"
+                )
                 proposal_description += "- Improve error reporting to event bus\n\n"
-            elif "subscribe" in item['action'].lower() or "event" in item['action'].lower():
+            elif (
+                "subscribe" in item["action"].lower()
+                or "event" in item["action"].lower()
+            ):
                 proposal_description += "**Implementation:**\n"
-                proposal_description += "- Update agent `__init__` to subscribe to new events\n"
+                proposal_description += (
+                    "- Update agent `__init__` to subscribe to new events\n"
+                )
                 proposal_description += "- Add handler method for new event type\n"
                 proposal_description += "- Test event flow with demo script\n\n"
-            elif "document" in item['action'].lower():
+            elif "document" in item["action"].lower():
                 proposal_description += "**Implementation:**\n"
                 proposal_description += "- Update relevant README or docs files\n"
                 proposal_description += "- Add code comments\n"
@@ -525,7 +744,7 @@ After analyzing agent performance and collaboration patterns, the following impr
                 proposal_description += "- Review relevant agent code\n"
                 proposal_description += "- Make incremental changes\n"
                 proposal_description += "- Test with existing workflows\n\n"
-        
+
         proposal_description += """
 ## Benefits
 
@@ -546,15 +765,15 @@ Implementing these changes will:
 
 *This proposal was automatically generated by the Retrospective Agent based on agent performance analysis.*
 """
-        
+
         # Create the proposal using the proposal repository
         try:
             from app.repositories.proposal_repository import get_proposal_repository
-            
+
             # Check if Firestore is enabled
             if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
                 repo = get_proposal_repository()
-                
+
                 proposal_data = {
                     "workspace_id": self.workspace_id,
                     "agent_id": "retrospective",
@@ -575,16 +794,18 @@ Implementing these changes will:
                         "action_items_count": len(actions_to_propose),
                     },
                 }
-                
+
                 proposal_id = repo.create(proposal_data)
-                logger.info(f"[RetrospectiveAgent] Proposal created in Firestore: {proposal_id}")
+                logger.info(
+                    f"[RetrospectiveAgent] Proposal created in Firestore: {proposal_id}"
+                )
                 return proposal_id
             else:
                 # Fallback: save to local file
                 proposal_id = f"retro-proposal-{retrospective['retrospective_id']}"
                 proposals_dir = Path(self.workspace_path) / "proposals"
                 proposals_dir.mkdir(exist_ok=True)
-                
+
                 proposal_data = {
                     "id": proposal_id,
                     "workspace_id": self.workspace_id,
@@ -606,18 +827,20 @@ Implementing these changes will:
                         "action_items_count": len(actions_to_propose),
                     },
                 }
-                
+
                 # Save JSON
                 with open(proposals_dir / f"{proposal_id}.json", "w") as f:
                     json.dump(proposal_data, f, indent=2)
-                
+
                 # Save MD
                 with open(proposals_dir / f"{proposal_id}.md", "w") as f:
                     f.write(f"# {proposal_title}\n\n{proposal_description}")
-                
-                logger.info(f"[RetrospectiveAgent] Proposal saved locally: {proposal_id}")
+
+                logger.info(
+                    f"[RetrospectiveAgent] Proposal saved locally: {proposal_id}"
+                )
                 return proposal_id
-                
+
         except Exception as e:
             logger.error(f"[RetrospectiveAgent] Failed to create proposal: {e}")
             return None
