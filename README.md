@@ -41,6 +41,21 @@
 
 ---
 
+## 🤖 LLM-Powered Multi-Agent System
+
+**ContextPilot uses Google Gemini AI** to power intelligent agent discussions:
+
+- 🧠 **Real-time Agent Perspectives**: Each agent (Spec, Git, Coach, Context, Milestone, Strategy) generates contextualized insights using Gemini
+- 🔄 **Automated Retrospectives**: Trigger team retrospectives that collect metrics and generate improvement proposals
+- 🚀 **GitHub Actions Integration**: Approved proposals are automatically applied to your codebase via CI/CD
+- 📊 **Metrics-Driven Insights**: Track agent activity, errors, and collaboration patterns
+
+**Models used:**
+- `gemini-2.5-flash`: Fast agent perspective generation
+- `gemini-2.5-pro`: Deep analysis and summary synthesis
+
+---
+
 ## 📖 What is ContextPilot?
 
 **ContextPilot** is an AI-powered development assistant that helps you:
