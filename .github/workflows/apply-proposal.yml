@@ -67,33 +67,51 @@ jobs:
 
       - name: Apply changes
         run: |
+          # Check if proposed_changes exists and is not empty
+          CHANGES_COUNT=$(jq -r '.proposed_changes | length' proposal.json)
+          
+          if [ "$CHANGES_COUNT" = "0" ] || [ "$CHANGES_COUNT" = "null" ]; then
+            echo "ℹ️  No proposed changes to apply"
+            exit 0
+          fi
+          
+          echo "📝 Applying $CHANGES_COUNT proposed change(s)..."
+          
           # Extract proposed changes from proposal
-          jq -r '.proposed_changes[] | 
-            .file_path as $path | 
-            .change_type as $type | 
-            .after as $content |
-            "\($path)|\($type)|\($content)"' proposal.json | \
-          while IFS='|' read -r file_path change_type content; do
+          jq -r '.proposed_changes[] | @json' proposal.json | while read -r change_json; do
+            file_path=$(echo "$change_json" | jq -r '.file_path')
+            change_type=$(echo "$change_json" | jq -r '.change_type')
+            content=$(echo "$change_json" | jq -r '.after')
+            
             # Skip empty or invalid file paths
             if [ -z "$file_path" ] || [ "$file_path" = "null" ]; then
               echo "  ⚠️  Skipping invalid file path"
               continue
             fi
             
-            echo "Applying $change_type to $file_path"
+            echo "📄 Applying $change_type to $file_path"
             
             if [ "$change_type" = "delete" ]; then
-              rm -f "$file_path"
-              echo "  ✅ Deleted: $file_path"
+              if [ -f "$file_path" ]; then
+                rm -f "$file_path"
+                echo "  ✅ Deleted: $file_path"
+              else
+                echo "  ℹ️  File not found (already deleted?): $file_path"
+              fi
             else
               # Create directory if it doesn't exist
-              mkdir -p "$(dirname "$file_path")"
+              dir_path=$(dirname "$file_path")
+              if [ -n "$dir_path" ] && [ "$dir_path" != "." ]; then
+                mkdir -p "$dir_path"
+              fi
               
               # Write content to file
               echo "$content" > "$file_path"
               echo "  ✅ Updated: $file_path"
             fi
           done
+          
+          echo "✅ All changes applied successfully!"
 
       - name: Commit and push changes
         run: |
