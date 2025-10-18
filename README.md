@@ -81,7 +81,15 @@ All agents communicate via **Google Cloud Pub/Sub** and share state in **Firesto
 - 📝 Creates detailed reports (JSON + Markdown)
 - 🤖 Optional LLM synthesis for narrative summaries
 
-**Why this matters:** This demonstrates **true multi-agent coordination** where agents don't just execute tasks—they **reflect, learn, and self-improve** as a team. A key innovation in AI agent systems!
+**🎮 Interactive via Extension:**
+1. Open Command Palette: `Cmd/Ctrl+Shift+P`
+2. Run: `ContextPilot: Start Agent Retrospective`
+3. **Suggest a discussion topic** (e.g., "How can we improve test coverage?")
+4. Watch agents process and generate insights
+5. View beautiful formatted results in webview
+6. Get actionable recommendations with priorities (High/Medium/Low)
+
+**Why this matters:** This demonstrates **true multi-agent coordination** where agents don't just execute tasks—they **reflect, learn, and self-improve** as a team. Users can **guide the discussion**, making it interactive rather than automated. A key innovation in AI agent systems!
 
 **Example:** After a development cycle, agents meet to discuss:
 - "Spec Agent processed 15 proposals with 2 errors—needs better validation"
