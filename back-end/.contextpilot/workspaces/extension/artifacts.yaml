@@ -1,0 +1,241 @@
+# Artifact Configuration
+# This file defines which agents consume which artifacts and what rules they follow
+
+# System artifacts (managed by ContextPilot)
+system_artifacts:
+  
+  context.md:
+    description: "Current project context and status"
+    producer: git
+    consumers:
+      - spec
+      - strategy
+      - coach
+    update_frequency: on_commit
+    system: true
+    
+  proposals.md:
+    description: "Active and historical change proposals"
+    producer: spec
+    consumers:
+      - git
+      - user
+      - strategy
+    update_frequency: on_proposal
+    system: true
+    
+  task_history.md:
+    description: "Historical log of all tasks and commits"
+    producer: git
+    consumers:
+      - retrospective
+      - coach
+    update_frequency: on_commit
+    system: true
+    
+  timeline.md:
+    description: "Project timeline and milestones"
+    producer: git
+    consumers:
+      - strategy
+      - milestone
+      - coach
+    update_frequency: on_commit
+    system: true
+    
+  milestones.md:
+    description: "Project milestones and goals"
+    producer: strategy
+    consumers:
+      - coach
+      - milestone
+      - user
+    update_frequency: on_strategy_update
+    system: true
+
+# Custom artifacts (user-defined)
+custom_artifacts:
+  
+  project_scope.md:
+    description: "Project scope and boundaries"
+    producer: user
+    consumers:
+      - spec
+      - strategy
+    update_frequency: weekly
+    required: true
+    priority: high
+    created_at: "{date}"
+    
+    # Natural language rules for each consumer
+    agent_rules:
+      spec: |
+        Before creating any proposal:
+        1. Read project_scope.md to understand project boundaries
+        2. Check if the proposed change is in the "In Scope" section
+        3. Reject any proposal that adds features listed in "Out of Scope"
+        4. Flag proposals that might violate scope boundaries
+        5. Include scope validation in proposal metadata
+        
+        Example:
+        - If user suggests "add mobile app", reject because mobile is out of scope
+        - If user suggests "improve Git integration", approve because Git is in scope
+      
+      strategy: |
+        When updating milestones or strategy:
+        1. Read project_scope.md to understand project goals
+        2. Ensure all milestones contribute to "Success Criteria"
+        3. Align milestones with "In Scope" features
+        4. Alert if current progress diverges from defined scope
+        5. Suggest scope changes if project goals have shifted
+        
+        Example:
+        - If milestones include "mobile app deployment", flag as out of scope
+        - If launch date is approaching, prioritize "Success Criteria" items
+  
+  project_checklist.md:
+    description: "Master project completion checklist"
+    producer: user
+    consumers:
+      - strategy
+      - milestone
+      - coach
+    update_frequency: on_milestone
+    required: true
+    priority: high
+    created_at: "{date}"
+    
+    agent_rules:
+      strategy: |
+        Before updating milestones:
+        1. Load project_checklist.md to see all project phases
+        2. Map current milestones to checklist items
+        3. Ensure each checklist phase has corresponding milestones
+        4. Identify uncovered checklist items and create milestones for them
+        5. Track overall project completion percentage
+        
+        Example:
+        - If "Phase 2: Core Agents" is 0/4 complete, prioritize agent implementation
+        - If multiple phases are blocked, escalate to user
+      
+      milestone: |
+        On milestone completion:
+        1. Find the corresponding item in project_checklist.md
+        2. Mark it as [x] completed
+        3. Update completion percentage at top of file
+        4. Check if entire phase is completed
+        5. If phase complete, trigger celebration event
+        
+        Example:
+        - Milestone "Implement Spec Agent" → Mark "[x] Implement Spec Agent" in Phase 2
+        - If Phase 2 becomes 4/4, send "Phase 2 Complete! 🎉" notification
+      
+      coach: |
+        When interacting with user:
+        1. Read project_checklist.md to understand project progress
+        2. Show completion stats (e.g., "23/43 items done - 53%")
+        3. Celebrate recent completions
+        4. Suggest next logical checklist item based on dependencies
+        5. Estimate project completion date based on velocity
+        
+        Example:
+        - Morning: "Good morning! You've completed 15/43 items. Today, focus on Phase 3."
+        - Evening: "Great job! You completed 3 items today. Only 25 items left!"
+  
+  daily_checklist.md:
+    description: "Daily tasks and reminders"
+    producer: user
+    consumers:
+      - coach
+      - retrospective
+    update_frequency: daily
+    required: false
+    priority: medium
+    created_at: "{date}"
+    
+    agent_rules:
+      coach: |
+        Morning routine (9am):
+        1. Read yesterday's daily_checklist.md
+        2. Identify incomplete tasks from yesterday
+        3. Send friendly reminder: "You have X unfinished tasks from yesterday"
+        4. Provide motivation and estimate time to complete
+        5. Ask user to set today's top 3 priorities
+        
+        Evening routine (6pm):
+        1. Read today's daily_checklist.md
+        2. Count completed vs. total tasks
+        3. Celebrate wins: "You completed X/Y tasks today! 🎉"
+        4. Ask about blockers if many tasks incomplete
+        5. Help user plan tomorrow's priorities
+        
+        Example:
+        - 9am: "Good morning! Yesterday you completed 5/8 tasks. The 3 incomplete tasks are..."
+        - 6pm: "Great day! You completed 7/8 tasks. Tomorrow, focus on..."
+      
+      retrospective: |
+        During weekly retrospective:
+        1. Analyze last 7 days of daily_checklist.md files
+        2. Calculate average completion rate
+        3. Identify patterns:
+           - Which types of tasks are often incomplete? (e.g., testing, documentation)
+           - Which days have lower completion rates? (e.g., Mondays)
+           - Are tasks too ambitious or appropriately sized?
+        4. Generate insights and recommendations
+        5. Track completion trends over time
+        
+        Example:
+        - Insight: "You complete 90% of dev tasks but only 40% of testing tasks"
+        - Recommendation: "Schedule dedicated testing time each day"
+
+# Artifact Templates (for easy creation)
+templates:
+  
+  project_scope:
+    file: project_scope.md
+    description: "Define what's in/out of scope for your project"
+    suggested_consumers: [spec, strategy]
+    suggested_rules:
+      spec: "Reject proposals outside defined scope"
+      strategy: "Align milestones with scope goals"
+  
+  daily_checklist:
+    file: daily_checklist.md
+    description: "Daily tasks and to-dos"
+    suggested_consumers: [coach, retrospective]
+    suggested_rules:
+      coach: "Remind user of incomplete tasks morning and evening"
+      retrospective: "Analyze completion patterns and suggest improvements"
+  
+  project_checklist:
+    file: project_checklist.md
+    description: "Master project completion checklist"
+    suggested_consumers: [strategy, milestone, coach]
+    suggested_rules:
+      strategy: "Map milestones to checklist items"
+      milestone: "Mark items complete when milestones finish"
+      coach: "Show progress and celebrate completions"
+  
+  api_spec:
+    file: api_spec.md
+    description: "API endpoint specifications and contracts"
+    suggested_consumers: [spec, git]
+    suggested_rules:
+      spec: "Ensure proposals don't break API contracts"
+      git: "Validate commits against API spec"
+  
+  architecture:
+    file: architecture.md
+    description: "System architecture and design decisions"
+    suggested_consumers: [spec, strategy]
+    suggested_rules:
+      spec: "Ensure proposals align with architecture"
+      strategy: "Consider architectural constraints in planning"
+
+# Global Settings
+settings:
+  artifact_directory: ".contextpilot/workspaces/{workspace_id}"
+  auto_create_from_templates: true
+  validate_rules_on_load: true
+  log_artifact_access: true
+

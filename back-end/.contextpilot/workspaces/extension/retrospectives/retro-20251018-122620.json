@@ -1,0 +1,21 @@
+{
+  "retrospective_id": "retro-20251018-122620",
+  "timestamp": "2025-10-18T12:26:20.892840+00:00",
+  "trigger": "Read new .md files and evaluate if they should be included to context specs. ",
+  "agent_metrics": {},
+  "agent_learnings": {},
+  "event_summary": {
+    "total_events": 0,
+    "event_types": {},
+    "most_active_agent": "none"
+  },
+  "insights": [],
+  "action_items": [
+    {
+      "priority": "low",
+      "action": "Continue current workflow - agents performing well",
+      "assigned_to": "team"
+    }
+  ],
+  "llm_summary": null
+}

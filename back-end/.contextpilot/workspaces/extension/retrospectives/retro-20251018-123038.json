@@ -1,0 +1,32 @@
+{
+  "retrospective_id": "retro-20251018-123038",
+  "timestamp": "2025-10-18T12:30:38.408695+00:00",
+  "trigger": "Evaluate if new .md files should be peristed to context.",
+  "agent_metrics": {
+    "retrospective": {
+      "events_processed": 0,
+      "events_published": 1,
+      "errors": 0
+    }
+  },
+  "agent_learnings": {},
+  "event_summary": {
+    "total_events": 1,
+    "event_types": {
+      "retrospective.summary.v1": 1
+    },
+    "most_active_agent": "retrospective"
+  },
+  "insights": [
+    "Most active agent: retrospective. Strong cross-agent communication observed.",
+    "\u23f8\ufe0f Idle agents: retrospective. Consider reviewing their triggers."
+  ],
+  "action_items": [
+    {
+      "priority": "medium",
+      "action": "Review event subscriptions for idle agents",
+      "assigned_to": "developer"
+    }
+  ],
+  "llm_summary": "LLM synthesis unavailable. See raw insights above."
+}

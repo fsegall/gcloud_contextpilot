@@ -30,10 +30,14 @@
 
 **Try it now:**
 1. Download the [latest release](https://github.com/fsegall/gcloud_contextpilot/releases/latest) (`.vsix` file)
-2. Install: `code --install-extension contextpilot-0.2.1.vsix`
-3. Test: `Cmd/Ctrl+Shift+P` → `ContextPilot: Start Agent Retrospective`
+2. Install via Command Palette:
+   - Press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Linux/Windows)
+   - Type: **"Extensions: Install from VSIX..."**
+   - Select the downloaded `.vsix` file
+3. Restart VS Code/Cursor completely
+4. Test: `Cmd/Ctrl+Shift+P` → type **"ContextPilot: Start Agent Retrospective"**
 
-📘 **Full guide:** [QUICKSTART.md](QUICKSTART.md) | 📦 **Docker:** `docker-compose up` | 🔧 **API Docs:** `http://localhost:8000/docs`
+📘 **Alternative install methods:** [extension/INSTALL.md](extension/INSTALL.md) | 📦 **Docker:** `docker-compose up` | 🔧 **API Docs:** `http://localhost:8000/docs`
 
 ---
 

@@ -1,0 +1,29 @@
+{
+  "retrospective_id": "retro-20251018-123748",
+  "timestamp": "2025-10-18T12:37:48.582584+00:00",
+  "trigger": "Como devemos lidar com .md novos que precisam ser persistidos no contexto?",
+  "agent_metrics": {
+    "retrospective": {
+      "events_processed": 0,
+      "events_published": 3,
+      "errors": 0
+    }
+  },
+  "agent_learnings": {},
+  "event_summary": {
+    "total_events": 0,
+    "event_types": {},
+    "most_active_agent": "none"
+  },
+  "insights": [
+    "\u23f8\ufe0f Idle agents: retrospective. Consider reviewing their triggers."
+  ],
+  "action_items": [
+    {
+      "priority": "medium",
+      "action": "Review event subscriptions for idle agents",
+      "assigned_to": "developer"
+    }
+  ],
+  "llm_summary": "LLM synthesis unavailable. See raw insights above."
+}
