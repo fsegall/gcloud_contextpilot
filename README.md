@@ -88,6 +88,15 @@ All agents communicate via **Google Cloud Pub/Sub** and share state in **Firesto
 4. Watch agents process and generate insights
 5. View beautiful formatted results in webview
 6. Get actionable recommendations with priorities (High/Medium/Low)
+7. **🔄 Automatic proposal creation** - High-priority actions become change proposals
+8. Approve the proposal to implement agent improvements
+
+**Complete Feedback Loop:**
+```
+Retrospective → Insights → Action Items → Proposal → Code Changes → Next Retrospective
+```
+
+This creates a **self-improving system** where agents continuously optimize their own behavior!
 
 **Why this matters:** This demonstrates **true multi-agent coordination** where agents don't just execute tasks—they **reflect, learn, and self-improve** as a team. Users can **guide the discussion**, making it interactive rather than automated. A key innovation in AI agent systems!
 

@@ -114,8 +114,14 @@ class RetrospectiveAgent(BaseAgent):
 
         # 8. Save retrospective to workspace
         self._save_retrospective(retrospective)
-
-        # 9. Publish retrospective event
+        
+        # 9. Create improvement proposal from action items
+        proposal_id = await self._create_improvement_proposal(retrospective)
+        if proposal_id:
+            retrospective["proposal_id"] = proposal_id
+            logger.info(f"[RetrospectiveAgent] Created improvement proposal: {proposal_id}")
+        
+        # 10. Publish retrospective event
         await self.publish_event(
             topic=Topics.RETROSPECTIVE_EVENTS,
             event_type="retrospective.summary.v1",
@@ -124,9 +130,10 @@ class RetrospectiveAgent(BaseAgent):
                 "workspace_id": self.workspace_id,
                 "insights_count": len(insights),
                 "action_items_count": len(action_items),
+                "proposal_id": proposal_id,
             },
         )
-
+        
         logger.info(
             f"[RetrospectiveAgent] Retrospective completed: {retrospective['retrospective_id']}"
         )
@@ -447,6 +454,173 @@ Keep the tone encouraging and constructive. Maximum 200 words.
 """
 
         return md
+    
+    async def _create_improvement_proposal(self, retrospective: Dict) -> Optional[str]:
+        """
+        Create a change proposal from retrospective action items.
+        
+        This closes the feedback loop: retrospective → insights → proposal → code changes
+        """
+        action_items = retrospective.get("action_items", [])
+        
+        if not action_items:
+            logger.info("[RetrospectiveAgent] No action items, skipping proposal creation")
+            return None
+        
+        # Get high priority actions
+        high_priority_actions = [
+            item for item in action_items if item.get("priority") == "high"
+        ]
+        
+        # If no high priority, use all actions
+        actions_to_propose = high_priority_actions if high_priority_actions else action_items[:3]
+        
+        if not actions_to_propose:
+            return None
+        
+        # Build proposal content
+        proposal_title = "Agent System Improvements (from Retrospective)"
+        
+        proposal_description = f"""# Agent System Improvements
+
+**Generated from Retrospective:** {retrospective['retrospective_id']}
+**Date:** {retrospective['timestamp']}
+
+## Background
+
+After analyzing agent performance and collaboration patterns, the following improvements have been identified:
+
+"""
+        
+        # Add insights
+        for insight in retrospective.get("insights", [])[:3]:
+            proposal_description += f"- {insight}\n"
+        
+        proposal_description += "\n## Proposed Changes\n\n"
+        
+        # Add action items
+        for i, item in enumerate(actions_to_propose, 1):
+            proposal_description += f"### {i}. {item['action']}\n\n"
+            proposal_description += f"**Priority:** {item['priority'].upper()}\n"
+            proposal_description += f"**Assigned to:** {item['assigned_to']}\n\n"
+            
+            # Add implementation guidance
+            if "error" in item['action'].lower():
+                proposal_description += "**Implementation:**\n"
+                proposal_description += "- Review error logs in `.agent_state/` files\n"
+                proposal_description += "- Add try-catch blocks around agent operations\n"
+                proposal_description += "- Improve error reporting to event bus\n\n"
+            elif "subscribe" in item['action'].lower() or "event" in item['action'].lower():
+                proposal_description += "**Implementation:**\n"
+                proposal_description += "- Update agent `__init__` to subscribe to new events\n"
+                proposal_description += "- Add handler method for new event type\n"
+                proposal_description += "- Test event flow with demo script\n\n"
+            elif "document" in item['action'].lower():
+                proposal_description += "**Implementation:**\n"
+                proposal_description += "- Update relevant README or docs files\n"
+                proposal_description += "- Add code comments\n"
+                proposal_description += "- Create examples if needed\n\n"
+            else:
+                proposal_description += "**Implementation:**\n"
+                proposal_description += "- Review relevant agent code\n"
+                proposal_description += "- Make incremental changes\n"
+                proposal_description += "- Test with existing workflows\n\n"
+        
+        proposal_description += """
+## Benefits
+
+Implementing these changes will:
+- Improve agent coordination and collaboration
+- Reduce errors and edge cases
+- Enhance system reliability
+- Better developer experience
+
+## Next Steps
+
+1. Review this proposal
+2. Approve to implement changes
+3. Test with existing workflows
+4. Monitor agent metrics in next retrospective
+
+---
+
+*This proposal was automatically generated by the Retrospective Agent based on agent performance analysis.*
+"""
+        
+        # Create the proposal using the proposal repository
+        try:
+            from app.repositories.proposal_repository import get_proposal_repository
+            
+            # Check if Firestore is enabled
+            if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
+                repo = get_proposal_repository()
+                
+                proposal_data = {
+                    "workspace_id": self.workspace_id,
+                    "agent_id": "retrospective",
+                    "title": proposal_title,
+                    "description": proposal_description,
+                    "proposed_changes": [
+                        {
+                            "file_path": f"docs/agent_improvements_{retrospective['retrospective_id']}.md",
+                            "change_type": "create",
+                            "description": "Agent improvement action plan",
+                            "after": proposal_description,
+                        }
+                    ],
+                    "status": "pending",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {
+                        "retrospective_id": retrospective["retrospective_id"],
+                        "action_items_count": len(actions_to_propose),
+                    },
+                }
+                
+                proposal_id = repo.create(proposal_data)
+                logger.info(f"[RetrospectiveAgent] Proposal created in Firestore: {proposal_id}")
+                return proposal_id
+            else:
+                # Fallback: save to local file
+                proposal_id = f"retro-proposal-{retrospective['retrospective_id']}"
+                proposals_dir = Path(self.workspace_path) / "proposals"
+                proposals_dir.mkdir(exist_ok=True)
+                
+                proposal_data = {
+                    "id": proposal_id,
+                    "workspace_id": self.workspace_id,
+                    "agent_id": "retrospective",
+                    "title": proposal_title,
+                    "description": proposal_description,
+                    "proposed_changes": [
+                        {
+                            "file_path": f"docs/agent_improvements_{retrospective['retrospective_id']}.md",
+                            "change_type": "create",
+                            "description": "Agent improvement action plan",
+                            "after": proposal_description,
+                        }
+                    ],
+                    "status": "pending",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {
+                        "retrospective_id": retrospective["retrospective_id"],
+                        "action_items_count": len(actions_to_propose),
+                    },
+                }
+                
+                # Save JSON
+                with open(proposals_dir / f"{proposal_id}.json", "w") as f:
+                    json.dump(proposal_data, f, indent=2)
+                
+                # Save MD
+                with open(proposals_dir / f"{proposal_id}.md", "w") as f:
+                    f.write(f"# {proposal_title}\n\n{proposal_description}")
+                
+                logger.info(f"[RetrospectiveAgent] Proposal saved locally: {proposal_id}")
+                return proposal_id
+                
+        except Exception as e:
+            logger.error(f"[RetrospectiveAgent] Failed to create proposal: {e}")
+            return None
 
 
 # Standalone helper function for API endpoint

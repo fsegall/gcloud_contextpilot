@@ -764,14 +764,22 @@ export async function triggerRetrospective(service: ContextPilotService): Promis
           // Also show notification with summary
           const insightCount = retro.insights?.length || 0;
           const actionCount = retro.action_items?.length || 0;
+          const proposalCreated = retro.proposal_id ? true : false;
           
-          const result = await vscode.window.showInformationMessage(
-            `✅ Retrospective complete! ${insightCount} insights, ${actionCount} actions`,
-            'View Full Report',
-            'OK'
-          );
+          const message = proposalCreated
+            ? `✅ Retrospective complete! ${insightCount} insights, ${actionCount} actions → Proposal created!`
+            : `✅ Retrospective complete! ${insightCount} insights, ${actionCount} actions`;
           
-          if (result === 'View Full Report') {
+          const buttons = proposalCreated
+            ? ['View Proposal', 'View Full Report', 'OK']
+            : ['View Full Report', 'OK'];
+          
+          const result = await vscode.window.showInformationMessage(message, ...buttons);
+          
+          if (result === 'View Proposal' && retro.proposal_id) {
+            // Open the proposal in the proposals view
+            await vscode.commands.executeCommand('contextpilot.viewProposalDiff', retro.proposal_id);
+          } else if (result === 'View Full Report') {
             // Open the saved markdown file
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (workspaceRoot) {
@@ -952,10 +960,26 @@ function getRetrospectiveWebviewContent(retro: any, topic?: string): string {
     </div>
     ` : ''}
 
+    ${retro.proposal_id ? `
+    <div class="section" style="background: var(--vscode-editor-selectionBackground); border: 2px solid var(--vscode-charts-green);">
+        <h2>🎯 Improvement Proposal Created</h2>
+        <p><strong>Proposal ID:</strong> <code>${retro.proposal_id}</code></p>
+        <p>A change proposal has been automatically generated from the high-priority action items.</p>
+        <p>The proposal includes:</p>
+        <ul>
+            <li>Detailed implementation steps for each action</li>
+            <li>Expected benefits and outcomes</li>
+            <li>Testing recommendations</li>
+        </ul>
+        <p><strong>Next step:</strong> Review and approve the proposal to implement agent improvements!</p>
+    </div>
+    ` : ''}
+
     <div class="section">
         <h3>📁 Report Saved</h3>
         <p>Full retrospective saved to:<br/>
         <code>workspaces/${getWorkspaceId()}/retrospectives/${retro.retrospective_id}.md</code></p>
+        ${retro.proposal_id ? `<p>Proposal saved to:<br/><code>workspaces/${getWorkspaceId()}/proposals/${retro.proposal_id}.md</code></p>` : ''}
     </div>
 </body>
 </html>`;
