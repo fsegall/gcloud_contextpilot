@@ -1,146 +1,422 @@
-```markdown
-# README.md Documentation
+# 🚀 ContextPilot - AI-Powered Development Assistant
 
-## Overview
+**By [Livre Solutions](https://livre.solutions)**
 
-This document provides a comprehensive guide to creating and maintaining effective `README.md` files for software projects. A well-crafted `README.md` is crucial for attracting users, contributors, and developers to your project. It serves as the first point of contact and provides essential information about the project's purpose, usage, and contribution guidelines.
+> Transform your development workflow with intelligent AI agents, automated documentation, and gamification rewards.
 
-## Purpose/Objectives
+---
 
-The primary objectives of a `README.md` file are to:
+## 🏆 **Hackathon Entry**
 
-*   **Introduce the project:** Clearly and concisely explain what the project does.
-*   **Provide usage instructions:** Guide users on how to install, configure, and use the project.
-*   **Encourage contributions:** Outline how others can contribute to the project.
-*   **Increase project visibility:** Make the project discoverable and understandable.
-*   **Establish credibility:** Demonstrate the project's maturity and maintainability.
+> **This project was developed for the [Cloud Run Hackathon](https://run.devpost.com/) hosted on Devpost.**
+> 
+> **Category:** AI Agents  
+> **Challenge:** Build a multi-agent application deployed on Cloud Run  
+> **Deadline:** November 10, 2025
 
-## Usage Instructions
+[![Cloud Run Hackathon](https://img.shields.io/badge/Hackathon-Cloud%20Run%202025-4285F4?logo=googlecloud&logoColor=white)](https://run.devpost.com/)
+[![Cloud Run](https://img.shields.io/badge/Cloud%20Run-Deployed-4285F4?logo=googlecloud)](https://cloud.google.com/run)
+[![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-blue?logo=visualstudiocode)](https://github.com/fsegall/gcloud_contextpilot/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/fsegall/gcloud_contextpilot)](https://github.com/fsegall/gcloud_contextpilot/releases)
 
-### Basic Structure
+**🎯 Devpost Submission:** [View on Devpost](https://devpost.com/software/contextpilot) _(coming soon)_
 
-A typical `README.md` file should include the following sections:
+---
 
-1.  **Title:** The name of the project.
-2.  **Description:** A brief overview of the project's purpose and functionality.
-3.  **Installation:** Step-by-step instructions on how to install the project.
-4.  **Usage:** Examples and explanations of how to use the project.
-5.  **Contributing:** Guidelines for contributing to the project.
-6.  **License:** Information about the project's license.
-7.  **Credits/Acknowledgements:** Mention any contributors, libraries, or resources used.
-8.  **Contact:** Information on how to contact the project maintainers.
+---
 
-### Detailed Section Breakdown
+## 📖 What is ContextPilot?
 
-*   **Title:** Use a clear and concise title that accurately reflects the project's name. (e.g., `# My Awesome Project`)
-*   **Description:** Provide a brief, compelling description of what the project does and why it's useful.  Focus on the problem it solves or the value it provides.  (e.g., "My Awesome Project is a library for simplifying complex calculations.")
-*   **Installation:**  Provide detailed installation instructions, including any prerequisites (e.g., specific operating systems, software dependencies, or environment variables).  Use code blocks for commands.
+**ContextPilot** is an AI-powered development assistant that helps you:
 
-    ```bash
-    # Example Installation
-    git clone https://github.com/your-username/my-awesome-project.git
-    cd my-awesome-project
-    pip install -r requirements.txt
-    ```
+- 📝 **Maintain documentation automatically** through specialized AI agents
+- 🤖 **Get intelligent code change proposals** with one-click approval
+- 🎮 **Earn rewards** (CPT tokens) for productive development actions
+- 📊 **Track project context** in real-time across your entire codebase
+- ✅ **Automate git commits** with semantic messages
 
-*   **Usage:**  Show examples of how to use the project. Include code snippets to illustrate common use cases.  Explain the purpose of each code block and the expected output.
+### The Problem We Solve
 
-    ```python
-    # Example Usage (Python)
-    from my_awesome_project import calculate
+- 😓 Developers lose project context when switching tasks
+- 📄 Documentation becomes outdated quickly
+- 🔄 Manual git operations are time-consuming
+- 🎯 No measurable incentives for code quality
 
-    result = calculate(10, 5)
-    print(result)  # Output: 15
-    ```
+### Our Solution
 
-*   **Contributing:**  Explain how others can contribute to the project. Include information about coding style, testing, and the pull request process.  Link to a separate `CONTRIBUTING.md` file if the guidelines are extensive.
+- 🤖 **Multi-Agent System**: 7 specialized AI agents working together
+- 🧠 **Agent Retrospectives**: Agents learn from each other and self-improve
+- 🎮 **Gamification**: CPT tokens, achievements, daily streaks
+- ⚡ **One-Click Workflows**: Approve proposals and commit automatically
+- 🔒 **Local-First**: Your code stays on your machine
+- ✅ **Production-Ready**: 30+ unit tests with pytest
 
-    ```markdown
-    ## Contributing
+---
 
-    We welcome contributions from the community!  Please read our [Contributing Guidelines](CONTRIBUTING.md) for more information.
-    ```
+## ✨ Key Features
 
-*   **License:**  Specify the project's license (e.g., MIT, Apache 2.0, GPL). Include a link to the full license text.
+### 🤖 Multi-Agent System
 
-    ```markdown
-    ## License
+| Agent | Purpose |
+|-------|---------|
+| **Spec Agent** | Generates and maintains documentation |
+| **Git Agent** | Intelligent semantic commits |
+| **Context Agent** | Real-time project analysis |
+| **Coach Agent** | Personalized development tips |
+| **Milestone Agent** | Progress tracking |
+| **Strategy Agent** | Pattern analysis and improvements |
+| **Retrospective Agent** 🆕 | Cross-agent learning and coordination |
 
-    This project is licensed under the [MIT License](LICENSE).
-    ```
+All agents communicate via **Google Cloud Pub/Sub** and share state in **Firestore**.
 
-*   **Credits/Acknowledgements:**  Acknowledge any contributors, libraries, or resources used in the project.  Give credit where credit is due.
+#### 🆕 Agent Retrospectives (Hackathon Innovation)
 
-    ```markdown
-    ## Credits
+**The Retrospective Agent facilitates "meetings" where agents collaborate and learn:**
 
-    This project uses the following libraries:
+- 📊 Collects metrics from all agents (events processed, errors, activity levels)
+- 🔍 Analyzes event bus patterns and agent collaboration
+- 💡 Generates insights about workflow efficiency
+- 🎯 Proposes actionable improvements
+- 📝 Creates detailed reports (JSON + Markdown)
+- 🤖 Optional LLM synthesis for narrative summaries
 
-    *   [Requests](https://requests.readthedocs.io/en/latest/)
-    *   [Beautiful Soup 4](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)
+**Why this matters:** This demonstrates **true multi-agent coordination** where agents don't just execute tasks—they **reflect, learn, and self-improve** as a team. A key innovation in AI agent systems!
 
-    Thanks to all contributors for their work!
-    ```
+**Example:** After a development cycle, agents meet to discuss:
+- "Spec Agent processed 15 proposals with 2 errors—needs better validation"
+- "Git Agent was most active—strong collaboration observed"
+- "Action: Review error logs and improve inter-agent communication"
 
-*   **Contact:** Provide contact information for the project maintainers. This could include email addresses, GitHub usernames, or links to communication channels (e.g., Slack, Discord).
+### 🎮 Gamification & Rewards
 
-    ```markdown
-    ## Contact
+- **CPT Tokens**: Earn points for productive actions
+  - +10 CPT for approving proposals
+  - +5 CPT for documentation updates
+  - +20 CPT for milestone completion
+- **Achievements**: Unlock badges (First Approval, Productivity Pro, Context Champion)
+- **Daily Streaks**: Build consistent development habits
+- **Leaderboards**: Compete with other developers (coming soon)
 
-    For questions or support, please contact:
+### 📊 Smart Change Proposals
 
-    *   [Your Name](your.email@example.com)
-    *   [GitHub Issues](https://github.com/your-username/my-awesome-project/issues)
-    ```
+AI agents analyze your code and propose:
+- Documentation improvements
+- Code refactoring suggestions
+- Architecture updates
+- Missing specs
 
-### Formatting
+You review and approve with **one click** - automatic git commit included!
 
-*   Use Markdown syntax for formatting (headings, lists, code blocks, links, images).
-*   Use clear and concise language.
-*   Use proper grammar and spelling.
-*   Keep the file readable and well-organized.
-*   Use emojis sparingly and appropriately.
+### ✅ Production-Grade Testing
 
-## Code Examples
+- **30+ Unit Tests** with pytest covering all API endpoints
+- **Integration Tests** for full proposal workflow
+- **Rate Limiting Tests** to verify abuse protection
+- **Error Handling Tests** for edge cases
+- **Parametrized Tests** for multiple scenarios
+- **Async Test Support** with pytest-asyncio
 
-See "Usage" section above for code example formatting.  Key aspects:
+Run tests: `cd back-end && pytest -v`
 
-*   Use fenced code blocks with language specifiers (e.g., ```python, ```bash, ```javascript).
-*   Provide comments to explain the code.
-*   Show expected output (if applicable).
-*   Keep code examples short and focused.
+---
 
-## Best Practices
+## 🏗️ Architecture
 
-*   **Keep it up-to-date:** Regularly update the `README.md` file as the project evolves.
-*   **Be concise:** Avoid unnecessary details and focus on the most important information.
-*   **Use clear language:** Write in a way that is easy for everyone to understand.
-*   **Provide examples:** Show, don't just tell, how to use the project.
-*   **Be welcoming:** Encourage contributions and make it easy for others to get involved.
-*   **Proofread:** Check for typos and grammatical errors before publishing.
-*   **Use a table of contents:** For larger README files, a table of contents can help users navigate the document.
-
-    ```markdown
-    ## Table of Contents
-
-    *   [Overview](#overview)
-    *   [Purpose/Objectives](#purposeobjectives)
-    *   [Usage Instructions](#usage-instructions)
-    *   [Code Examples](#code-examples)
-    *   [Best Practices](#best-practices)
-    *   [References](#references)
-    ```
-
-*   **Use badges:** Add badges to the README to show build status, code coverage, and other relevant information.  Shields.io is a popular service for generating badges.
-
-    ```markdown
-    [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://example.com/build)
-    [![Code Coverage](https://img.shields.io/badge/coverage-90%25-green)](https://example.com/coverage)
-    ```
-
-## References
-
-*   [GitHub's Guide to Mastering Markdown](https://guides.github.com/features/mastering-markdown/)
-*   [Make a README](https://www.makeareadme.com/)
-*   [Shields.io](https://shields.io/)
 ```
+VS Code Extension (Local)
+    ↓
+Google Cloud Run (Backend API)
+    ├─► Multi-Agent System (Pub/Sub coordination)
+    ├─► Firestore (Proposals & State)
+    ├─► Gemini API (AI Generation)
+    └─► Secret Manager (API Keys)
+    
+Local Git
+    ↑
+Automatic Commits (After Approval)
+```
+
+**Key Design Decisions:**
+- 🔒 **Local Git Operations**: Code never leaves your machine
+- ☁️ **Cloud-Powered AI**: Leverage GCP's Gemini for intelligence
+- 🎯 **Event-Driven**: Agents react to events, not polls
+- 🔐 **Secure**: Rate limiting, abuse detection, secrets management
+
+See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for details.
+
+---
+
+## 🚀 Quick Start
+
+### Option 1: Install VS Code Extension (Recommended)
+
+1. **Download from GitHub Release:**
+   ```bash
+   # Download the .vsix file
+   curl -LO https://github.com/fsegall/gcloud_contextpilot/releases/download/v0.1.0/contextpilot-0.1.0.vsix
+   
+   # Install in VS Code/Cursor
+   code --install-extension contextpilot-0.1.0.vsix
+   ```
+
+2. **Or install via UI:**
+   - Download `.vsix` from [Releases](https://github.com/fsegall/gcloud_contextpilot/releases)
+   - VS Code: Extensions → `...` → Install from VSIX...
+
+3. **Configure API URL** (Settings):
+   ```json
+   {
+     "contextpilot.apiUrl": "https://contextpilot-backend-581368740395.us-central1.run.app"
+   }
+   ```
+
+4. **Start using:**
+   - Open any project
+   - Look for ContextPilot icon (🚀) in sidebar
+   - View proposals, approve changes, earn CPT!
+
+### Option 2: Run Backend Locally
+
+```bash
+# Clone repository
+git clone https://github.com/fsegall/gcloud_contextpilot.git
+cd google-context-pilot
+
+# Setup backend
+cd back-end
+python -m venv .venv
+source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your GOOGLE_API_KEY (Gemini)
+
+# Run server
+uvicorn app.server:app --reload --port 8000
+
+# Extension will connect to http://localhost:8000
+```
+
+See [docs/deployment/QUICKSTART.md](docs/deployment/QUICKSTART.md) for detailed setup.
+
+---
+
+## 📚 Documentation
+
+### For Users
+- **[Extension README](extension/README.md)** - How to use the VS Code extension
+- **[User Guide](docs/guides/EXTENSION_DEVELOPMENT.md)** - Getting started
+- **[Troubleshooting](SECURITY.md)** - Common issues
+
+### For Developers
+- **[Architecture](docs/architecture/ARCHITECTURE.md)** - System design
+- **[Agents](docs/architecture/AGENTS.md)** - Multi-agent system
+- **[Custom Artifacts](docs/architecture/CUSTOM_ARTIFACTS.md)** - Spec-driven development
+- **[API Documentation](back-end/README.md)** - Backend API reference
+
+### For Hackathon Judges
+- **[Deployment Guide](docs/deployment/DEPLOYMENT.md)** - How we use Cloud Run
+- **[Security & Protection](SECURITY.md)** - Rate limiting and abuse detection
+- **[Roadmap](ROADMAP.md)** - Future vision including blockchain
+
+### Project Documentation
+- **[📚 Full Documentation Index](docs/INDEX.md)** - Complete navigation
+- **[🏗️ Architecture Docs](docs/architecture/)** - Design decisions
+- **[🚀 Deployment Guides](docs/deployment/)** - Setup and deployment
+- **[🤖 Agent Specifications](docs/agents/)** - Individual agent contracts
+
+---
+
+## 🛡️ Security & Protection
+
+ContextPilot implements multiple layers of protection:
+
+- **Rate Limiting**: 100 requests/hour per IP
+- **Abuse Detection**: Automatic blacklisting of malicious patterns
+- **Budget Alerts**: GCP cost monitoring and alerts
+- **Local Git**: Your code never leaves your machine
+- **Secret Management**: API keys secured in GCP Secret Manager
+
+See [SECURITY.md](SECURITY.md) for complete security documentation.
+
+---
+
+## 🎯 Google Cloud Services Used
+
+| Service | Purpose |
+|---------|---------|
+| **Cloud Run** | Backend API (serverless) |
+| **Pub/Sub** | Event bus for agent communication |
+| **Firestore** | NoSQL database for proposals and state |
+| **Secret Manager** | Secure API key storage |
+| **Container Registry** | Docker image storage |
+| **Cloud Build** | CI/CD pipeline |
+| **Monitoring** | Dashboards and alerts |
+| **Gemini API** | AI-powered agent intelligence |
+
+**Infrastructure as Code:** Fully deployed with [Terraform](terraform/) for deterministic, reproducible infrastructure.
+
+---
+
+## 🗺️ Roadmap
+
+### ✅ Phase 1: Beta Launch (Current)
+- Multi-agent system with 6 specialized agents
+- VS Code extension with gamification
+- Google Cloud Run backend
+- Local git integration
+- GitHub Release distribution
+
+### 🔜 Phase 2: Blockchain Integration
+- On-chain CPT token minting (Polygon)
+- Leaderboards and competitive features
+- Cross-project analytics
+- Team collaboration
+
+### 🚀 Phase 3: Scale & Enterprise
+- VS Code Marketplace publication
+- Open VSX Registry
+- Custom agent creation
+- Enterprise features (team dashboards, analytics)
+- Multi-IDE support
+
+See [ROADMAP.md](ROADMAP.md) for detailed roadmap.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! ContextPilot is open source and community-driven.
+
+### Ways to Contribute
+- 🐛 Report bugs via [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
+- 💡 Suggest features via [Discussions](https://github.com/fsegall/gcloud_contextpilot/discussions)
+- 🔧 Submit pull requests (see [CONTRIBUTING.md](CONTRIBUTING.md))
+- 📖 Improve documentation
+- 🎨 Design improvements
+
+### Development Setup
+```bash
+# Backend
+cd back-end
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pytest
+
+# Extension
+cd extension
+npm install
+npm run compile
+npm test
+```
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
+## 🏢 About Livre Solutions
+
+**ContextPilot** is developed by [**Livre Solutions**](https://livre.solutions), a technology company focused on creating innovative AI and Web3 applications.
+
+**Our Mission**: Empower developers with intelligent automation and gamification to boost productivity and make coding more rewarding.
+
+**Connect with us:**
+- 🌐 Website: [livre.solutions](https://livre.solutions)
+- 🐦 Twitter: [@livresolutions](https://twitter.com/livresolutions)
+- 💼 LinkedIn: [Livre Solutions](https://linkedin.com/company/livre-solutions)
+- 📧 Contact: contact@livresoltech.com
+
+---
+
+## 🔒 Security & API Keys
+
+### Current Beta Model (Shared API Key)
+
+For the **beta launch and hackathon**, ContextPilot uses a **shared Gemini API key** to provide zero-friction onboarding:
+
+- ✅ **Install and use immediately** - no configuration needed
+- ✅ **Rate limited** (100 requests/hour per IP) for fair usage
+- ✅ **Abuse detection** active to prevent misuse
+- ✅ **Free tier** sufficient for beta testing (1,500 requests/day)
+
+**Why shared key for beta?**
+This design decision prioritizes **user experience** during the evaluation phase. Similar to how GitHub Copilot and Cursor handle early access, we want judges and early adopters to experience ContextPilot without setup friction.
+
+### 🔮 Bring Your Own Key (BYOK) - Coming Soon
+
+**Post-hackathon (Week 1)**, we're implementing user-provided API keys:
+
+```json
+{
+  "contextpilot.aiProvider": "shared" | "own-key",
+  "contextpilot.geminiApiKey": "your-api-key-here"
+}
+```
+
+**Benefits:**
+- 🚀 Unlimited usage (you control quota)
+- 🔒 Enhanced privacy (your key, your data)
+- 💰 Pay-as-you-go pricing (Google's Gemini rates)
+- ⚡ Priority processing (no shared queue)
+
+**Freemium Model:**
+- **Free:** 10 proposals/day on shared key
+- **BYOK:** Unlimited with your own Gemini API key
+- **Enterprise:** Dedicated infrastructure + support
+
+See [ROADMAP.md](ROADMAP.md) for implementation timeline.
+
+### Historical API Keys
+
+**Note:** Early development commits may contain test API keys in archived documentation. All keys have been rotated and are no longer valid. Current production keys are stored securely in Google Cloud Secret Manager.
+
+---
+
+## 🆘 Support
+
+- **Issues**: [GitHub Issues](https://github.com/fsegall/gcloud_contextpilot/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/fsegall/gcloud_contextpilot/discussions)
+- **Email**: contact@livresoltech.com
+- **Documentation**: [docs/INDEX.md](docs/INDEX.md)
+
+---
+
+## 🙏 Acknowledgments
+
+- **Google Cloud** for Cloud Run, Pub/Sub, Firestore, and Gemini API
+- **VS Code** team for the excellent extension API
+- **OpenZeppelin** for secure smart contract libraries
+- **Polygon** for fast and affordable blockchain infrastructure
+- **Open source community** for inspiration and tools
+
+---
+
+## 📊 Project Stats
+
+- **6 AI Agents** working in coordination
+- **15+ endpoints** in production API
+- **100% serverless** architecture
+- **Rate limited** and abuse-protected
+- **Local-first** git operations
+- **Cloud-powered** AI intelligence
+
+---
+
+**Made with ❤️ by Livre Solutions for developers who love productivity and gamification!**
+
+**#AI #VSCode #Productivity #CloudRun #Gemini #GoogleCloud #Hackathon**
+
+---
+
+## 🏅 Hackathon Entry
+
+**Category**: AI Agents  
+**Event**: Google Cloud Run Hackathon 2025  
+**Demo**: [Extension Download](https://github.com/fsegall/gcloud_contextpilot/releases/v0.1.0)  
+**Live Backend**: [API Health Check](https://contextpilot-backend-581368740395.us-central1.run.app/health)

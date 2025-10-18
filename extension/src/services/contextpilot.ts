@@ -300,6 +300,23 @@ export class ContextPilotService {
     }
   }
 
+  async triggerRetrospective(workspaceId: string = 'default', topic?: string): Promise<any> {
+    try {
+      const response = await this.client.post('/agents/retrospective/trigger', {
+        trigger: topic || 'manual',
+        use_llm: false
+      }, {
+        params: { workspace_id: workspaceId }
+      });
+      
+      console.log('[ContextPilot] Retrospective triggered:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to trigger retrospective:', error);
+      throw error;
+    }
+  }
+
   async getMilestonesReal(workspaceId: string = 'default'): Promise<any[]> {
     try {
       const response = await this.client.get('/context/milestones', {

@@ -715,3 +715,249 @@ async function openFileInEditor(filePath: string): Promise<void> {
     }
 }
 
+// ===== AGENT RETROSPECTIVE COMMAND =====
+
+export async function triggerRetrospective(service: ContextPilotService): Promise<void> {
+  try {
+    // Ask user for optional discussion topic
+    const topic = await vscode.window.showInputBox({
+      prompt: '💬 Suggest a topic for the agent retrospective (optional)',
+      placeHolder: 'e.g., "How can we improve code quality?", "Better documentation workflow"',
+      value: ''
+    });
+
+    // Get workspace ID
+    const workspaceId = getWorkspaceId();
+    
+    // Show progress
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: '🤖 Agents are meeting...',
+        cancellable: false,
+      },
+      async (progress) => {
+        progress.report({ message: 'Collecting metrics from all agents...' });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        progress.report({ message: 'Analyzing collaboration patterns...' });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        progress.report({ message: 'Generating insights...' });
+        
+        // Call backend API to trigger retrospective
+        const response = await service.triggerRetrospective(workspaceId, topic || 'manual');
+        
+        if (response && response.retrospective) {
+          const retro = response.retrospective;
+          
+          // Show results in a webview
+          const panel = vscode.window.createWebviewPanel(
+            'contextpilotRetrospective',
+            '🤖 Agent Retrospective',
+            vscode.ViewColumn.One,
+            { enableScripts: true }
+          );
+          
+          panel.webview.html = getRetrospectiveWebviewContent(retro, topic);
+          
+          // Also show notification with summary
+          const insightCount = retro.insights?.length || 0;
+          const actionCount = retro.action_items?.length || 0;
+          
+          const result = await vscode.window.showInformationMessage(
+            `✅ Retrospective complete! ${insightCount} insights, ${actionCount} actions`,
+            'View Full Report',
+            'OK'
+          );
+          
+          if (result === 'View Full Report') {
+            // Open the saved markdown file
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+              const retroPath = `${workspaceRoot}/workspaces/${workspaceId}/retrospectives/${retro.retrospective_id}.md`;
+              try {
+                const uri = vscode.Uri.file(retroPath);
+                const doc = await vscode.workspace.openTextDocument(uri);
+                await vscode.window.showTextDocument(doc);
+              } catch (error) {
+                vscode.window.showWarningMessage('Retrospective saved but could not open file');
+              }
+            }
+          }
+          
+        } else {
+          vscode.window.showErrorMessage('Failed to conduct retrospective');
+        }
+      }
+    );
+    
+  } catch (error: any) {
+    console.error('[triggerRetrospective] Error:', error);
+    vscode.window.showErrorMessage(`Failed to trigger retrospective: ${error.message}`);
+  }
+}
+
+function getRetrospectiveWebviewContent(retro: any, topic?: string): string {
+  const insights = retro.insights || [];
+  const actionItems = retro.action_items || [];
+  const metrics = retro.agent_metrics || {};
+  
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Retrospective</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            padding: 20px;
+            color: var(--vscode-foreground);
+            line-height: 1.6;
+        }
+        h1, h2, h3 {
+            color: var(--vscode-editor-foreground);
+        }
+        .header {
+            background: var(--vscode-editor-background);
+            border: 2px solid var(--vscode-charts-blue);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0 0 10px 0;
+            color: var(--vscode-charts-blue);
+        }
+        .meta {
+            color: var(--vscode-descriptionForeground);
+            font-size: 0.9em;
+        }
+        .section {
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .agent-metric {
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border-left: 3px solid var(--vscode-charts-green);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .agent-name {
+            font-weight: bold;
+            color: var(--vscode-charts-green);
+            text-transform: uppercase;
+        }
+        .insight {
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border-left: 3px solid var(--vscode-charts-yellow);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .action-item {
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border-left: 3px solid var(--vscode-charts-red);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+        }
+        .priority {
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-right: 10px;
+            font-size: 0.8em;
+        }
+        .priority-high {
+            background: var(--vscode-errorForeground);
+            color: white;
+        }
+        .priority-medium {
+            background: var(--vscode-charts-orange);
+            color: white;
+        }
+        .priority-low {
+            background: var(--vscode-charts-green);
+            color: white;
+        }
+        .topic-box {
+            background: var(--vscode-editor-inactiveSelectionBackground);
+            border: 2px dashed var(--vscode-charts-purple);
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 Agent Retrospective</h1>
+        <div class="meta">
+            <strong>ID:</strong> ${retro.retrospective_id}<br/>
+            <strong>Date:</strong> ${new Date(retro.timestamp).toLocaleString()}<br/>
+            <strong>Trigger:</strong> ${retro.trigger}
+        </div>
+    </div>
+
+    ${topic ? `
+    <div class="topic-box">
+        <strong>💬 Discussion Topic:</strong> ${topic}
+    </div>
+    ` : ''}
+
+    <div class="section">
+        <h2>📊 Agent Metrics</h2>
+        ${Object.entries(metrics).map(([agentId, agentMetrics]: [string, any]) => `
+            <div class="agent-metric">
+                <div class="agent-name">${agentId}</div>
+                ${Object.entries(agentMetrics).map(([key, value]) => `
+                    <div><strong>${key}:</strong> ${value}</div>
+                `).join('')}
+            </div>
+        `).join('')}
+    </div>
+
+    <div class="section">
+        <h2>💡 Insights</h2>
+        ${insights.length > 0 ? insights.map((insight: string) => `
+            <div class="insight">💡 ${insight}</div>
+        `).join('') : '<p>No insights generated.</p>'}
+    </div>
+
+    <div class="section">
+        <h2>🎯 Action Items</h2>
+        ${actionItems.length > 0 ? actionItems.map((item: any) => `
+            <div class="action-item">
+                <span class="priority priority-${item.priority}">${item.priority.toUpperCase()}</span>
+                <div>
+                    <strong>${item.action}</strong><br/>
+                    <small>Assigned to: ${item.assigned_to}</small>
+                </div>
+            </div>
+        `).join('') : '<p>No action items.</p>'}
+    </div>
+
+    ${retro.llm_summary ? `
+    <div class="section">
+        <h2>🤖 AI Summary</h2>
+        <div style="white-space: pre-wrap;">${retro.llm_summary}</div>
+    </div>
+    ` : ''}
+
+    <div class="section">
+        <h3>📁 Report Saved</h3>
+        <p>Full retrospective saved to:<br/>
+        <code>workspaces/${getWorkspaceId()}/retrospectives/${retro.retrospective_id}.md</code></p>
+    </div>
+</body>
+</html>`;
+}
+

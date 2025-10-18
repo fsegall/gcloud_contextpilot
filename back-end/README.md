@@ -85,14 +85,15 @@ See [../terraform/README.md](../terraform/README.md) for complete deployment gui
 ```
 back-end/
 ├── app/
-│   ├── agents/              # 6 specialized AI agents
+│   ├── agents/              # 7 specialized AI agents
 │   │   ├── base_agent.py    # Base class for all agents
 │   │   ├── spec_agent.py    # Documentation agent
 │   │   ├── git_agent.py     # Git operations agent
 │   │   ├── context_agent.py # Project analysis
 │   │   ├── coach_agent.py   # Development tips
 │   │   ├── milestone_agent.py
-│   │   └── strategy_agent.py
+│   │   ├── strategy_agent.py
+│   │   └── retrospective_agent.py  # 🆕 Agent meetings & learning
 │   ├── services/            # Core services
 │   │   ├── event_bus.py     # Pub/Sub & in-memory event bus
 │   │   ├── firestore_service.py
@@ -104,6 +105,9 @@ back-end/
 │   ├── templates/           # Markdown templates for agents
 │   ├── server.py            # FastAPI application
 │   └── git_context_manager.py
+├── tests/                  # 🆕 Test suite
+│   ├── __init__.py
+│   └── test_server.py      # API endpoint tests
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile              # Cloud Run container
 └── README.md              # This file
@@ -142,6 +146,11 @@ GET /context/summary?workspace_id=default
 
 # Admin stats
 GET /admin/abuse-stats
+
+# 🆕 Retrospective endpoints
+POST /agents/retrospective/trigger  # Trigger agent meeting
+GET /agents/retrospective/list      # List all retrospectives
+GET /agents/retrospective/{id}      # Get specific retrospective
 ```
 
 **Full API Spec:** See [../openapi.yaml](../openapi.yaml) or visit `/docs` on running server.
@@ -157,6 +166,47 @@ GET /admin/abuse-stats
 3. **AI Generation**: Agent may call Gemini API for intelligent responses
 4. **State Persistence**: Results saved to Firestore
 5. **Event Publishing**: Agent may publish new events for other agents
+
+### 🆕 Agent Retrospectives (Cross-Agent Learning)
+
+The **Retrospective Agent** facilitates periodic "meetings" where agents:
+- Share metrics and learnings from their work
+- Identify coordination bottlenecks
+- Propose process improvements
+- Generate actionable insights
+
+**Trigger retrospectives:**
+- Manually via API: `POST /agents/retrospective/trigger`
+- Automatically on milestone completion
+- On cycle closure: `POST /context/close-cycle`
+
+**What gets analyzed:**
+- Agent activity levels (events processed, errors)
+- Event bus patterns (most active agent, collaboration)
+- Agent learnings (stored in memory)
+- Workflow efficiency
+
+**Output:**
+- JSON report with metrics, insights, and action items
+- Markdown summary saved to `workspace/retrospectives/`
+- (Optional) LLM-synthesized narrative with `use_llm=true`
+
+**Example:**
+```bash
+# Trigger a retrospective
+curl -X POST http://localhost:8000/agents/retrospective/trigger \
+  -H "Content-Type: application/json" \
+  -d '{"trigger": "manual", "use_llm": true}'
+
+# List all retrospectives
+curl http://localhost:8000/agents/retrospective/list
+
+# View specific retrospective
+curl http://localhost:8000/agents/retrospective/retro-20250117-093000
+```
+
+**Why this matters for the hackathon:**
+This demonstrates sophisticated multi-agent coordination where agents not only execute tasks but also **learn from each other** and **self-improve** their workflows—a key innovation in AI agent systems.
 
 ### Example: Proposal Approval Flow
 
@@ -199,15 +249,65 @@ See [../SECURITY.md](../SECURITY.md) for details.
 
 ## 🧪 Testing
 
+### Run Tests
+
 ```bash
-# Run tests (if implemented)
+# Install test dependencies
+pip install -r requirements.txt
+
+# Run all tests
 pytest
 
-# Test specific agent
-pytest tests/test_spec_agent.py
+# Run with verbose output
+pytest -v
 
-# Test with coverage
-pytest --cov=app tests/
+# Run specific test file
+pytest tests/test_server.py
+
+# Run specific test
+pytest tests/test_server.py::test_health_check
+
+# Run with coverage report
+pytest --cov=app --cov-report=html tests/
+
+# Run async tests only
+pytest -k "asyncio"
+
+# Run integration tests (requires valid workspace)
+pytest -m integration
+```
+
+### Test Structure
+
+```
+tests/
+├── __init__.py
+└── test_server.py        # API endpoint tests
+    ├── Health checks
+    ├── Context endpoints
+    ├── Proposal workflow
+    ├── Agent status
+    ├── Retrospective endpoints
+    ├── Rate limiting
+    └── Error handling
+```
+
+**Test coverage includes:**
+- ✅ 30+ API endpoint tests
+- ✅ Health check and monitoring
+- ✅ Proposal creation, approval, rejection
+- ✅ Retrospective trigger and retrieval
+- ✅ Rate limiting enforcement
+- ✅ Error handling and validation
+- ✅ Parametrized tests for multiple scenarios
+
+**Running tests for the hackathon demo:**
+```bash
+# Quick smoke test
+pytest tests/test_server.py::test_health_check -v
+
+# Full suite (shows agent sophistication)
+pytest -v --tb=short
 ```
 
 ---

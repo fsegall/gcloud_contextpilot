@@ -104,6 +104,11 @@
         "command": "contextpilot.resetChatSession",
         "title": "ContextPilot: Reset Chat Session",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "contextpilot.triggerRetrospective",
+        "title": "ContextPilot: Start Agent Retrospective",
+        "icon": "$(organization)"
       }
     ],
     "viewsContainers": {

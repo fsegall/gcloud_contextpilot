@@ -1219,3 +1219,129 @@ async def reject_proposal(
         md_content += f"\nStatus: rejected\nReason: {reason}\n"
         md_path.write_text(md_content, encoding="utf-8")
     return {"status": "rejected"}
+
+
+# ===== RETROSPECTIVE AGENT ENDPOINTS =====
+
+
+@app.post("/agents/retrospective/trigger")
+async def trigger_agent_retrospective(
+    workspace_id: str = Query("default"),
+    trigger: str = Body("manual"),
+    use_llm: bool = Body(False),
+):
+    """
+    Trigger a retrospective meeting between agents.
+
+    This endpoint facilitates cross-agent learning by:
+    - Collecting metrics from all agents
+    - Analyzing event history
+    - Generating insights and action items
+    - (Optional) Synthesizing with LLM
+
+    Args:
+        workspace_id: Workspace identifier
+        trigger: What triggered the retrospective (e.g., "manual", "milestone_complete", "cycle_end")
+        use_llm: Whether to use Gemini LLM for narrative synthesis
+
+    Returns:
+        Retrospective summary with agent insights
+    """
+    logger.info(f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}")
+
+    try:
+        from app.agents.retrospective_agent import trigger_retrospective
+
+        # Get Gemini API key if LLM synthesis requested
+        gemini_api_key = None
+        if use_llm:
+            gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if not gemini_api_key:
+                logger.warning("[API] LLM synthesis requested but no API key found")
+
+        retrospective = await trigger_retrospective(
+            workspace_id=workspace_id,
+            trigger=trigger,
+            gemini_api_key=gemini_api_key
+        )
+
+        return {
+            "status": "success",
+            "retrospective": retrospective
+        }
+
+    except Exception as e:
+        logger.error(f"Error triggering retrospective: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.get("/agents/retrospective/list")
+async def list_retrospectives(workspace_id: str = Query("default")):
+    """
+    List all retrospectives for a workspace.
+
+    Returns:
+        List of retrospective summaries
+    """
+    logger.info(f"GET /agents/retrospective/list - workspace: {workspace_id}")
+
+    try:
+        workspace_path = get_workspace_path(workspace_id)
+        retro_dir = Path(workspace_path) / "retrospectives"
+
+        if not retro_dir.exists():
+            return {"retrospectives": [], "count": 0}
+
+        retrospectives = []
+        for json_file in sorted(retro_dir.glob("*.json"), reverse=True):
+            try:
+                with open(json_file, "r") as f:
+                    retro = json.load(f)
+                    # Return summary only (not full data)
+                    retrospectives.append({
+                        "retrospective_id": retro.get("retrospective_id"),
+                        "timestamp": retro.get("timestamp"),
+                        "trigger": retro.get("trigger"),
+                        "insights_count": len(retro.get("insights", [])),
+                        "action_items_count": len(retro.get("action_items", []))
+                    })
+            except Exception as e:
+                logger.error(f"Error reading retrospective {json_file}: {e}")
+
+        return {"retrospectives": retrospectives, "count": len(retrospectives)}
+
+    except Exception as e:
+        logger.error(f"Error listing retrospectives: {str(e)}")
+        return {"retrospectives": [], "count": 0, "error": str(e)}
+
+
+@app.get("/agents/retrospective/{retrospective_id}")
+async def get_retrospective(retrospective_id: str, workspace_id: str = Query("default")):
+    """
+    Get a specific retrospective by ID.
+
+    Returns:
+        Full retrospective data
+    """
+    logger.info(f"GET /agents/retrospective/{retrospective_id} - workspace: {workspace_id}")
+
+    try:
+        workspace_path = get_workspace_path(workspace_id)
+        retro_file = Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
+
+        if not retro_file.exists():
+            raise HTTPException(status_code=404, detail="Retrospective not found")
+
+        with open(retro_file, "r") as f:
+            retrospective = json.load(f)
+
+        return retrospective
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading retrospective: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

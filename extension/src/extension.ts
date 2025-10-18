@@ -147,6 +147,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('contextpilot.resetChatSession', () => {
       commands.resetChatSession();
+    }),
+
+    vscode.commands.registerCommand('contextpilot.triggerRetrospective', async () => {
+      await commands.triggerRetrospective(contextPilotService);
     })
   );
 
