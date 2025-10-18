@@ -58,7 +58,7 @@ jobs:
           
           # Extract proposal details
           TITLE=$(jq -r '.title' proposal.json)
-          STATUS=$(jq -r '.status' proposal.json)
+          STATUS=$(jq -r '.status // "pending"' proposal.json)
           
           echo "title=$TITLE" >> $GITHUB_OUTPUT
           echo "status=$STATUS" >> $GITHUB_OUTPUT
