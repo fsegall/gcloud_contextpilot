@@ -141,55 +141,55 @@ def get_context(workspace_id: str = Query("default")):
         # Try to read from PROJECT.md, GOAL.md, STATUS.md, MILESTONES.md
         from pathlib import Path
         import re
-        
+
         project_root = Path(__file__).parent.parent.parent
         logger.info(f"Project root: {project_root}")
-        
+
         context = {"checkpoint": {}}
-        
+
         # Read PROJECT.md
         project_file = project_root / "PROJECT.md"
         if project_file.exists():
-            content = project_file.read_text(encoding='utf-8')
+            content = project_file.read_text(encoding="utf-8")
             # Extract project name from first heading
-            match = re.search(r'#\s+(.+?)(?:\n|$)', content)
+            match = re.search(r"#\s+(.+?)(?:\n|$)", content)
             if match:
                 context["checkpoint"]["project_name"] = match.group(1).strip()
-        
+
         # Read GOAL.md
         goal_file = project_root / "GOAL.md"
         if goal_file.exists():
-            content = goal_file.read_text(encoding='utf-8')
+            content = goal_file.read_text(encoding="utf-8")
             # Extract primary goal
-            match = re.search(r'\*\*(.+?)\*\*', content)
+            match = re.search(r"\*\*(.+?)\*\*", content)
             if match:
                 context["checkpoint"]["goal"] = match.group(1).strip()
-        
+
         # Read STATUS.md
         status_file = project_root / "STATUS.md"
         if status_file.exists():
-            content = status_file.read_text(encoding='utf-8')
+            content = status_file.read_text(encoding="utf-8")
             # Extract current status
-            match = re.search(r'Current Status:\s+\*\*(.+?)\*\*', content)
+            match = re.search(r"Current Status:\s+\*\*(.+?)\*\*", content)
             if match:
                 context["checkpoint"]["current_status"] = match.group(1).strip()
-        
+
         # Read MILESTONES.md
         milestones_file = project_root / "MILESTONES.md"
         milestones = []
         if milestones_file.exists():
-            content = milestones_file.read_text(encoding='utf-8')
+            content = milestones_file.read_text(encoding="utf-8")
             # Extract completed milestones
-            completed_matches = re.findall(r'- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)', content)
+            completed_matches = re.findall(
+                r"- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)", content
+            )
             for name, desc in completed_matches:
-                milestones.append({
-                    "name": name.strip(),
-                    "status": "completed",
-                    "due": "completed"
-                })
-        
+                milestones.append(
+                    {"name": name.strip(), "status": "completed", "due": "completed"}
+                )
+
         context["checkpoint"]["milestones"] = milestones
-        
+
         logger.info(f"Context loaded from .md files: {context}")
         return context
 
@@ -1424,6 +1424,7 @@ async def get_retrospective(
 
 # ========== Development Agent Endpoints ==========
 
+
 @app.post("/agents/development/implement")
 async def development_implement_feature(
     workspace_id: str = Query("default"),
@@ -1432,50 +1433,46 @@ async def development_implement_feature(
 ):
     """
     Generate code implementation for a feature using the Development Agent.
-    
+
     Args:
         workspace_id: Workspace identifier
         description: Feature description or action item
         target_files: Optional list of files to modify (will be inferred if not provided)
-    
+
     Returns:
         Created proposal ID and details
     """
     logger.info(f"POST /agents/development/implement - workspace: {workspace_id}")
     logger.info(f"Feature description: {description[:100]}...")
-    
+
     try:
         from app.agents.development_agent import DevelopmentAgent
-        
+
         workspace_path = str(get_workspace_path(workspace_id))
         project_id = os.getenv(
             "GCP_PROJECT_ID",
             os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
         )
-        
+
         agent = DevelopmentAgent(
             workspace_path=workspace_path,
             workspace_id=workspace_id,
-            project_id=project_id
+            project_id=project_id,
         )
-        
+
         proposal_id = await agent.implement_feature(
-            description=description,
-            target_files=target_files
+            description=description, target_files=target_files
         )
-        
+
         if proposal_id:
             return {
                 "success": True,
                 "proposal_id": proposal_id,
-                "message": f"Implementation proposal created: {proposal_id}"
+                "message": f"Implementation proposal created: {proposal_id}",
             }
         else:
-            return {
-                "success": False,
-                "error": "Failed to generate implementation"
-            }
-    
+            return {"success": False, "error": "Failed to generate implementation"}
+
     except Exception as e:
         logger.error(f"Error in development agent: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1489,75 +1486,76 @@ async def development_implement_from_retrospective(
 ):
     """
     Generate code implementations from retrospective action items.
-    
+
     Args:
         workspace_id: Workspace identifier
         retrospective_id: Retrospective identifier
         action_item_indices: Optional list of action item indices to implement (0-based).
                              If None, implements all high/medium priority items.
-    
+
     Returns:
         List of created proposal IDs
     """
-    logger.info(f"POST /agents/development/implement-from-retrospective - workspace: {workspace_id}")
+    logger.info(
+        f"POST /agents/development/implement-from-retrospective - workspace: {workspace_id}"
+    )
     logger.info(f"Retrospective ID: {retrospective_id}")
-    
+
     try:
         from app.agents.development_agent import implement_from_retrospective
-        
+
         workspace_path = str(get_workspace_path(workspace_id))
         project_id = os.getenv(
             "GCP_PROJECT_ID",
             os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
         )
-        
+
         # Load retrospective
-        retro_file = Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
+        retro_file = (
+            Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
+        )
         if not retro_file.exists():
             raise HTTPException(status_code=404, detail="Retrospective not found")
-        
+
         with open(retro_file, "r") as f:
             retrospective = json.load(f)
-        
+
         action_items = retrospective.get("action_items", [])
         if not action_items:
-            return {
-                "success": False,
-                "error": "No action items in retrospective"
-            }
-        
+            return {"success": False, "error": "No action items in retrospective"}
+
         # Filter action items if indices provided
         if action_item_indices is not None:
-            action_items = [action_items[i] for i in action_item_indices if i < len(action_items)]
+            action_items = [
+                action_items[i] for i in action_item_indices if i < len(action_items)
+            ]
         else:
             # Default: only high/medium priority
             action_items = [
-                item for item in action_items 
+                item
+                for item in action_items
                 if item.get("priority", "").lower() in ["high", "medium"]
             ]
-        
+
         if not action_items:
-            return {
-                "success": False,
-                "error": "No action items match the criteria"
-            }
-        
+            return {"success": False, "error": "No action items match the criteria"}
+
         # Generate implementations
         proposal_ids = await implement_from_retrospective(
             workspace_id=workspace_id,
             retrospective_id=retrospective_id,
             action_items=action_items,
             workspace_path=workspace_path,
-            project_id=project_id
+            project_id=project_id,
         )
-        
+
         return {
             "success": True,
             "proposal_ids": proposal_ids,
             "count": len(proposal_ids),
-            "message": f"Generated {len(proposal_ids)} implementation proposal(s)"
+            "message": f"Generated {len(proposal_ids)} implementation proposal(s)",
         }
-    
+
     except Exception as e:
         logger.error(f"Error implementing from retrospective: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
