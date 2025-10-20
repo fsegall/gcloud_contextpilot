@@ -579,8 +579,12 @@ This document describes {filename}.
         """Get content from crucial .md files."""
         crucial_files = {
             "README.md": "Project overview and setup",
-            "project_scope.md": "Project goals and scope", 
+            "PROJECT.md": "Project details and overview",
+            "GOAL.md": "Project goals and objectives",
+            "STATUS.md": "Current project status",
+            "MILESTONES.md": "Project milestones and progress",
             "ARCHITECTURE.md": "System architecture",
+            "project_scope.md": "Project goals and scope", 
             "project_checklist.md": "Development checklist",
             "daily_checklist.md": "Daily progress tracking"
         }
