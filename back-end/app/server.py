@@ -138,18 +138,69 @@ def get_context(workspace_id: str = Query("default")):
     logger.info(f"GET /context called with workspace_id: {workspace_id}")
 
     try:
-        logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
-        manager = get_manager(workspace_id)
-
-        logger.info("Getting project context...")
-        context = manager.get_project_context()
-        logger.info("Context retrieved successfully")
-
+        # Try to read from PROJECT.md, GOAL.md, STATUS.md, MILESTONES.md
+        from pathlib import Path
+        import re
+        
+        project_root = Path(__file__).parent.parent.parent
+        logger.info(f"Project root: {project_root}")
+        
+        context = {"checkpoint": {}}
+        
+        # Read PROJECT.md
+        project_file = project_root / "PROJECT.md"
+        if project_file.exists():
+            content = project_file.read_text(encoding='utf-8')
+            # Extract project name from first heading
+            match = re.search(r'#\s+(.+?)(?:\n|$)', content)
+            if match:
+                context["checkpoint"]["project_name"] = match.group(1).strip()
+        
+        # Read GOAL.md
+        goal_file = project_root / "GOAL.md"
+        if goal_file.exists():
+            content = goal_file.read_text(encoding='utf-8')
+            # Extract primary goal
+            match = re.search(r'\*\*(.+?)\*\*', content)
+            if match:
+                context["checkpoint"]["goal"] = match.group(1).strip()
+        
+        # Read STATUS.md
+        status_file = project_root / "STATUS.md"
+        if status_file.exists():
+            content = status_file.read_text(encoding='utf-8')
+            # Extract current status
+            match = re.search(r'Current Status:\s+\*\*(.+?)\*\*', content)
+            if match:
+                context["checkpoint"]["current_status"] = match.group(1).strip()
+        
+        # Read MILESTONES.md
+        milestones_file = project_root / "MILESTONES.md"
+        milestones = []
+        if milestones_file.exists():
+            content = milestones_file.read_text(encoding='utf-8')
+            # Extract completed milestones
+            completed_matches = re.findall(r'- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)', content)
+            for name, desc in completed_matches:
+                milestones.append({
+                    "name": name.strip(),
+                    "status": "completed",
+                    "due": "completed"
+                })
+        
+        context["checkpoint"]["milestones"] = milestones
+        
+        logger.info(f"Context loaded from .md files: {context}")
         return context
 
     except Exception as e:
         logger.error(f"Error in context endpoint: {str(e)}")
-        return {"error": f"Failed to get context: {str(e)}"}
+        # Fallback to old method
+        try:
+            manager = get_manager(workspace_id)
+            return manager.get_project_context()
+        except:
+            return {"error": f"Failed to get context: {str(e)}"}
 
 
 @app.get("/context/milestones")
