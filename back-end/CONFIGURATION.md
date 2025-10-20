@@ -94,11 +94,124 @@ GEMINI_API_KEY=your-key
 - Endpoints: `/proposals/list`, `/proposals/{id}`, `/proposals/{id}/approve`, `/proposals/{id}/reject`
 - Implementation: Custom endpoints in `server.py` using file I/O
 - Firestore router: **Disabled**
+- Commits: Direct Git commits via Git Agent (local repository)
+- Use case: Development, testing, local workflows
 
 **CLOUD Mode** (`STORAGE_MODE=cloud`):
 - Endpoints: `/proposals/list`, `/proposals/{id}`, `/proposals/{id}/approve`, `/proposals/{id}/reject`
 - Implementation: `app.routers.proposals` using Firestore
 - File-based endpoints: **Return 501 (Not Implemented)**
+- Commits: Triggers GitHub Actions via `repository_dispatch` webhook
+- Use case: Production, Cloud Run, automated CI/CD
+
+### Approval Workflow Differences
+
+#### Local Mode Approval Flow
+
+1. User approves proposal in extension
+2. Backend receives `POST /proposals/{id}/approve`
+3. **Git Agent commits directly** to local repository
+4. Changes are immediately in your working directory
+5. Developer can review and push manually
+
+**Pros:**
+- Immediate feedback
+- Full control over commits
+- Can test before pushing
+- Works offline
+
+**Cons:**
+- Manual push required
+- No CI/CD integration
+- Not suitable for multi-user scenarios
+
+#### Cloud Mode Approval Flow
+
+1. User approves proposal in extension
+2. Backend stores approval in Firestore
+3. **GitHub Actions triggered** via `repository_dispatch` webhook
+4. GitHub runner:
+   - Clones repository
+   - Applies changes
+   - Runs tests
+   - Creates commit
+   - Pushes to repository
+5. Changes appear in GitHub (not local immediately)
+
+**Pros:**
+- Automated CI/CD pipeline
+- Changes go through all checks
+- Audit trail in GitHub
+- Multi-user safe
+- Production-ready
+
+**Cons:**
+- Slight delay (GitHub Actions startup)
+- Requires `GITHUB_TOKEN` configuration
+- Changes not immediately local
+
+### Configuration for GitHub Actions
+
+To enable GitHub Actions workflow in **CLOUD mode**, set:
+
+```bash
+GITHUB_TOKEN=ghp_your_personal_access_token
+GITHUB_REPO=your-org/your-repo  # e.g., fsegall/gcloud_contextpilot
+```
+
+The backend will call:
+```
+POST https://api.github.com/repos/{GITHUB_REPO}/dispatches
+{
+  "event_type": "proposal-approved",
+  "client_payload": {
+    "proposal_id": "..."
+  }
+}
+```
+
+Your repository needs a workflow file (`.github/workflows/apply-proposal.yml`) to handle this event.
+
+### Auto-Approve Configuration
+
+The `AUTO_APPROVE_ENABLED` environment variable controls whether approved proposals are automatically committed.
+
+```bash
+AUTO_APPROVE_ENABLED=true   # Commits happen automatically on approval
+AUTO_APPROVE_ENABLED=false  # Approval stored, but no commit (default)
+```
+
+**Behavior by Mode:**
+
+| Mode | AUTO_APPROVE_ENABLED | Result |
+|------|---------------------|--------|
+| LOCAL | `true` | Git Agent commits directly to local repo |
+| LOCAL | `false` | Approval stored, no commit |
+| CLOUD | `true` | GitHub Actions triggered |
+| CLOUD | `false` | Approval stored in Firestore, no workflow trigger |
+
+**When to enable:**
+- ✅ Development with trusted AI-generated code
+- ✅ Production with comprehensive test suite in GitHub Actions
+- ❌ Production without tests (manual review recommended)
+- ❌ When learning the system (review changes first)
+
+### Choosing the Right Mode
+
+**Use LOCAL mode when:**
+- 👨‍💻 Developing the ContextPilot system itself
+- 🧪 Testing new agent features
+- 📝 Working on documentation
+- 🔌 Working offline or with intermittent connectivity
+- 🎓 Learning how the system works
+
+**Use CLOUD mode when:**
+- 🚀 Running in production (Cloud Run)
+- 👥 Multiple developers on the same project
+- 🔄 Want automated CI/CD integration
+- ✅ Need all changes to go through test suite
+- 📊 Need centralized audit trail in Firestore
+- 🌐 Backend is stateless/serverless
 
 ### Checking Current Mode
 
