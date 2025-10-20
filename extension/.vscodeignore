@@ -5,6 +5,8 @@
 .github
 .gitignore
 .DS_Store
+.env
+.env.*
 **/*.ts
 **/*.map
 .eslintrc.json
