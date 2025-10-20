@@ -15,8 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
 from time import time
 
-# Temporarily commented - install dependencies later
-# from app.routers import rewards, proposals, events
+# Import routers
+from app.routers import rewards, proposals
 from app.agents.spec_agent import SpecAgent
 from app.middleware.abuse_detection import abuse_detector
 from app.utils.workspace_manager import get_workspace_path
@@ -124,8 +124,8 @@ app.add_middleware(
 )
 
 # Include routers (temporarily commented - install dependencies later)
-# app.include_router(rewards.router)
-# app.include_router(proposals.router)
+app.include_router(rewards.router)
+app.include_router(proposals.router)
 # app.include_router(events.router)
 
 
@@ -142,15 +142,17 @@ def get_context(workspace_id: str = Query("default")):
         from pathlib import Path
         import re
 
-        project_root = Path(__file__).parent.parent.parent
+        project_root = Path("/app")
         logger.info(f"Project root: {project_root}")
 
-        context = {"checkpoint": {
-            "project_name": "ContextPilot - AI Development Assistant",
-            "goal": "Transform development workflows with AI-powered multi-agent assistance",
-            "current_status": "Core Functionality Complete",
-            "milestones": []
-        }}
+        context = {
+            "checkpoint": {
+                "project_name": "ContextPilot - AI Development Assistant",
+                "goal": "Transform development workflows with AI-powered multi-agent assistance",
+                "current_status": "Core Functionality Complete",
+                "milestones": [],
+            }
+        }
 
         # Try to read PROJECT.md (override defaults if exists)
         project_file = project_root / "PROJECT.md"
@@ -190,21 +192,30 @@ def get_context(workspace_id: str = Query("default")):
 
         # Try to read MILESTONES.md
         milestones_file = project_root / "MILESTONES.md"
+        logger.info(f"Looking for MILESTONES.md at: {milestones_file}")
+        logger.info(f"MILESTONES.md exists: {milestones_file.exists()}")
         if milestones_file.exists():
             try:
                 content = milestones_file.read_text(encoding="utf-8")
+                logger.info(f"MILESTONES.md content length: {len(content)}")
                 completed_matches = re.findall(
                     r"- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)", content
                 )
                 milestones = []
                 for name, desc in completed_matches:
                     milestones.append(
-                        {"name": name.strip(), "status": "completed", "due": "completed"}
+                        {
+                            "name": name.strip(),
+                            "status": "completed",
+                            "due": "completed",
+                        }
                     )
                 context["checkpoint"]["milestones"] = milestones
                 logger.info(f"Loaded {len(milestones)} milestones from MILESTONES.md")
             except Exception as e:
                 logger.warning(f"Error reading MILESTONES.md: {e}")
+        else:
+            logger.warning(f"MILESTONES.md not found at {milestones_file}")
 
         logger.info(f"Context loaded from .md files: {context}")
         return context
@@ -212,12 +223,14 @@ def get_context(workspace_id: str = Query("default")):
     except Exception as e:
         logger.error(f"Error in context endpoint: {str(e)}", exc_info=True)
         # Return default context on error
-        return {"checkpoint": {
-            "project_name": "ContextPilot - AI Development Assistant",
-            "goal": "Transform development workflows with AI-powered multi-agent assistance",
-            "current_status": "Core Functionality Complete",
-            "milestones": []
-        }}
+        return {
+            "checkpoint": {
+                "project_name": "ContextPilot - AI Development Assistant",
+                "goal": "Transform development workflows with AI-powered multi-agent assistance",
+                "current_status": "Core Functionality Complete",
+                "milestones": [],
+            }
+        }
 
 
 @app.get("/context/milestones")
@@ -645,7 +658,16 @@ def health_check():
     return {
         "status": "ok",
         "version": "2.0.0",
-        "agents": ["context", "spec", "strategy", "milestone", "git", "coach"],
+        "agents": [
+            "context",
+            "spec",
+            "strategy",
+            "milestone",
+            "git",
+            "coach",
+            "development",
+            "retrospective",
+        ],
     }
 
 
@@ -710,6 +732,18 @@ def get_agents_status():
             "status": "active",
             "last_activity": "Just now",
         },
+        {
+            "agent_id": "development",
+            "name": "Development Agent",
+            "status": "active",
+            "last_activity": "3 minutes ago",
+        },
+        {
+            "agent_id": "retrospective",
+            "name": "Retrospective Agent",
+            "status": "active",
+            "last_activity": "15 minutes ago",
+        },
     ]
 
 
@@ -722,42 +756,7 @@ def coach_ask(user_id: str = Body(...), question: str = Body(...)):
     return {"answer": mock_answer}
 
 
-@app.get("/proposals/mock")
-def get_mock_proposals():
-    """Get mock proposals for testing"""
-    logger.info("GET /proposals/mock called")
-    return [
-        {
-            "id": "prop-001",
-            "agent_id": "strategy",
-            "title": "Add error handling to API calls",
-            "description": "Found 3 API calls without proper error handling. This could cause silent failures.",
-            "proposed_changes": [
-                {
-                    "file_path": "src/api.ts",
-                    "change_type": "update",
-                    "description": "Wrap fetch calls in try-catch blocks",
-                }
-            ],
-            "status": "pending",
-            "created_at": "2025-10-14T10:30:00Z",
-        },
-        {
-            "id": "prop-002",
-            "agent_id": "spec",
-            "title": "Update API documentation",
-            "description": "API endpoints in api.ts need documentation with examples.",
-            "proposed_changes": [
-                {
-                    "file_path": "src/api.ts",
-                    "change_type": "update",
-                    "description": "Add JSDoc comments with examples",
-                }
-            ],
-            "status": "pending",
-            "created_at": "2025-10-14T10:45:00Z",
-        },
-    ]
+# Mock endpoint removed - no more fallbacks to mask real issues
 
 
 @app.get("/rewards/balance")
@@ -1016,116 +1015,22 @@ async def _trigger_github_workflow(proposal_id: str, proposal: Dict) -> bool:
         return False
 
 
-@app.get("/proposals")
-async def list_proposals(workspace_id: str = Query("default")):
-    """List all proposals with diffs"""
-
-    # Try Firestore first (if enabled)
-    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
-        try:
-            from app.repositories.proposal_repository import get_proposal_repository
-
-            repo = get_proposal_repository()
-            proposals = repo.list(workspace_id=workspace_id)
-            logger.info(f"[API] Listed {len(proposals)} proposals from Firestore")
-            return {"proposals": proposals, "count": len(proposals)}
-        except Exception as e:
-            logger.error(f"[API] Firestore error, falling back to local: {e}")
-
-    # Fallback to local file storage
-    paths = _proposals_paths(workspace_id)
-
-    # Try new format first (individual JSON files with diffs)
-    proposals = _read_proposals_from_dir(paths["dir"])
-
-    # Fallback to legacy format if no proposals in dir
-    if not proposals:
-        proposals = _read_proposals(paths["json"])
-
-    return {"proposals": proposals, "count": len(proposals)}
+# @app.get("/proposals")  # Replaced by proposals router
+# async def list_proposals(workspace_id: str = Query("default")):
+#     """List all proposals with diffs"""
+#     # Replaced by proposals router (/proposals/list)
 
 
-@app.get("/proposals/{proposal_id}")
-async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
-    """Get a single proposal by ID with full diff"""
-
-    # Try Firestore first (if enabled)
-    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
-        try:
-            from app.repositories.proposal_repository import get_proposal_repository
-
-            repo = get_proposal_repository()
-            proposal = repo.get(proposal_id)
-            if proposal:
-                logger.info(f"[API] Found proposal in Firestore: {proposal_id}")
-                return proposal
-        except Exception as e:
-            logger.error(f"[API] Firestore error, falling back to local: {e}")
-
-    # Fallback to local file storage
-    paths = _proposals_paths(workspace_id)
-
-    # Try to read from individual file
-    proposal_file = paths["dir"] / f"{proposal_id}.json"
-    if proposal_file.exists():
-        try:
-            with open(proposal_file, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error reading proposal {proposal_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to read proposal: {e}")
-
-    # Fallback: search in proposals.json
-    proposals = _read_proposals(paths["json"])
-    for p in proposals:
-        if p.get("id") == proposal_id:
-            return p
-
-    raise HTTPException(status_code=404, detail="Proposal not found")
+# @app.get("/proposals/{proposal_id}")  # Replaced by proposals router
+# async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
+#     """Get a single proposal by ID with full diff"""
+#     # Replaced by proposals router
 
 
-@app.post("/proposals/create")
-async def create_proposals_from_spec(workspace_id: str = Query("default")):
-    """Generate proposals from SpecAgent with diffs, persist to Firestore."""
-    logger.info(f"POST /proposals/create - workspace: {workspace_id}")
-
-    try:
-        workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv(
-            "GCP_PROJECT_ID",
-            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
-        )
-        agent = SpecAgent(
-            workspace_path=workspace_path,
-            workspace_id=workspace_id,
-            project_id=project_id,
-        )
-        issues: List[Dict] = await agent.validate_docs()
-
-        # Create proposals with actual diffs using agent's method
-        new_proposals = []
-        for issue in issues:
-            proposal_id = await agent._create_proposal_for_issue(issue)
-            if proposal_id:
-                new_proposals.append(proposal_id)
-
-        # Count total proposals in Firestore
-        if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
-            repo = get_proposal_repository()
-            all_proposals = repo.list(workspace_id=workspace_id)
-            total = len(all_proposals)
-        else:
-            # Fallback to local file storage
-            paths = _proposals_paths(workspace_id)
-            proposals = _read_proposals_from_dir(paths["dir"])
-            if not proposals:
-                proposals = _read_proposals(paths["json"])
-            total = len(proposals)
-
-        return {"created": len(new_proposals), "total": total}
-    except Exception as e:
-        logger.error(f"Error creating proposals: {str(e)}")
-        return {"created": 0, "error": str(e)}
+# @app.post("/proposals/create")  # Replaced by proposals router
+# async def create_proposals_from_spec(workspace_id: str = Query("default")):
+#     """Generate proposals from SpecAgent with diffs, persist to Firestore."""
+#     # Replaced by proposals router
 
 
 @app.get("/context/summary")
@@ -1163,7 +1068,12 @@ async def get_context_summary(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/proposals/{proposal_id}/approve")
+# @app.post("/proposals/{proposal_id}/approve")  # Replaced by proposals router
+# async def approve_proposal(proposal_id: str, workspace_id: str = Query("default")):
+#     # Replaced by proposals router
+
+# LEGACY CODE - COMMENTED OUT FOR REFERENCE
+"""
 async def approve_proposal(proposal_id: str, workspace_id: str = Query("default")):
     # Try Firestore first (if enabled)
     if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
@@ -1283,27 +1193,11 @@ async def approve_proposal(proposal_id: str, workspace_id: str = Query("default"
     except Exception as e:
         logger.error(f"Error approving proposal: {str(e)}")
         return {"status": "error", "error": str(e)}
+"""
 
-
-@app.post("/proposals/{proposal_id}/reject")
-async def reject_proposal(
-    proposal_id: str, workspace_id: str = Query("default"), reason: str = Body("")
-):
-    paths = _proposals_paths(workspace_id)
-    proposals = _read_proposals(paths["json"])
-    prop = next((p for p in proposals if p.get("id") == proposal_id), None)
-    if not prop:
-        return {"status": "not_found"}
-    prop["status"] = "rejected"
-    prop["reason"] = reason
-    _write_proposals(paths["json"], proposals)
-
-    md_path = paths["dir"] / f"{proposal_id}.md"
-    if md_path.exists():
-        md_content = md_path.read_text(encoding="utf-8")
-        md_content += f"\nStatus: rejected\nReason: {reason}\n"
-        md_path.write_text(md_content, encoding="utf-8")
-    return {"status": "rejected"}
+# @app.post("/proposals/{proposal_id}/reject")  # Replaced by proposals router
+# async def reject_proposal(...):
+#     # Replaced by proposals router
 
 
 # ===== RETROSPECTIVE AGENT ENDPOINTS =====

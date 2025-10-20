@@ -56,14 +56,14 @@ class BlockchainRewardsAdapter(RewardsAdapter):
         self.firestore = FirestoreRewardsAdapter(project_id=project_id)
         
         # Setup Web3 connection - Prioritize Google Blockchain Node Engine
-            gcne_endpoint = os.getenv("GOOGLE_BLOCKCHAIN_NODE_ENDPOINT")
-            
-            if gcne_endpoint:
-                self.rpc_url = gcne_endpoint
-                logger.info(f"✅ Using Google Blockchain Node Engine: {gcne_endpoint[:50]}...")
-            else:
-                self.rpc_url = rpc_url or os.getenv("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
-                logger.warning("⚠️  Using public RPC (consider enabling Google Blockchain Node Engine for production)")
+        gcne_endpoint = os.getenv("GOOGLE_BLOCKCHAIN_NODE_ENDPOINT")
+        
+        if gcne_endpoint:
+            self.rpc_url = gcne_endpoint
+            logger.info(f"✅ Using Google Blockchain Node Engine: {gcne_endpoint[:50]}...")
+        else:
+            self.rpc_url = rpc_url or os.getenv("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
+            logger.warning("⚠️  Using public RPC (consider enabling Google Blockchain Node Engine for production)")
         
         self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
         

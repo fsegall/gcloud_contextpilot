@@ -74,6 +74,11 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('contextpilot.approveProposal', async (item: any) => {
+      console.log('[approveProposal] Item received:', item);
+      console.log('[approveProposal] Item type:', typeof item);
+      console.log('[approveProposal] Item.proposal:', item?.proposal);
+      console.log('[approveProposal] Item.proposal?.id:', item?.proposal?.id);
+      
       // When called from tree view inline button, item is ProposalItem
       // When called directly, item is proposalId string
       const proposalId = typeof item === 'string' ? item : item?.proposal?.id;
@@ -82,18 +87,44 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       await commands.approveProposal(contextPilotService, proposalId, proposalsProvider);
+      proposalsProvider.refresh(); // Refresh proposals list
       rewardsProvider.refresh();
       updateStatusBar();
     }),
 
     vscode.commands.registerCommand('contextpilot.rejectProposal', async (item: any) => {
-      const proposalId = typeof item === 'string' ? item : item?.proposal?.id;
+      console.log('[rejectProposal] Item received:', item);
+      console.log('[rejectProposal] Item type:', typeof item);
+      console.log('[rejectProposal] Item.proposal:', item?.proposal);
+      console.log('[rejectProposal] Item.proposal?.id:', item?.proposal?.id);
+      
+      // Try multiple ways to get the proposal ID
+      let proposalId: string | undefined;
+      
+      if (typeof item === 'string') {
+        proposalId = item;
+      } else if (item?.proposal?.id) {
+        proposalId = item.proposal.id;
+      } else if (item?.id) {
+        proposalId = item.id;
+      } else if (item?.label) {
+        // If it's a ProposalItem, try to extract from label or other properties
+        console.log('[rejectProposal] Trying to extract ID from label:', item.label);
+        // This might be the proposal title, we need to find the actual proposal
+        const proposals = await contextPilotService.getProposals();
+        const matchingProposal = proposals.find(p => p.title === item.label);
+        if (matchingProposal) {
+          proposalId = matchingProposal.id;
+        }
+      }
+      
       if (!proposalId) {
         vscode.window.showErrorMessage('No proposal ID provided');
         return;
       }
-      await commands.rejectProposal(contextPilotService, proposalId);
-      proposalsProvider.refresh();
+      
+      console.log('[rejectProposal] Using proposal ID:', proposalId);
+      await commands.rejectProposal(contextPilotService, proposalId, proposalsProvider);
     }),
 
     vscode.commands.registerCommand('contextpilot.viewRewards', async () => {
@@ -145,12 +176,20 @@ export function activate(context: vscode.ExtensionContext) {
       await commands.viewProposalDiff(contextPilotService, proposalId);
     }),
 
+    vscode.commands.registerCommand('contextpilot.viewContextDetail', async (item: any) => {
+      await commands.viewContextDetail(item);
+    }),
+
     vscode.commands.registerCommand('contextpilot.resetChatSession', () => {
       commands.resetChatSession();
     }),
 
     vscode.commands.registerCommand('contextpilot.triggerRetrospective', async () => {
       await commands.triggerRetrospective(contextPilotService);
+    }),
+
+    vscode.commands.registerCommand('contextpilot.openContextFile', async (item: any) => {
+      await commands.openContextFile(item);
     })
   );
 

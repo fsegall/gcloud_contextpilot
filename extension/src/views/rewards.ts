@@ -23,15 +23,17 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
     }
 
     try {
-      const userId = 'local_dev'; // TODO: Get actual user ID
-      const userReward = await this.rewardsService.getUserReward(userId);
+      const userId = 'test-user'; // TODO: Get actual user ID
+      
+      // Use real API instead of local RewardsService
+      const balance = await this.contextPilotService.getBalance();
       
       return [
-        new RewardItem('💰 Current Balance', `${userReward.cptBalance} CPT`, 'balance'),
-        new RewardItem('📈 Total Earned', `${userReward.totalEarned} CPT`, 'total'),
-        new RewardItem('🔥 Weekly Streak', `${userReward.weeklyStreak} days`, 'streak'),
-        new RewardItem('🏆 Achievements', `${userReward.achievements.length} earned`, 'achievements'),
-        new RewardItem('📊 Rank', `#${userReward.rank}`, 'rank'),
+        new RewardItem('💰 Current Balance', `${balance.balance || 0} CPT`, 'balance'),
+        new RewardItem('📈 Total Earned', `${balance.total_earned || 0} CPT`, 'total'),
+        new RewardItem('🔥 Weekly Streak', `${balance.weeklyStreak || 0} days`, 'streak'),
+        new RewardItem('🏆 Achievements', `${balance.achievements?.length || 0} earned`, 'achievements'),
+        new RewardItem('📊 Rank', `#${balance.rank || 999}`, 'rank'),
       ];
     } catch (error) {
       console.error('[RewardsProvider] Error:', error);

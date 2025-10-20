@@ -28,6 +28,8 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
       return [
         new AgentItem({ agent_id: 'context', name: 'Context Agent', status: 'active', last_activity: 'now' }),
         new AgentItem({ agent_id: 'spec', name: 'Spec Agent', status: 'active', last_activity: '5m ago' }),
+        new AgentItem({ agent_id: 'development', name: 'Development Agent', status: 'active', last_activity: '3m ago' }),
+        new AgentItem({ agent_id: 'retrospective', name: 'Retrospective Agent', status: 'active', last_activity: '15m ago' }),
         new AgentItem({ agent_id: 'strategy', name: 'Strategy Agent', status: 'idle', last_activity: '1h ago' }),
         new AgentItem({ agent_id: 'milestone', name: 'Milestone Agent', status: 'active', last_activity: '10m ago' }),
         new AgentItem({ agent_id: 'git', name: 'Git Agent', status: 'active', last_activity: '2m ago' }),

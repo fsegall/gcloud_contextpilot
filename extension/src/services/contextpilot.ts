@@ -37,6 +37,9 @@ export interface Balance {
   balance: number;
   total_earned: number;
   pending_rewards: number;
+  weeklyStreak?: number;
+  achievements?: any[];
+  rank?: number;
 }
 
 export interface AgentStatus {
@@ -50,6 +53,7 @@ export class ContextPilotService {
   private client: AxiosInstance;
   private connected: boolean = false;
   private userId: string;
+  private workspaceId: string = 'contextpilot'; // Default workspace
   private walletAddress: string;
   private testMode: boolean = false;
 
@@ -117,9 +121,12 @@ export class ContextPilotService {
   async getProposals(): Promise<ChangeProposal[]> {
     console.log('[ContextPilot] getProposals() called');
     try {
-      // Fetch from all workspaces (no workspace_id filter)
-      const response = await this.client.get('/proposals', {
-        params: { status: 'pending' }
+      const response = await this.client.get('/proposals/list', {
+        params: { 
+          workspace_id: this.workspaceId || 'contextpilot',
+          user_id: this.userId || 'test-user',
+          status: 'pending'
+        }
       });
       console.log('[ContextPilot] Raw response:', response.data);
       const arr = Array.isArray(response.data) ? response.data : response.data?.proposals || [];
@@ -127,12 +134,8 @@ export class ContextPilotService {
       return arr;
     } catch (error) {
       console.error('Failed to fetch proposals:', error);
-      try {
-        const response = await this.client.get('/proposals/mock');
-        return response.data;
-      } catch {
-        return [];
-      }
+      // NO FALLBACK - let the error bubble up to show real issues
+      return []; // Return empty array instead of throwing to avoid breaking the UI
     }
   }
 
@@ -164,10 +167,8 @@ export class ContextPilotService {
 
   async rejectProposal(proposalId: string, reason?: string): Promise<boolean> {
     try {
-      await this.client.post(`/proposals/${proposalId}/reject`, {
-        user_id: this.userId,
-        reason: reason || 'Rejected by user',
-      });
+      // Backend expects just the reason string, not an object
+      await this.client.post(`/proposals/${proposalId}/reject`, reason || 'Rejected by user');
       return true;
     } catch (error) {
       console.error('Failed to reject proposal:', error);
@@ -177,12 +178,17 @@ export class ContextPilotService {
 
   async getBalance(): Promise<Balance> {
     try {
-      // Use mock endpoint for demo (rewards system not yet deployed)
-      const response = await this.client.get('/rewards/balance/mock', {
-        params: { user_id: this.userId },
-      });
-      console.log(`[ContextPilot] Balance: ${response.data.balance} CPT`);
-      return response.data;
+      // Use real rewards endpoint
+      const response = await this.client.get(`/rewards/balance/${this.userId}`);
+      console.log(`[ContextPilot] Balance: ${response.data.total_points} CPT`);
+      return {
+        balance: response.data.total_points,
+        total_earned: response.data.total_points,
+        pending_rewards: response.data.pending_blockchain,
+        weeklyStreak: 0, // Not available in API yet
+        achievements: [], // Not available in API yet
+        rank: 999 // Not available in API yet
+      };
     } catch (error) {
       console.error('Failed to fetch balance:', error);
       return { balance: 0, total_earned: 0, pending_rewards: 0 };

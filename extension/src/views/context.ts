@@ -122,6 +122,15 @@ class ContextItem extends vscode.TreeItem {
     } else if (contextValue === 'milestones-root') {
       this.iconPath = new vscode.ThemeIcon('milestone');
     }
+    
+    // Add command to view details (except for milestones-root)
+    if (contextValue && contextValue !== 'milestones-root') {
+      this.command = {
+        command: 'contextpilot.viewContextDetail',
+        title: 'View Context Detail',
+        arguments: [this]
+      };
+    }
   }
 }
 

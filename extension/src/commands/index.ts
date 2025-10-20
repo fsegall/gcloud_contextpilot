@@ -162,7 +162,8 @@ Agent: ${proposal.agent_id}`;
 
 export async function rejectProposal(
   service: ContextPilotService,
-  proposalId: string
+  proposalId: string,
+  proposalsProvider?: any
 ): Promise<void> {
   const reason = await vscode.window.showInputBox({
     prompt: 'Why are you rejecting this proposal? (optional)',
@@ -172,6 +173,10 @@ export async function rejectProposal(
   const success = await service.rejectProposal(proposalId, reason);
   if (success) {
     vscode.window.showInformationMessage('Proposal rejected');
+    // Refresh the proposals list to remove rejected proposal
+    if (proposalsProvider) {
+      proposalsProvider.refresh();
+    }
   } else {
     vscode.window.showErrorMessage('Failed to reject proposal');
   }
@@ -1025,5 +1030,258 @@ function getRetrospectiveWebviewContent(retro: any, topic?: string): string {
     </script>
 </body>
 </html>`;
+}
+
+// ===== CONTEXT DETAIL VIEW COMMAND =====
+
+export async function viewContextDetail(item: any): Promise<void> {
+  try {
+    const contextValue = item.contextValue;
+    const label = item.label;
+    const description = item.description;
+    
+    const panel = vscode.window.createWebviewPanel(
+      'contextpilotContextDetail',
+      label,
+      vscode.ViewColumn.One,
+      { enableScripts: true }
+    );
+    
+    let content = '';
+    
+    if (contextValue === 'project') {
+      content = `
+        <h1>📦 Project</h1>
+        <div class="content-box">
+          <p>${description}</p>
+        </div>
+        <h2>About</h2>
+        <p>This is your project name and description. It helps agents understand the context of your work.</p>
+        <h2>How to Update</h2>
+        <p>Edit the <code>PROJECT.md</code> file in your project root:</p>
+        <pre><code># 📦 ContextPilot - AI Development Assistant
+
+**ContextPilot** is an AI-powered development assistant...</code></pre>
+      `;
+    } else if (contextValue === 'goal') {
+      content = `
+        <h1>🎯 Goal</h1>
+        <div class="content-box">
+          <p>${description}</p>
+        </div>
+        <h2>About</h2>
+        <p>This is your main project goal. It guides the AI agents in making relevant suggestions.</p>
+        <h2>How to Update</h2>
+        <p>Edit the <code>GOAL.md</code> file in your project root:</p>
+        <pre><code># 🎯 Project Goal
+
+**Transform development workflows with AI-powered assistance**</code></pre>
+      `;
+    } else if (contextValue === 'status') {
+      content = `
+        <h1>📊 Status</h1>
+        <div class="content-box">
+          <p>${description}</p>
+        </div>
+        <h2>About</h2>
+        <p>Your current project status helps agents understand what phase you're in.</p>
+        <h2>How to Update</h2>
+        <p>Edit the <code>STATUS.md</code> file in your project root:</p>
+        <pre><code># 📊 Project Status
+
+Current Status: **Core Functionality Complete**
+
+- Backend deployed to Cloud Run
+- VS Code extension functional
+- Multi-agent system operational</code></pre>
+      `;
+    }
+    
+    panel.webview.html = getContextDetailWebviewContent(content);
+    
+  } catch (error: any) {
+    console.error('[viewContextDetail] Error:', error);
+    vscode.window.showErrorMessage(`Failed to view context detail: ${error.message}`);
+  }
+}
+
+function getContextDetailWebviewContent(content: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Context Detail</title>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            padding: 20px;
+            color: var(--vscode-foreground);
+            line-height: 1.6;
+        }
+        h1 {
+            color: var(--vscode-charts-blue);
+            border-bottom: 2px solid var(--vscode-charts-blue);
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: var(--vscode-editor-foreground);
+            margin-top: 30px;
+        }
+        .content-box {
+            background: var(--vscode-editor-background);
+            border: 2px solid var(--vscode-charts-blue);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-size: 1.1em;
+        }
+        pre {
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            padding: 15px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: var(--vscode-editor-font-family);
+            background: var(--vscode-editor-background);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    ${content}
+</body>
+</html>`;
+}
+
+// ===== OPEN CONTEXT FILE COMMAND =====
+
+export async function openContextFile(item: any): Promise<void> {
+  try {
+    const contextValue = item.contextValue;
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage('No workspace folder open');
+      return;
+    }
+    
+    // Map context value to file name
+    const fileMap: { [key: string]: string } = {
+      'project': 'PROJECT.md',
+      'goal': 'GOAL.md',
+      'status': 'STATUS.md',
+      'milestones-root': 'MILESTONES.md'
+    };
+    
+    const fileName = fileMap[contextValue];
+    if (!fileName) {
+      vscode.window.showErrorMessage('Unknown context type');
+      return;
+    }
+    
+    const filePath = path.join(workspaceRoot, fileName);
+    const uri = vscode.Uri.file(filePath);
+    
+    // Check if file exists
+    try {
+      await vscode.workspace.fs.stat(uri);
+      // File exists, open it
+      const document = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(document);
+    } catch {
+      // File doesn't exist, offer to create it
+      const createFile = await vscode.window.showWarningMessage(
+        `File ${fileName} doesn't exist. Create it?`,
+        'Create File',
+        'Cancel'
+      );
+      
+      if (createFile === 'Create File') {
+        // Create file with template content
+        const template = getTemplateContent(contextValue);
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(template, 'utf-8'));
+        
+        vscode.window.showInformationMessage(`✅ Created ${fileName}`);
+        
+        // Open the newly created file
+        const document = await vscode.workspace.openTextDocument(uri);
+        await vscode.window.showTextDocument(document);
+      }
+    }
+    
+  } catch (error: any) {
+    console.error('[openContextFile] Error:', error);
+    vscode.window.showErrorMessage(`Failed to open context file: ${error.message}`);
+  }
+}
+
+function getTemplateContent(contextValue: string): string {
+  switch (contextValue) {
+    case 'project':
+      return `# 📦 Project Name
+
+**Your Project Name** - A brief description of what your project does.
+
+## Overview
+Describe your project in more detail here.
+
+## Key Features
+- Feature 1
+- Feature 2
+- Feature 3
+`;
+    case 'goal':
+      return `# 🎯 Project Goal
+
+**Your main project goal**
+
+## Objective
+Describe what you want to achieve with this project.
+
+## Success Criteria
+- Criterion 1
+- Criterion 2
+- Criterion 3
+`;
+    case 'status':
+      return `# 📊 Project Status
+
+Current Status: **In Progress**
+
+## Current Phase
+Describe what phase of development you're in.
+
+## Recent Updates
+- Update 1
+- Update 2
+- Update 3
+
+## Next Steps
+- Step 1
+- Step 2
+- Step 3
+`;
+    case 'milestones-root':
+      return `# 🗓️ Project Milestones
+
+## Phase 1: Foundation
+- ✅ **Setup project structure**: Complete
+- ✅ **Initial configuration**: Complete
+
+## Phase 2: Development
+- [ ] **Feature implementation**: In Progress
+- [ ] **Testing**: Not Started
+
+## Phase 3: Launch
+- [ ] **Final testing**: Not Started
+- [ ] **Deployment**: Not Started
+`;
+    default:
+      return '# Context File\n\nAdd your content here.\n';
+  }
 }
 
