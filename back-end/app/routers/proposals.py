@@ -141,21 +141,12 @@ async def list_proposals(
     logger.info(f"Listing proposals for user: {user_id}, workspace: {workspace_id}")
 
     try:
-        # Build query
-        query = proposals_col.where("user_id", "==", user_id)
-
-        if workspace_id:
-            query = query.where("workspace_id", "==", workspace_id)
-
-        if status:
-            query = query.where("status", "==", status)
-
-        if agent:
-            query = query.where("agent", "==", agent)
-
+        # Build query - simplified to avoid composite index requirements
+        query = proposals_col.where("workspace_id", "==", workspace_id)
+        
         # Order by created_at desc
         query = query.order_by("created_at", direction=firestore.Query.DESCENDING)
-        query = query.limit(limit)
+        query = query.limit(limit * 2)  # Fetch more for filtering
 
         # Execute
         docs = query.stream()
@@ -163,7 +154,20 @@ async def list_proposals(
 
         async for doc in docs:
             data = doc.to_dict()
+            
+            # Client-side filtering
+            if data.get("user_id") != user_id:
+                continue
+            if status and data.get("status") != status:
+                continue
+            if agent and data.get("agent") != agent:
+                continue
+            
             proposals.append(ChangeProposal(**data))
+            
+            # Stop when we have enough
+            if len(proposals) >= limit:
+                break
 
         # Count by status
         pending = sum(1 for p in proposals if p.status == ProposalStatus.PENDING)
