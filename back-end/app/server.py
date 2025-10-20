@@ -17,6 +17,7 @@ from time import time
 
 # Import routers
 from app.routers import rewards, proposals
+from app.config import get_config, StorageMode
 from app.agents.spec_agent import SpecAgent
 from app.middleware.abuse_detection import abuse_detector
 from app.utils.workspace_manager import get_workspace_path
@@ -123,9 +124,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers (temporarily commented - install dependencies later)
+# Include routers
 app.include_router(rewards.router)
-app.include_router(proposals.router)
+
+# Proposals router: Only use in CLOUD mode
+# In LOCAL mode, we use custom endpoints below with file storage
+config = get_config()
+if config.is_cloud_storage:
+    logger.info("📊 Using Firestore proposals router (CLOUD mode)")
+    app.include_router(proposals.router)
+else:
+    logger.info("📁 Using file-based proposals endpoints (LOCAL mode)")
+    # Custom endpoints registered below
+
 # app.include_router(events.router)
 
 
@@ -655,9 +666,17 @@ def close_cycle(workspace_id: str = Query("default")):
 def health_check():
     """Health check for extension connectivity"""
     logger.info("Health check called")
+    config = get_config()
+    
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": "2.1.0",
+        "config": {
+            "environment": config.environment,
+            "storage_mode": config.storage_mode.value,
+            "rewards_mode": config.rewards_mode.value,
+            "event_bus_mode": config.event_bus_mode.value,
+        },
         "agents": [
             "context",
             "spec",
@@ -1015,22 +1034,101 @@ async def _trigger_github_workflow(proposal_id: str, proposal: Dict) -> bool:
         return False
 
 
-# @app.get("/proposals")  # Replaced by proposals router
-# async def list_proposals(workspace_id: str = Query("default")):
-#     """List all proposals with diffs"""
-#     # Replaced by proposals router (/proposals/list)
+@app.get("/proposals/list")
+async def list_proposals_local(
+    workspace_id: str = Query("default"),
+    user_id: str = Query(...),
+    status: Optional[str] = Query(None),
+):
+    """List proposals (LOCAL mode - file-based storage)"""
+    config = get_config()
+    
+    if config.is_cloud_storage:
+        raise HTTPException(
+            status_code=501,
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+        )
+    
+    paths = _proposals_paths(workspace_id)
+    proposals = _read_proposals_from_dir(paths["dir"])
+    
+    if not proposals:
+        proposals = _read_proposals(paths["json"])
+    
+    # Filter by status if provided
+    if status:
+        proposals = [p for p in proposals if p.get("status") == status]
+    
+    return {"proposals": proposals, "total": len(proposals)}
 
 
-# @app.get("/proposals/{proposal_id}")  # Replaced by proposals router
-# async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
-#     """Get a single proposal by ID with full diff"""
-#     # Replaced by proposals router
+@app.get("/proposals/{proposal_id}")
+async def get_proposal_local(proposal_id: str, workspace_id: str = Query("default")):
+    """Get proposal by ID (LOCAL mode - file-based storage)"""
+    config = get_config()
+    
+    if config.is_cloud_storage:
+        raise HTTPException(
+            status_code=501,
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+        )
+    
+    paths = _proposals_paths(workspace_id)
+    proposal_file = paths["dir"] / f"{proposal_id}.json"
+    
+    if proposal_file.exists():
+        with open(proposal_file, "r") as f:
+            return json.load(f)
+    
+    # Fallback to proposals.json
+    proposals = _read_proposals(paths["json"])
+    for p in proposals:
+        if p.get("id") == proposal_id:
+            return p
+    
+    raise HTTPException(status_code=404, detail="Proposal not found")
 
 
-# @app.post("/proposals/create")  # Replaced by proposals router
-# async def create_proposals_from_spec(workspace_id: str = Query("default")):
-#     """Generate proposals from SpecAgent with diffs, persist to Firestore."""
-#     # Replaced by proposals router
+@app.post("/proposals/create")
+async def create_proposals_local(workspace_id: str = Query("default")):
+    """Generate proposals from SpecAgent (LOCAL mode - file-based storage)"""
+    config = get_config()
+    
+    if config.is_cloud_storage:
+        raise HTTPException(
+            status_code=501,
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+        )
+    
+    logger.info(f"POST /proposals/create - workspace: {workspace_id}")
+    
+    try:
+        workspace_path = str(get_workspace_path(workspace_id))
+        agent = SpecAgent(
+            workspace_path=workspace_path,
+            workspace_id=workspace_id,
+            project_id=config.gcp_project_id,
+        )
+        issues: List[Dict] = await agent.validate_docs()
+        
+        # Create proposals using agent's method
+        new_proposals = []
+        for issue in issues:
+            proposal_id = await agent._create_proposal_for_issue(issue)
+            if proposal_id:
+                new_proposals.append(proposal_id)
+        
+        # Count total proposals
+        paths = _proposals_paths(workspace_id)
+        proposals = _read_proposals_from_dir(paths["dir"])
+        if not proposals:
+            proposals = _read_proposals(paths["json"])
+        total = len(proposals)
+        
+        return {"created": len(new_proposals), "total": total}
+    except Exception as e:
+        logger.error(f"Error creating proposals: {str(e)}")
+        return {"created": 0, "error": str(e)}
 
 
 @app.get("/context/summary")
@@ -1068,14 +1166,84 @@ async def get_context_summary(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# @app.post("/proposals/{proposal_id}/approve")  # Replaced by proposals router
-# async def approve_proposal(proposal_id: str, workspace_id: str = Query("default")):
-#     # Replaced by proposals router
+@app.post("/proposals/{proposal_id}/approve")
+async def approve_proposal_local(proposal_id: str, workspace_id: str = Query("default")):
+    """Approve proposal (LOCAL mode - file-based storage)"""
+    config = get_config()
+    
+    if config.is_cloud_storage:
+        raise HTTPException(
+            status_code=501,
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+        )
+    
+    # LOCAL mode: file-based storage
+    paths = _proposals_paths(workspace_id)
+    
+    # Try individual file first
+    proposal_file = paths["dir"] / f"{proposal_id}.json"
+    if proposal_file.exists():
+        with open(proposal_file, "r") as f:
+            prop = json.load(f)
+    else:
+        # Fallback to proposals.json
+        proposals = _read_proposals(paths["json"])
+        prop = next((p for p in proposals if p.get("id") == proposal_id), None)
+    
+    if not prop:
+        return {"status": "not_found"}
+    
+    summary = prop.get("description", "")
+    try:
+        commit_hash = None
+        if _auto_approve_enabled():
+            try:
+                from app.agents.git_agent import commit_via_agent
+                
+                commit_hash = await commit_via_agent(
+                    workspace_id=workspace_id,
+                    event_type="proposal.approved",
+                    data={"proposal_id": proposal_id, "changes_summary": summary},
+                    source="spec-agent",
+                )
+            except Exception as git_error:
+                logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
+        
+        # Update proposal status
+        prop["status"] = "approved"
+        if commit_hash:
+            prop["commit_hash"] = commit_hash
+        
+        # Save
+        if proposal_file.exists():
+            with open(proposal_file, "w") as f:
+                json.dump(prop, f, indent=2)
+        else:
+            _write_proposals(paths["json"], proposals)
+        
+        # Update MD file
+        md_path = paths["dir"] / f"{proposal_id}.md"
+        if md_path.exists():
+            md_content = md_path.read_text(encoding="utf-8")
+            md_content += f"\n\n---\n**Status:** approved\n"
+            if commit_hash:
+                md_content += f"**Commit:** {commit_hash}\n"
+            md_path.write_text(md_content, encoding="utf-8")
+        
+        return {
+            "status": "approved",
+            "commit_hash": commit_hash,
+            "auto_committed": bool(commit_hash),
+        }
+    except Exception as e:
+        logger.error(f"Error approving proposal: {str(e)}")
+        return {"status": "error", "error": str(e)}
 
-# LEGACY CODE - COMMENTED OUT FOR REFERENCE
+
+# LEGACY CLOUD CODE - REMOVED, NOW IN proposals.router
 """
-async def approve_proposal(proposal_id: str, workspace_id: str = Query("default")):
-    # Try Firestore first (if enabled)
+async def approve_proposal_cloud(proposal_id: str, workspace_id: str = Query("default")):
+    # OLD Firestore implementation
     if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
         try:
             from app.repositories.proposal_repository import get_proposal_repository
@@ -1195,9 +1363,39 @@ async def approve_proposal(proposal_id: str, workspace_id: str = Query("default"
         return {"status": "error", "error": str(e)}
 """
 
-# @app.post("/proposals/{proposal_id}/reject")  # Replaced by proposals router
-# async def reject_proposal(...):
-#     # Replaced by proposals router
+@app.post("/proposals/{proposal_id}/reject")
+async def reject_proposal_local(
+    proposal_id: str,
+    workspace_id: str = Query("default"),
+    reason: str = Body("")
+):
+    """Reject proposal (LOCAL mode - file-based storage)"""
+    config = get_config()
+    
+    if config.is_cloud_storage:
+        raise HTTPException(
+            status_code=501,
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+        )
+    
+    paths = _proposals_paths(workspace_id)
+    proposals = _read_proposals(paths["json"])
+    prop = next((p for p in proposals if p.get("id") == proposal_id), None)
+    
+    if not prop:
+        return {"status": "not_found"}
+    
+    prop["status"] = "rejected"
+    prop["reason"] = reason
+    _write_proposals(paths["json"], proposals)
+    
+    md_path = paths["dir"] / f"{proposal_id}.md"
+    if md_path.exists():
+        md_content = md_path.read_text(encoding="utf-8")
+        md_content += f"\nStatus: rejected\nReason: {reason}\n"
+        md_path.write_text(md_content, encoding="utf-8")
+    
+    return {"status": "rejected"}
 
 
 # ===== RETROSPECTIVE AGENT ENDPOINTS =====

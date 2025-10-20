@@ -1,11 +1,11 @@
 """
 FastAPI dependency injection.
 
-Provides configured adapters based on environment settings.
+Provides configured adapters based on explicit configuration.
 """
-import os
 from functools import lru_cache
 
+from app.config import get_config, RewardsMode
 from app.adapters.rewards.ports.rewards_adapter import RewardsAdapter
 from app.adapters.rewards.firestore_rewards import FirestoreRewardsAdapter
 from app.adapters.rewards.blockchain_rewards import BlockchainRewardsAdapter
@@ -14,25 +14,23 @@ from app.adapters.rewards.blockchain_rewards import BlockchainRewardsAdapter
 @lru_cache()
 def get_rewards_adapter() -> RewardsAdapter:
     """
-    Get rewards adapter based on REWARDS_MODE environment variable.
-    
-    Modes:
-    - "firestore" (default): Off-chain only, fast
-    - "blockchain": On-chain with Firestore backing
+    Get rewards adapter based on application configuration.
     
     Returns:
         Configured RewardsAdapter instance
-    """
-    mode = os.getenv("REWARDS_MODE", "firestore").lower()
-    project_id = os.getenv("GCP_PROJECT_ID")
     
-    if mode == "blockchain":
+    Raises:
+        ValueError: If configuration is invalid
+    """
+    config = get_config()
+    
+    if config.rewards_mode == RewardsMode.BLOCKCHAIN:
         return BlockchainRewardsAdapter(
-            rpc_url=os.getenv("POLYGON_RPC_URL"),
-            contract_address=os.getenv("CPT_CONTRACT_ADDRESS"),
-            private_key=os.getenv("MINTER_PRIVATE_KEY"),
-            project_id=project_id
+            rpc_url=config.polygon_rpc_url,
+            contract_address=config.cpt_contract_address,
+            private_key=config.minter_private_key,
+            project_id=config.gcp_project_id
         )
     else:
-        return FirestoreRewardsAdapter(project_id=project_id)
+        return FirestoreRewardsAdapter(project_id=config.gcp_project_id)
 
