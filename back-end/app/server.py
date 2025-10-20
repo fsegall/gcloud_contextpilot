@@ -1369,3 +1369,144 @@ async def get_retrospective(
     except Exception as e:
         logger.error(f"Error reading retrospective: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== Development Agent Endpoints ==========
+
+@app.post("/agents/development/implement")
+async def development_implement_feature(
+    workspace_id: str = Query("default"),
+    description: str = Body(..., embed=True),
+    target_files: Optional[List[str]] = Body(None, embed=True),
+):
+    """
+    Generate code implementation for a feature using the Development Agent.
+    
+    Args:
+        workspace_id: Workspace identifier
+        description: Feature description or action item
+        target_files: Optional list of files to modify (will be inferred if not provided)
+    
+    Returns:
+        Created proposal ID and details
+    """
+    logger.info(f"POST /agents/development/implement - workspace: {workspace_id}")
+    logger.info(f"Feature description: {description[:100]}...")
+    
+    try:
+        from app.agents.development_agent import DevelopmentAgent
+        
+        workspace_path = str(get_workspace_path(workspace_id))
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
+        
+        agent = DevelopmentAgent(
+            workspace_path=workspace_path,
+            workspace_id=workspace_id,
+            project_id=project_id
+        )
+        
+        proposal_id = await agent.implement_feature(
+            description=description,
+            target_files=target_files
+        )
+        
+        if proposal_id:
+            return {
+                "success": True,
+                "proposal_id": proposal_id,
+                "message": f"Implementation proposal created: {proposal_id}"
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to generate implementation"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error in development agent: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/agents/development/implement-from-retrospective")
+async def development_implement_from_retrospective(
+    workspace_id: str = Query("default"),
+    retrospective_id: str = Body(..., embed=True),
+    action_item_indices: Optional[List[int]] = Body(None, embed=True),
+):
+    """
+    Generate code implementations from retrospective action items.
+    
+    Args:
+        workspace_id: Workspace identifier
+        retrospective_id: Retrospective identifier
+        action_item_indices: Optional list of action item indices to implement (0-based).
+                             If None, implements all high/medium priority items.
+    
+    Returns:
+        List of created proposal IDs
+    """
+    logger.info(f"POST /agents/development/implement-from-retrospective - workspace: {workspace_id}")
+    logger.info(f"Retrospective ID: {retrospective_id}")
+    
+    try:
+        from app.agents.development_agent import implement_from_retrospective
+        
+        workspace_path = str(get_workspace_path(workspace_id))
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
+        
+        # Load retrospective
+        retro_file = Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
+        if not retro_file.exists():
+            raise HTTPException(status_code=404, detail="Retrospective not found")
+        
+        with open(retro_file, "r") as f:
+            retrospective = json.load(f)
+        
+        action_items = retrospective.get("action_items", [])
+        if not action_items:
+            return {
+                "success": False,
+                "error": "No action items in retrospective"
+            }
+        
+        # Filter action items if indices provided
+        if action_item_indices is not None:
+            action_items = [action_items[i] for i in action_item_indices if i < len(action_items)]
+        else:
+            # Default: only high/medium priority
+            action_items = [
+                item for item in action_items 
+                if item.get("priority", "").lower() in ["high", "medium"]
+            ]
+        
+        if not action_items:
+            return {
+                "success": False,
+                "error": "No action items match the criteria"
+            }
+        
+        # Generate implementations
+        proposal_ids = await implement_from_retrospective(
+            workspace_id=workspace_id,
+            retrospective_id=retrospective_id,
+            action_items=action_items,
+            workspace_path=workspace_path,
+            project_id=project_id
+        )
+        
+        return {
+            "success": True,
+            "proposal_ids": proposal_ids,
+            "count": len(proposal_ids),
+            "message": f"Generated {len(proposal_ids)} implementation proposal(s)"
+        }
+    
+    except Exception as e:
+        logger.error(f"Error implementing from retrospective: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
