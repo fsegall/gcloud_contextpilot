@@ -148,7 +148,7 @@ async def list_proposals(
             query = query.where("workspace_id", "==", workspace_id)
 
         if status:
-            query = query.where("status", "==", status.value)
+            query = query.where("status", "==", status)
 
         if agent:
             query = query.where("agent", "==", agent)
