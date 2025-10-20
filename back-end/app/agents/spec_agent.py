@@ -542,46 +542,6 @@ This document describes {filename}.
             )
         
         return str(template_path)
-
-
-# Event handlers (will be called by Cloud Run endpoint)
-
-async def handle_context_update(event: Dict):
-    """Handle context.update.v1 events."""
-    # This will be called by /events endpoint
-    # For now, just log
-    logger.info(f"Received context update: {event['event_id']}")
-
-
-async def handle_git_commit(event: Dict):
-    """Handle git.commit.v1 events."""
-    logger.info(f"Received git commit: {event['event_id']}")
-    
-    # TODO: Update CHANGELOG.md
-    # TODO: Check if docs need updating
-
-
-# For testing
-if __name__ == "__main__":
-    import asyncio
-    
-    async def test():
-        agent = SpecAgent(
-            workspace_path="/tmp/test-workspace",
-            project_id="test-project"
-        )
-        
-        # Test daily checklist generation
-        checklist_path = await agent.generate_daily_checklist("test_user")
-        print(f"Generated: {checklist_path}")
-        
-        # Test template creation
-        template_path = await agent.create_template(
-            name="retrospective.md",
-            sections=["What Went Well", "What To Improve", "Action Items"],
-            frequency="sprint"
-        )
-        print(f"Template: {template_path}")
     
     def generate_context_summary(self, proposal_type: str = "general") -> str:
         """
@@ -627,17 +587,22 @@ if __name__ == "__main__":
         
         content = {}
         for filename, description in crucial_files.items():
-            file_path = self.workspace_path / filename
+            # Look in project root (where README.md actually is)
+            project_root = self.workspace_path.parent.parent.parent.parent  # Go up to project root
+            file_path = project_root / filename
+            
             if file_path.exists():
                 try:
                     content[filename] = {
                         "description": description,
                         "content": file_path.read_text(encoding='utf-8')[:2000]  # Limit size
                     }
+                    logger.debug(f"[SpecAgent] Found {filename} at {file_path}")
                 except Exception as e:
                     logger.warning(f"[SpecAgent] Could not read {filename}: {e}")
                     content[filename] = {"description": description, "content": "File exists but could not be read"}
             else:
+                logger.debug(f"[SpecAgent] {filename} not found at {file_path}")
                 content[filename] = {"description": description, "content": "File not found"}
                 
         return content
@@ -826,5 +791,16 @@ Focus on consistency with existing architecture and project goals.
 *Note: Detailed context generation failed, using basic context.*
 """
 
-    asyncio.run(test())
 
+# Event handlers (will be called by Cloud Run endpoint)
+
+async def handle_context_update(event: Dict):
+    """Handle context.update.v1 events."""
+    logger.info(f"Received context update: {event['event_id']}")
+
+
+async def handle_git_commit(event: Dict):
+    """Handle git.commit.v1 events."""
+    logger.info(f"Received git commit: {event['event_id']}")
+    # TODO: Update CHANGELOG.md
+    # TODO: Check if docs need updating
