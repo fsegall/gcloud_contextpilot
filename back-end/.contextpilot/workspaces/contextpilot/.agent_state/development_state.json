@@ -1,0 +1,12 @@
+{
+  "agent_id": "development",
+  "workspace_id": "contextpilot",
+  "created_at": "2025-10-20T16:07:26.655161",
+  "last_updated": "2025-10-20T16:07:34.579960",
+  "memory": {},
+  "metrics": {
+    "events_processed": 0,
+    "events_published": 0,
+    "errors": 1
+  }
+}
