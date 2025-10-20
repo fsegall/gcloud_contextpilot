@@ -110,6 +110,7 @@ class RetrospectiveAgent(BaseAgent):
             "retrospective_id": f"retro-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "trigger": trigger,
+            "topic": trigger_topic,  # Add discussion topic
             "agent_metrics": agent_metrics,
             "agent_learnings": agent_learnings,
             "event_summary": event_summary,
@@ -742,16 +743,23 @@ Keep the tone encouraging and constructive. Maximum 200 words.
             return None
 
         # Build proposal content
-        proposal_title = "Agent System Improvements (from Retrospective)"
+        topic = retrospective.get("topic")
+        if topic:
+            proposal_title = f"{topic} - Recommendations"
+            background_context = f"During the retrospective discussion on '{topic}', the following improvements were identified:"
+        else:
+            proposal_title = "Agent System Improvements (from Retrospective)"
+            background_context = "After analyzing agent performance and collaboration patterns, the following improvements have been identified:"
 
-        proposal_description = f"""# Agent System Improvements
+        proposal_description = f"""# {proposal_title.replace(' - Recommendations', '')}
 
 **Generated from Retrospective:** {retrospective['retrospective_id']}
 **Date:** {retrospective['timestamp']}
+{f"**Discussion Topic:** {topic}" if topic else ""}
 
 ## Background
 
-After analyzing agent performance and collaboration patterns, the following improvements have been identified:
+{background_context}
 
 """
 
@@ -824,7 +832,7 @@ Implementing these changes will:
             # Check if Firestore is enabled
             if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
                 repo = get_proposal_repository()
-                
+
                 # Generate proposal ID
                 proposal_id = f"retro-proposal-{retrospective['retrospective_id']}"
 
