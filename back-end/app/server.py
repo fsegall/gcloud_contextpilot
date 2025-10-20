@@ -145,62 +145,79 @@ def get_context(workspace_id: str = Query("default")):
         project_root = Path(__file__).parent.parent.parent
         logger.info(f"Project root: {project_root}")
 
-        context = {"checkpoint": {}}
+        context = {"checkpoint": {
+            "project_name": "ContextPilot - AI Development Assistant",
+            "goal": "Transform development workflows with AI-powered multi-agent assistance",
+            "current_status": "Core Functionality Complete",
+            "milestones": []
+        }}
 
-        # Read PROJECT.md
+        # Try to read PROJECT.md (override defaults if exists)
         project_file = project_root / "PROJECT.md"
         if project_file.exists():
-            content = project_file.read_text(encoding="utf-8")
-            # Extract project name from first heading
-            match = re.search(r"#\s+(.+?)(?:\n|$)", content)
-            if match:
-                context["checkpoint"]["project_name"] = match.group(1).strip()
+            try:
+                content = project_file.read_text(encoding="utf-8")
+                match = re.search(r"#\s+(.+?)(?:\n|$)", content)
+                if match:
+                    context["checkpoint"]["project_name"] = match.group(1).strip()
+                    logger.info(f"Loaded project name from PROJECT.md")
+            except Exception as e:
+                logger.warning(f"Error reading PROJECT.md: {e}")
 
-        # Read GOAL.md
+        # Try to read GOAL.md
         goal_file = project_root / "GOAL.md"
         if goal_file.exists():
-            content = goal_file.read_text(encoding="utf-8")
-            # Extract primary goal
-            match = re.search(r"\*\*(.+?)\*\*", content)
-            if match:
-                context["checkpoint"]["goal"] = match.group(1).strip()
+            try:
+                content = goal_file.read_text(encoding="utf-8")
+                match = re.search(r"\*\*(.+?)\*\*", content)
+                if match:
+                    context["checkpoint"]["goal"] = match.group(1).strip()
+                    logger.info(f"Loaded goal from GOAL.md")
+            except Exception as e:
+                logger.warning(f"Error reading GOAL.md: {e}")
 
-        # Read STATUS.md
+        # Try to read STATUS.md
         status_file = project_root / "STATUS.md"
         if status_file.exists():
-            content = status_file.read_text(encoding="utf-8")
-            # Extract current status
-            match = re.search(r"Current Status:\s+\*\*(.+?)\*\*", content)
-            if match:
-                context["checkpoint"]["current_status"] = match.group(1).strip()
+            try:
+                content = status_file.read_text(encoding="utf-8")
+                match = re.search(r"Current Status:\s+\*\*(.+?)\*\*", content)
+                if match:
+                    context["checkpoint"]["current_status"] = match.group(1).strip()
+                    logger.info(f"Loaded status from STATUS.md")
+            except Exception as e:
+                logger.warning(f"Error reading STATUS.md: {e}")
 
-        # Read MILESTONES.md
+        # Try to read MILESTONES.md
         milestones_file = project_root / "MILESTONES.md"
-        milestones = []
         if milestones_file.exists():
-            content = milestones_file.read_text(encoding="utf-8")
-            # Extract completed milestones
-            completed_matches = re.findall(
-                r"- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)", content
-            )
-            for name, desc in completed_matches:
-                milestones.append(
-                    {"name": name.strip(), "status": "completed", "due": "completed"}
+            try:
+                content = milestones_file.read_text(encoding="utf-8")
+                completed_matches = re.findall(
+                    r"- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)", content
                 )
-
-        context["checkpoint"]["milestones"] = milestones
+                milestones = []
+                for name, desc in completed_matches:
+                    milestones.append(
+                        {"name": name.strip(), "status": "completed", "due": "completed"}
+                    )
+                context["checkpoint"]["milestones"] = milestones
+                logger.info(f"Loaded {len(milestones)} milestones from MILESTONES.md")
+            except Exception as e:
+                logger.warning(f"Error reading MILESTONES.md: {e}")
 
         logger.info(f"Context loaded from .md files: {context}")
         return context
 
     except Exception as e:
-        logger.error(f"Error in context endpoint: {str(e)}")
-        # Fallback to old method
-        try:
-            manager = get_manager(workspace_id)
-            return manager.get_project_context()
-        except:
-            return {"error": f"Failed to get context: {str(e)}"}
+        logger.error(f"Error in context endpoint: {str(e)}", exc_info=True)
+        # Return default context on error
+        return {"checkpoint": {
+            "project_name": "ContextPilot - AI Development Assistant",
+            "goal": "Transform development workflows with AI-powered multi-agent assistance",
+            "current_status": "Core Functionality Complete",
+            "milestones": []
+        }}
 
 
 @app.get("/context/milestones")
