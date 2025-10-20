@@ -176,6 +176,21 @@ export class ContextPilotService {
     }
   }
 
+  async getHealth() {
+    try {
+      const response = await this.client.get('/health');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch health:', error);
+      return { 
+        status: 'error', 
+        version: '2.0.0',
+        agents: [],
+        config: null
+      };
+    }
+  }
+
   async getBalance(): Promise<Balance> {
     try {
       // Use real rewards endpoint

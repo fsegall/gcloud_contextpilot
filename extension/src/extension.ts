@@ -32,7 +32,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Right,
     100
   );
-  statusBarItem.command = 'contextpilot.viewRewards';
+  statusBarItem.command = 'contextpilot.showBackendConfig';
   context.subscriptions.push(statusBarItem);
   updateStatusBar();
 
@@ -67,6 +67,35 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('contextpilot.disconnect', () => {
       commands.disconnect(contextPilotService);
       updateStatusBar();
+    }),
+    
+    vscode.commands.registerCommand('contextpilot.showBackendConfig', async () => {
+      try {
+        const health = await contextPilotService.getHealth();
+        
+        let message = `**ContextPilot v${health.version}**\n\n`;
+        
+        if (health.config) {
+          message += `**Configuration:**\n`;
+          message += `• Storage Mode: \`${health.config.storage_mode}\`\n`;
+          message += `• Rewards Mode: \`${health.config.rewards_mode}\`\n`;
+          message += `• Event Bus: \`${health.config.event_bus_mode}\`\n`;
+          message += `• Environment: \`${health.config.environment}\`\n\n`;
+          
+          // Add description
+          if (health.config.storage_mode === 'cloud') {
+            message += `☁️  **Cloud Mode**: Proposals in Firestore, commits via GitHub Actions\n`;
+          } else {
+            message += `📁 **Local Mode**: Proposals in local files, direct Git commits\n`;
+          }
+        }
+        
+        message += `\n**Active Agents:** ${health.agents?.length || 0}`;
+        
+        vscode.window.showInformationMessage(message, { modal: false });
+      } catch (error) {
+        vscode.window.showErrorMessage('Failed to fetch backend configuration');
+      }
     }),
 
     vscode.commands.registerCommand('contextpilot.viewProposals', () => {
@@ -228,19 +257,41 @@ export function activate(context: vscode.ExtensionContext) {
 async function updateStatusBar() {
   if (!contextPilotService.isConnected()) {
     statusBarItem.text = '$(plug) ContextPilot: Disconnected';
-    statusBarItem.tooltip = 'Click to view rewards';
+    statusBarItem.tooltip = 'Click to view backend configuration';
     statusBarItem.show();
     return;
   }
 
   try {
+    const health = await contextPilotService.getHealth();
     const balance = await contextPilotService.getBalance();
-    statusBarItem.text = `$(star) ${balance.balance} CPT`;
-    statusBarItem.tooltip = `ContextPilot Balance\nTotal Earned: ${balance.total_earned} CPT\nClick to view details`;
+    
+    // Show balance + mode indicator
+    const modeIcon = health.config?.storage_mode === 'cloud' ? '☁️' : '📁';
+    statusBarItem.text = `${modeIcon} $(star) ${balance.balance} CPT`;
+    
+    const tooltip = [
+      `ContextPilot v${health.version || '2.0.0'}`,
+      ``,
+      `💰 Balance: ${balance.balance} CPT`,
+      `📊 Total Earned: ${balance.total_earned} CPT`,
+      ``
+    ];
+    
+    if (health.config) {
+      tooltip.push(`⚙️  Configuration:`);
+      tooltip.push(`  Storage: ${health.config.storage_mode}`);
+      tooltip.push(`  Rewards: ${health.config.rewards_mode}`);
+      tooltip.push(`  Environment: ${health.config.environment}`);
+    }
+    
+    tooltip.push(``, `Click for details`);
+    
+    statusBarItem.tooltip = tooltip.join('\n');
     statusBarItem.show();
   } catch (error) {
     statusBarItem.text = '$(warning) ContextPilot: Error';
-    statusBarItem.tooltip = 'Failed to fetch balance';
+    statusBarItem.tooltip = 'Failed to fetch status';
     statusBarItem.show();
   }
 }
