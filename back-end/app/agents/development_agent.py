@@ -57,7 +57,7 @@ class DevelopmentAgent(BaseAgent):
             logger.warning("[DevelopmentAgent] GEMINI_API_KEY not set - agent will have limited functionality")
         
         # Subscribe to events
-        self.subscribe_to_event(EventTypes.RETROSPECTIVE_SUMMARY)
+        self.subscribe_to_event(EventTypes.RETROSPECTIVE_TRIGGER)
         self.subscribe_to_event("spec.requirement.created")
         
         logger.info(f"[DevelopmentAgent] Initialized for workspace: {workspace_id}")
@@ -106,6 +106,67 @@ class DevelopmentAgent(BaseAgent):
         """
         logger.info(f"[DevelopmentAgent] Processing spec requirement: {data.get('requirement_id')}")
     
+    async def _get_project_context(self) -> str:
+        """
+        Get comprehensive project context (same as "Ask Claude" feature).
+        
+        Uses Spec Agent's context generation to ensure Development Agent
+        has full awareness of project structure, specs, and recent changes.
+        
+        Returns:
+            Project context summary string
+        """
+        try:
+            from app.agents.spec_agent import SpecAgent
+            
+            logger.info("[DevelopmentAgent] Loading project context via Spec Agent...")
+            
+            # Initialize Spec Agent for context retrieval
+            spec_agent = SpecAgent(
+                workspace_path=str(self.workspace_path),
+                workspace_id=self.workspace_id,
+                project_id=self.project_id
+            )
+            
+            # Generate comprehensive context (same as Claude gets)
+            context = spec_agent.generate_context_summary(proposal_type="development")
+            
+            logger.info(f"[DevelopmentAgent] Loaded {len(context)} chars of project context")
+            return context
+            
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error loading project context: {e}")
+            # Fallback to basic context
+            return self._get_basic_fallback_context()
+    
+    def _get_basic_fallback_context(self) -> str:
+        """
+        Get basic project context if Spec Agent fails.
+        
+        Returns:
+            Minimal context string
+        """
+        try:
+            readme_path = self.workspace_path / "README.md"
+            readme_content = ""
+            if readme_path.exists():
+                readme_content = readme_path.read_text(encoding='utf-8')[:1000]
+            
+            return f"""# Project Context (Basic)
+
+## README
+{readme_content if readme_content else "README.md not found"}
+
+## Workspace
+- Path: {self.workspace_path}
+- ID: {self.workspace_id}
+
+**Note**: Full context unavailable. Using minimal fallback.
+"""
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error in fallback context: {e}")
+            return "# Project Context\n\nContext unavailable."
+    
     async def implement_feature(
         self,
         description: str,
@@ -130,6 +191,16 @@ class DevelopmentAgent(BaseAgent):
         logger.info(f"[DevelopmentAgent] Implementing feature: {description[:100]}...")
         
         try:
+            # Step 0: Get project context (like Claude does)
+            project_context = await self._get_project_context()
+            logger.info(f"[DevelopmentAgent] Loaded project context ({len(project_context)} chars)")
+            
+            # Merge with provided context
+            if context:
+                context["project_summary"] = project_context
+            else:
+                context = {"project_summary": project_context}
+            
             # Step 1: Analyze the request and determine affected files
             if not target_files:
                 target_files = await self._infer_target_files(description, context)
@@ -312,9 +383,15 @@ Consider:
             }
             language = language_map.get(ext, "code")
             
+            # Get project context summary
+            project_summary = context.get("project_summary", "") if context else ""
+            
             # Build prompt
             if current_content:
-                prompt = f"""You are an expert {language} developer. Modify this file to implement the following feature:
+                prompt = f"""You are an expert {language} developer working on the ContextPilot project.
+
+**PROJECT CONTEXT:**
+{project_summary[:2000] if project_summary else "No project context available"}
 
 **Feature Request:**
 {description}
@@ -325,15 +402,20 @@ Consider:
 ```
 
 **Instructions:**
-1. Implement the feature while preserving existing functionality
-2. Follow the existing code style and patterns
-3. Add comments for complex logic
-4. Ensure the code is production-ready
-5. Return ONLY the complete modified file content, no explanations
+1. Read and understand the project context before making changes
+2. Implement the feature while preserving existing functionality
+3. Follow the existing code style and patterns shown in the project
+4. Ensure compatibility with the project's architecture
+5. Add comments for complex logic
+6. Ensure the code is production-ready
+7. Return ONLY the complete modified file content, no explanations
 
 **Modified File:**"""
             else:
-                prompt = f"""You are an expert {language} developer. Create a new file to implement the following feature:
+                prompt = f"""You are an expert {language} developer working on the ContextPilot project.
+
+**PROJECT CONTEXT:**
+{project_summary[:2000] if project_summary else "No project context available"}
 
 **Feature Request:**
 {description}
@@ -341,11 +423,13 @@ Consider:
 **New File ({file_path}):**
 
 **Instructions:**
-1. Create a complete, production-ready implementation
-2. Follow best practices for {language}
-3. Add appropriate imports and dependencies
-4. Include comments for clarity
-5. Return ONLY the complete file content, no explanations
+1. Read and understand the project context before creating the file
+2. Create a complete, production-ready implementation
+3. Follow best practices for {language} and the project's conventions
+4. Ensure compatibility with the existing project architecture
+5. Add appropriate imports and dependencies
+6. Include comments for clarity
+7. Return ONLY the complete file content, no explanations
 
 **File Content:**"""
             
