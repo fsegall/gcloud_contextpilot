@@ -97,8 +97,8 @@ async def rate_limit_middleware(request: Request, call_next):
             f"⚠️ Suspicious request from {client_ip}: {abuse_check['reason']}"
         )
 
-    # Check rate limit (100 req/hour per IP)
-    if not check_rate_limit(client_ip, max_requests=100, window_seconds=3600):
+    # Check rate limit (10000 req/hour per IP for development)
+    if not check_rate_limit(client_ip, max_requests=10000, window_seconds=3600):
         logger.warning(f"Rate limit exceeded for IP: {client_ip}")
         abuse_detector.record_error(client_ip, 429)
         raise HTTPException(
