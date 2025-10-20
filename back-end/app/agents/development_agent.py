@@ -590,7 +590,7 @@ This proposal implements the requested feature with the following changes:
         try:
             if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
                 repo = get_proposal_repository()
-                repo.save(proposal)
+                repo.create(proposal.model_dump())
                 logger.info(f"[DevelopmentAgent] Saved proposal to Firestore: {proposal_id}")
                 return proposal_id
             else:
