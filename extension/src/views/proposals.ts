@@ -21,7 +21,8 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
     try {
       if (this.contextPilotService.isConnected()) {
         const health = await this.contextPilotService.getHealth();
-        this.storageMode = health.config?.storage_mode || 'unknown';
+        // Backend returns config at root level, not nested
+        this.storageMode = health.storage_mode || health.config?.storage_mode || 'unknown';
       }
     } catch (error) {
       console.error('[ProposalsProvider] Failed to update storage mode:', error);

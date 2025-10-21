@@ -75,15 +75,17 @@ export function activate(context: vscode.ExtensionContext) {
         
         let message = `**ContextPilot v${health.version}**\n\n`;
         
-        if (health.config) {
+        // Backend returns config at root level, not nested
+        const config = health.config || health;
+        if (config.storage_mode || config.rewards_mode || config.event_bus_mode) {
           message += `**Configuration:**\n`;
-          message += `• Storage Mode: \`${health.config.storage_mode}\`\n`;
-          message += `• Rewards Mode: \`${health.config.rewards_mode}\`\n`;
-          message += `• Event Bus: \`${health.config.event_bus_mode}\`\n`;
-          message += `• Environment: \`${health.config.environment}\`\n\n`;
+          message += `• Storage Mode: \`${config.storage_mode || 'unknown'}\`\n`;
+          message += `• Rewards Mode: \`${config.rewards_mode || 'unknown'}\`\n`;
+          message += `• Event Bus: \`${config.event_bus_mode || 'unknown'}\`\n`;
+          message += `• Environment: \`${config.environment || 'unknown'}\`\n\n`;
           
           // Add description
-          if (health.config.storage_mode === 'cloud') {
+          if (config.storage_mode === 'cloud') {
             message += `☁️  **Cloud Mode**: Proposals in Firestore, commits via GitHub Actions\n`;
           } else {
             message += `📁 **Local Mode**: Proposals in local files, direct Git commits\n`;
@@ -280,8 +282,12 @@ async function updateStatusBar() {
     console.log('[ContextPilot] Health data:', health);
     console.log('[ContextPilot] Balance data:', balance);
     
+    // Backend returns config at root level, not nested
+    const config = health.config || health;
+    const storageMode = config.storage_mode || 'unknown';
+    
     // Show balance + mode indicator
-    const modeIcon = health.config?.storage_mode === 'cloud' ? '☁️' : '📁';
+    const modeIcon = storageMode === 'cloud' ? '☁️' : '📁';
     statusBarItem.text = `${modeIcon} $(star) ${balance.balance} CPT`;
     
     const tooltip = [
@@ -292,11 +298,11 @@ async function updateStatusBar() {
       ``
     ];
     
-    if (health.config) {
+    if (storageMode !== 'unknown') {
       tooltip.push(`⚙️  Configuration:`);
-      tooltip.push(`  Storage: ${health.config.storage_mode}`);
-      tooltip.push(`  Rewards: ${health.config.rewards_mode}`);
-      tooltip.push(`  Environment: ${health.config.environment}`);
+      tooltip.push(`  Storage: ${storageMode}`);
+      tooltip.push(`  Rewards: ${config.rewards_mode || 'unknown'}`);
+      tooltip.push(`  Environment: ${config.environment || 'unknown'}`);
     }
     
     tooltip.push(``, `Click for details`);

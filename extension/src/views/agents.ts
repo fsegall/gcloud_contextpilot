@@ -19,7 +19,8 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
     try {
       if (this.contextPilotService.isConnected()) {
         const health = await this.contextPilotService.getHealth();
-        this.eventBusMode = health.config?.event_bus_mode || 'unknown';
+        // Backend returns config at root level, not nested
+        this.eventBusMode = health.event_bus_mode || health.config?.event_bus_mode || 'unknown';
       }
     } catch (error) {
       console.error('[AgentsProvider] Failed to update event bus mode:', error);
