@@ -124,7 +124,7 @@ export class ContextPilotService {
       const response = await this.client.get('/proposals/list', {
         params: { 
           workspace_id: this.workspaceId || 'contextpilot',
-          user_id: this.userId || 'test-user',
+          user_id: this.userId, // Always send user_id (required by backend)
           status: 'pending'
         }
       });

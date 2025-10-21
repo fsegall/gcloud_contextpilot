@@ -828,9 +828,11 @@ Implementing these changes will:
         # Create the proposal using the proposal repository
         try:
             from app.repositories.proposal_repository import get_proposal_repository
+            from app.config import get_config, StorageMode
 
-            # Check if Firestore is enabled
-            if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
+            # Check if we're in cloud mode (Firestore enabled)
+            config = get_config()
+            if config.storage_mode == StorageMode.CLOUD:
                 repo = get_proposal_repository()
 
                 # Generate proposal ID

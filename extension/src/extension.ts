@@ -16,7 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Initialize service
   const config = vscode.workspace.getConfiguration('contextpilot');
-  const apiUrl = config.get<string>('apiUrl', 'https://contextpilot-backend-581368740395.us-central1.run.app');
+  const apiUrl = config.get<string>('apiUrl', 'https://contextpilot-backend-l7g6shydza-uc.a.run.app');
   const userId = config.get<string>('userId', 'test-user');
   const walletAddress = config.get<string>('walletAddress', '0xtest...');
   

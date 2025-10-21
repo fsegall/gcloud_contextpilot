@@ -47,7 +47,7 @@ class ChangeProposal(BaseModel):
     description: str = Field(..., description="Detailed description")
 
     # Diff
-    diff: ProposalDiff = Field(..., description="Complete diff")
+    diff: Optional[ProposalDiff] = Field(None, description="Complete diff")
 
     # Individual changes
     proposed_changes: List[ProposedChange] = Field(

@@ -27,8 +27,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/proposals", tags=["proposals"])
 
 # Initialize Firestore
+# IMPORTANT: Using 'proposals' collection (NOT 'change_proposals')
+# This ensures consistency with firestore_service.py
+# BUILD_VERSION: 2025-10-21-18-20 (PROPOSALS collection)
 db = firestore.AsyncClient()
-proposals_col = db.collection("change_proposals")
+proposals_col = db.collection("proposals")  # Unified collection name - v2
 
 
 async def trigger_github_action(proposal_id: str):
@@ -94,9 +97,7 @@ async def create_proposal(proposal: ChangeProposal = Body(...)):
 
     try:
         # Store in Firestore
-        await proposals_col.document(proposal.id).set(
-            proposal.model_dump(mode="json")
-        )
+        await proposals_col.document(proposal.id).set(proposal.model_dump(mode="json"))
 
         # Publish event
         event_bus = get_event_bus()
@@ -122,30 +123,28 @@ async def create_proposal(proposal: ChangeProposal = Body(...)):
 
 @router.get("/list", response_model=ProposalListResponse)
 async def list_proposals(
-    user_id: str = Query(...),
     workspace_id: str = Query("default"),
+    user_id: str = Query(..., description="User ID to filter proposals"),
     status: Optional[str] = Query(None),
     agent: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
 ):
     """
-    List proposals for a user.
+    List proposals for a workspace filtered by user_id.
 
     Filters:
-    - user_id: Required
     - workspace_id: Optional (default: "default")
-    - status: Optional (pending_approval, approved, etc)
-    - agent: Optional (strategy-agent, spec-agent, etc)
+    - user_id: Required (only show proposals for this user)
+    - status: Optional (pending, approved, rejected)
+    - agent: Optional (strategy, spec, retrospective, etc)
     """
-    logger.info(f"Listing proposals for user: {user_id}, workspace: {workspace_id}")
+    logger.info(f"Listing proposals for workspace: {workspace_id}, user: {user_id}")
 
     try:
-        # Build query - simplified to avoid composite index requirements
+        # Build query - NO ORDER BY to avoid composite index requirement
+        # We'll sort client-side instead
         query = proposals_col.where("workspace_id", "==", workspace_id)
-        
-        # Order by created_at desc
-        query = query.order_by("created_at", direction=firestore.Query.DESCENDING)
-        query = query.limit(limit * 2)  # Fetch more for filtering
+        query = query.limit(200)  # Fetch more docs for client-side filtering and sorting
 
         # Execute
         docs = query.stream()
@@ -156,28 +155,44 @@ async def list_proposals(
         async for doc in docs:
             total_docs += 1
             data = doc.to_dict()
-            logger.info(f"Processing doc {total_docs}: id={data.get('id')}, user_id={data.get('user_id')}, workspace_id={data.get('workspace_id')}")
-            
-            # Client-side filtering
+            logger.info(
+                f"Processing doc {total_docs}: id={data.get('id')}, user_id={data.get('user_id')}, workspace_id={data.get('workspace_id')}"
+            )
+
+            # Client-side filtering - user_id is now required
             if data.get("user_id") != user_id:
-                logger.info(f"  Skipping doc {total_docs}: user_id mismatch ({data.get('user_id')} != {user_id})")
+                logger.info(
+                    f"  Skipping doc {total_docs}: user_id mismatch ({data.get('user_id')} != {user_id})"
+                )
                 continue
             if status and data.get("status") != status:
-                logger.info(f"  Skipping doc {total_docs}: status mismatch ({data.get('status')} != {status})")
+                logger.info(
+                    f"  Skipping doc {total_docs}: status mismatch ({data.get('status')} != {status})"
+                )
                 continue
             if agent and data.get("agent_id") != agent:
-                logger.info(f"  Skipping doc {total_docs}: agent mismatch ({data.get('agent_id')} != {agent})")
+                logger.info(
+                    f"  Skipping doc {total_docs}: agent mismatch ({data.get('agent_id')} != {agent})"
+                )
                 continue
-            
+
             filtered_docs += 1
-            logger.info(f"  Adding doc {total_docs} to proposals (filtered doc #{filtered_docs})")
+            logger.info(
+                f"  Adding doc {total_docs} to proposals (filtered doc #{filtered_docs})"
+            )
             proposals.append(ChangeProposal(**data))
-            
-            # Stop when we have enough
-            if len(proposals) >= limit:
-                break
+
+        logger.info(
+            f"Query completed: {total_docs} total docs, {filtered_docs} passed filters, {len(proposals)} proposals before sorting"
+        )
         
-        logger.info(f"Query completed: {total_docs} total docs, {filtered_docs} passed filters, {len(proposals)} proposals returned")
+        # Sort client-side by created_at descending
+        proposals.sort(key=lambda p: p.created_at, reverse=True)
+        
+        # Apply limit after sorting
+        proposals = proposals[:limit]
+        
+        logger.info(f"Returning {len(proposals)} proposals after sorting and limit")
 
         # Count by status
         pending = sum(1 for p in proposals if p.status == "pending")
@@ -260,7 +275,9 @@ async def approve_proposal(
         if request.edited_changes:
             await doc_ref.update(
                 {
-                    "proposed_changes": [c.model_dump() for c in request.edited_changes],
+                    "proposed_changes": [
+                        c.model_dump() for c in request.edited_changes
+                    ],
                     "edited_by_user": True,
                 }
             )
@@ -275,11 +292,9 @@ async def approve_proposal(
                 "proposal_id": proposal_id,
                 "user_id": request.user_id,
                 "changes": [
-                    c.model_dump() for c in (request.edited_changes or proposal.changes)
+                    c.model_dump() for c in (request.edited_changes or proposal.proposed_changes)
                 ],
-                "create_pr": request.create_pr,
-                "pr_title": request.pr_title,
-                "pr_body": request.pr_body,
+                "comment": request.comment,
             },
         )
 
