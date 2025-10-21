@@ -58,7 +58,8 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
         const modeItem = new RewardItem(
           `⚙️ ${modeIcon} Rewards Mode: ${this.rewardsMode}`,
           '',
-          'mode-indicator'
+          'mode-indicator',
+          vscode.TreeItemCollapsibleState.Expanded
         );
         modeItem.tooltip = this.rewardsMode === 'firestore' 
           ? 'Firestore Mode: Rewards stored in Firestore (off-chain)'
@@ -96,9 +97,10 @@ class RewardItem extends vscode.TreeItem {
   constructor(
     public readonly label: string,
     public readonly description: string,
-    public readonly type: string
+    public readonly type: string,
+    collapsibleState: vscode.TreeItemCollapsibleState = vscode.TreeItemCollapsibleState.None
   ) {
-    super(label, vscode.TreeItemCollapsibleState.None);
+    super(label, collapsibleState);
     this.iconPath = new vscode.ThemeIcon('star');
   }
 }

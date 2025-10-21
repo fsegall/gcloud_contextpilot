@@ -56,7 +56,7 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
           name: `⚙️ ${modeIcon} Event Bus: ${this.eventBusMode}`,
           status: 'active',
           last_activity: 'now'
-        });
+        }, vscode.TreeItemCollapsibleState.Expanded);
         modeItem.tooltip = this.eventBusMode === 'pubsub' 
           ? 'Pub/Sub Mode: Agents communicate via Google Pub/Sub (scalable)'
           : 'In-Memory Mode: Agents communicate via in-memory events (local)';
@@ -92,8 +92,11 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
 }
 
 class AgentItem extends vscode.TreeItem {
-  constructor(public readonly agent: AgentStatus) {
-    super(agent.name, vscode.TreeItemCollapsibleState.None);
+  constructor(
+    public readonly agent: AgentStatus,
+    collapsibleState: vscode.TreeItemCollapsibleState = vscode.TreeItemCollapsibleState.None
+  ) {
+    super(agent.name, collapsibleState);
     this.description = agent.status;
     this.tooltip = `Last activity: ${agent.last_activity}`;
     
