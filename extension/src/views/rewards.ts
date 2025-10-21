@@ -21,8 +21,8 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
     try {
       if (this.contextPilotService.isConnected()) {
         const health = await this.contextPilotService.getHealth();
-        // Backend returns config at root level, not nested
-        this.rewardsMode = health.rewards_mode || health.config?.rewards_mode || 'unknown';
+        // Backend returns config nested: { config: { rewards_mode: "firestore" } }
+        this.rewardsMode = health.config?.rewards_mode || 'unknown';
       }
     } catch (error) {
       console.error('[RewardsProvider] Failed to update rewards mode:', error);
