@@ -61,6 +61,7 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
           ? 'Pub/Sub Mode: Agents communicate via Google Pub/Sub (scalable)'
           : 'In-Memory Mode: Agents communicate via in-memory events (local)';
         modeItem.contextValue = 'mode-indicator';
+        modeItem.description = ''; // Remove "active" from mode indicator
         
         return [modeItem];
       } catch (error) {
