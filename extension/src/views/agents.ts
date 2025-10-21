@@ -41,7 +41,7 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
       const modeIcon = this.eventBusMode === 'pubsub' ? '📡' : '💾';
       const modeItem = new AgentItem({
         agent_id: 'event-bus-mode',
-        name: `${modeIcon} Event Bus: ${this.eventBusMode}`,
+        name: `⚙️ ${modeIcon} Event Bus: ${this.eventBusMode}`,
         status: 'active',
         last_activity: 'now'
       });

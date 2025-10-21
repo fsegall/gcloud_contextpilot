@@ -44,7 +44,7 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
       // Add mode indicator as first item
       const modeIcon = this.rewardsMode === 'firestore' ? '🔥' : '⛓️';
       const modeItem = new RewardItem(
-        `${modeIcon} Rewards Mode: ${this.rewardsMode}`,
+        `⚙️ ${modeIcon} Rewards Mode: ${this.rewardsMode}`,
         '',
         'mode-indicator'
       );
