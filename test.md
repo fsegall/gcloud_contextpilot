@@ -1,0 +1,2 @@
+Test
+CPT rewards work!
