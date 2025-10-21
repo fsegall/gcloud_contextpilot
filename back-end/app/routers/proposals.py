@@ -150,28 +150,39 @@ async def list_proposals(
         # Execute
         docs = query.stream()
         proposals = []
+        total_docs = 0
+        filtered_docs = 0
 
         async for doc in docs:
+            total_docs += 1
             data = doc.to_dict()
+            logger.info(f"Processing doc {total_docs}: id={data.get('id')}, user_id={data.get('user_id')}, workspace_id={data.get('workspace_id')}")
             
             # Client-side filtering
             if data.get("user_id") != user_id:
+                logger.info(f"  Skipping doc {total_docs}: user_id mismatch ({data.get('user_id')} != {user_id})")
                 continue
             if status and data.get("status") != status:
+                logger.info(f"  Skipping doc {total_docs}: status mismatch ({data.get('status')} != {status})")
                 continue
             if agent and data.get("agent_id") != agent:
+                logger.info(f"  Skipping doc {total_docs}: agent mismatch ({data.get('agent_id')} != {agent})")
                 continue
             
+            filtered_docs += 1
+            logger.info(f"  Adding doc {total_docs} to proposals (filtered doc #{filtered_docs})")
             proposals.append(ChangeProposal(**data))
             
             # Stop when we have enough
             if len(proposals) >= limit:
                 break
+        
+        logger.info(f"Query completed: {total_docs} total docs, {filtered_docs} passed filters, {len(proposals)} proposals returned")
 
         # Count by status
-        pending = sum(1 for p in proposals if p.status == ProposalStatus.PENDING)
-        approved = sum(1 for p in proposals if p.status == ProposalStatus.APPROVED)
-        rejected = sum(1 for p in proposals if p.status == ProposalStatus.REJECTED)
+        pending = sum(1 for p in proposals if p.status == "pending")
+        approved = sum(1 for p in proposals if p.status == "approved")
+        rejected = sum(1 for p in proposals if p.status == "rejected")
 
         return ProposalListResponse(
             proposals=proposals,
@@ -231,7 +242,7 @@ async def approve_proposal(
             raise HTTPException(status_code=403, detail="Not authorized")
 
         # Check status
-        if proposal.status != ProposalStatus.PENDING:
+        if proposal.status != "pending":
             raise HTTPException(
                 status_code=400, detail=f"Proposal already {proposal.status}"
             )
@@ -457,7 +468,7 @@ async def delete_proposal(proposal_id: str, user_id: str = Query(...)):
             raise HTTPException(status_code=403, detail="Not authorized")
 
         # Only delete pending
-        if proposal.status != ProposalStatus.PENDING:
+        if proposal.status != "pending":
             raise HTTPException(
                 status_code=400, detail="Can only delete pending proposals"
             )

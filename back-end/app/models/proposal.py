@@ -41,6 +41,7 @@ class ChangeProposal(BaseModel):
     id: str = Field(..., description="Unique proposal ID")
     agent_id: str = Field(..., description="Agent that created proposal")
     workspace_id: str = Field(..., description="Workspace ID")
+    user_id: Optional[str] = Field(None, description="User ID (optional)")
 
     title: str = Field(..., description="Short title")
     description: str = Field(..., description="Detailed description")
