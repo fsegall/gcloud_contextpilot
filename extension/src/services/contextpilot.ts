@@ -155,7 +155,22 @@ export class ContextPilotService {
 
   async approveProposal(proposalId: string): Promise<{ ok: boolean; autoCommitted: boolean; commitHash?: string }> {
     try {
-      const response = await this.client.post(`/proposals/${proposalId}/approve`);
+      // Check if we're in CLOUD mode by checking health
+      const health = await this.getHealth();
+      const isCloudMode = health.config?.storage_mode === 'cloud';
+      
+      let response;
+      if (isCloudMode) {
+        // CLOUD mode: Send ProposalApprovalRequest object
+        response = await this.client.post(`/proposals/${proposalId}/approve`, {
+          user_id: this.userId,
+          comment: 'Approved via VS Code extension'
+        });
+      } else {
+        // LOCAL mode: Send without body (only proposal_id in URL)
+        response = await this.client.post(`/proposals/${proposalId}/approve`);
+      }
+      
       const autoCommitted = !!response.data?.auto_committed;
       const commitHash = response.data?.commit_hash;
       return { ok: true, autoCommitted, commitHash };
@@ -167,8 +182,21 @@ export class ContextPilotService {
 
   async rejectProposal(proposalId: string, reason?: string): Promise<boolean> {
     try {
-      // Backend expects just the reason string, not an object
-      await this.client.post(`/proposals/${proposalId}/reject`, reason || 'Rejected by user');
+      // Check if we're in CLOUD mode by checking health
+      const health = await this.getHealth();
+      const isCloudMode = health.config?.storage_mode === 'cloud';
+      
+      if (isCloudMode) {
+        // CLOUD mode: Send ProposalRejectionRequest object
+        await this.client.post(`/proposals/${proposalId}/reject`, {
+          user_id: this.userId,
+          reason: reason || 'Rejected by user'
+        });
+      } else {
+        // LOCAL mode: Send reason as string directly
+        await this.client.post(`/proposals/${proposalId}/reject`, reason || 'Rejected by user');
+      }
+      
       return true;
     } catch (error) {
       console.error('Failed to reject proposal:', error);
