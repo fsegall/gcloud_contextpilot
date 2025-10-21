@@ -6,11 +6,27 @@ type ProposalTreeItem = ProposalItem | ProposalChangeItem;
 export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<ProposalTreeItem | undefined | null | void> = new vscode.EventEmitter<ProposalTreeItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<ProposalTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+  private storageMode: string = 'unknown';
 
-  constructor(private contextPilotService: ContextPilotService) {}
+  constructor(private contextPilotService: ContextPilotService) {
+    this.updateStorageMode();
+  }
 
   refresh(): void {
+    this.updateStorageMode();
     this._onDidChangeTreeData.fire();
+  }
+
+  private async updateStorageMode(): Promise<void> {
+    try {
+      if (this.contextPilotService.isConnected()) {
+        const health = await this.contextPilotService.getHealth();
+        this.storageMode = health.config?.storage_mode || 'unknown';
+      }
+    } catch (error) {
+      console.error('[ProposalsProvider] Failed to update storage mode:', error);
+      this.storageMode = 'unknown';
+    }
   }
 
   getTreeItem(element: ProposalTreeItem): vscode.TreeItem {
@@ -25,13 +41,31 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
     }
 
     if (!element) {
-      // Root level - show proposals
+      // Root level - show mode indicator + proposals
       console.log('[ProposalsProvider] Fetching proposals...');
       const proposals = await this.contextPilotService.getProposals();
-      return proposals
+      
+      // Add mode indicator as first item
+      const modeIcon = this.storageMode === 'cloud' ? '☁️' : '📁';
+      const modeItem = new ProposalItem(
+        `${modeIcon} Storage Mode: ${this.storageMode}`,
+        vscode.TreeItemCollapsibleState.None
+      );
+      modeItem.tooltip = this.storageMode === 'cloud' 
+        ? 'Cloud Mode: Proposals stored in Firestore, commits via GitHub Actions'
+        : 'Local Mode: Proposals stored in local files, direct Git commits';
+      modeItem.contextValue = 'mode-indicator';
+      
+      const items: ProposalTreeItem[] = [modeItem];
+      
+      // Add proposals
+      const proposalItems = proposals
         .filter(p => p.status === 'pending')
         .map(p => new ProposalItem(p, vscode.TreeItemCollapsibleState.Collapsed));
-    } else if (element instanceof ProposalItem) {
+      
+      items.push(...proposalItems);
+      return items;
+    } else if (element instanceof ProposalItem && element.proposal) {
       // Show proposal changes
       return element.proposal.proposed_changes.map(
         change => new ProposalChangeItem(change)
@@ -43,23 +77,37 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
 }
 
 class ProposalItem extends vscode.TreeItem {
+  public readonly proposal?: ChangeProposal;
+
   constructor(
-    public readonly proposal: ChangeProposal,
+    proposalOrTitle: ChangeProposal | string,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState
   ) {
-    super(proposal.title, collapsibleState);
-    this.tooltip = proposal.description;
-    this.description = `by ${proposal.agent_id}`;
-    this.contextValue = 'proposal';
-    this.iconPath = new vscode.ThemeIcon('git-pull-request');
+    // Determine title and call super
+    const title = typeof proposalOrTitle === 'string' ? proposalOrTitle : proposalOrTitle.title;
+    super(title, collapsibleState);
     
-    // Debug: Log proposal ID
-    console.log(`[ProposalItem] Creating item with ID: ${proposal.id}, Title: ${proposal.title}`);
+    if (typeof proposalOrTitle === 'string') {
+      // Mode indicator constructor
+      this.iconPath = new vscode.ThemeIcon('settings-gear');
+    } else {
+      // Proposal constructor
+      this.proposal = proposalOrTitle;
+      this.tooltip = proposalOrTitle.description;
+      this.description = `by ${proposalOrTitle.agent_id}`;
+      this.contextValue = 'proposal';
+      this.iconPath = new vscode.ThemeIcon('git-pull-request');
+    }
+    
+    // Debug: Log proposal ID (only for actual proposals)
+    if (this.proposal) {
+      console.log(`[ProposalItem] Creating item with ID: ${this.proposal.id}, Title: ${this.proposal.title}`);
+    }
     
     this.command = {
       command: 'contextpilot.viewProposalDiff',
       title: 'View Diff',
-      arguments: [proposal.id]
+      arguments: [this.proposal?.id]
     };
   }
 }

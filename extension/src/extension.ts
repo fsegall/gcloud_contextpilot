@@ -224,6 +224,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Auto-connect if enabled
   if (config.get<boolean>('autoConnect', true)) {
+    console.log('[ContextPilot] Starting auto-connect...');
     commands.connect(contextPilotService).then(() => {
       console.log('[ContextPilot] Auto-connect completed, refreshing providers...');
       proposalsProvider.refresh();
@@ -231,7 +232,13 @@ export function activate(context: vscode.ExtensionContext) {
       agentsProvider.refresh();
       contextProvider.refresh();
       updateStatusBar();
+    }).catch((error) => {
+      console.error('[ContextPilot] Auto-connect failed:', error);
+      updateStatusBar(); // Update status bar even if connection fails
     });
+  } else {
+    console.log('[ContextPilot] Auto-connect disabled, updating status bar...');
+    updateStatusBar();
   }
 
   // Watch for file changes (context tracking)
@@ -255,7 +262,10 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 async function updateStatusBar() {
+  console.log('[ContextPilot] Updating status bar...');
+  
   if (!contextPilotService.isConnected()) {
+    console.log('[ContextPilot] Not connected, showing disconnected status');
     statusBarItem.text = '$(plug) ContextPilot: Disconnected';
     statusBarItem.tooltip = 'Click to view backend configuration';
     statusBarItem.show();
@@ -263,8 +273,12 @@ async function updateStatusBar() {
   }
 
   try {
+    console.log('[ContextPilot] Fetching health and balance...');
     const health = await contextPilotService.getHealth();
     const balance = await contextPilotService.getBalance();
+    
+    console.log('[ContextPilot] Health data:', health);
+    console.log('[ContextPilot] Balance data:', balance);
     
     // Show balance + mode indicator
     const modeIcon = health.config?.storage_mode === 'cloud' ? '☁️' : '📁';
@@ -289,7 +303,9 @@ async function updateStatusBar() {
     
     statusBarItem.tooltip = tooltip.join('\n');
     statusBarItem.show();
+    console.log('[ContextPilot] Status bar updated successfully');
   } catch (error) {
+    console.error('[ContextPilot] Error updating status bar:', error);
     statusBarItem.text = '$(warning) ContextPilot: Error';
     statusBarItem.tooltip = 'Failed to fetch status';
     statusBarItem.show();
