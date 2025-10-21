@@ -40,48 +40,55 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
     return element;
   }
 
-  async getChildren(): Promise<RewardItem[]> {
+  async getChildren(element?: RewardItem): Promise<RewardItem[]> {
     if (!this.contextPilotService.isConnected()) {
       return [];
     }
 
-    try {
-      const userId = 'test-user'; // TODO: Get actual user ID
-      
-      // Fetch fresh mode before displaying
-      await this.updateRewardsMode();
-      
-      // Add mode indicator as first item
-      const modeIcon = this.rewardsMode === 'firestore' ? '🔥' : '⛓️';
-      const modeItem = new RewardItem(
-        `⚙️ ${modeIcon} Rewards Mode: ${this.rewardsMode}`,
-        '',
-        'mode-indicator'
-      );
-      modeItem.tooltip = this.rewardsMode === 'firestore' 
-        ? 'Firestore Mode: Rewards stored in Firestore (off-chain)'
-        : 'Blockchain Mode: Rewards stored on blockchain (on-chain)';
-      modeItem.contextValue = 'mode-indicator';
-      
-      const items: RewardItem[] = [modeItem];
-      
-      // Use real API instead of local RewardsService
-      const balance = await this.contextPilotService.getBalance();
-      
-      // Add reward items
-      items.push(
-        new RewardItem('💰 Current Balance', `${balance.balance || 0} CPT`, 'balance'),
-        new RewardItem('📈 Total Earned', `${balance.total_earned || 0} CPT`, 'total'),
-        new RewardItem('🔥 Weekly Streak', `${balance.weeklyStreak || 0} days`, 'streak'),
-        new RewardItem('🏆 Achievements', `${balance.achievements?.length || 0} earned`, 'achievements'),
-        new RewardItem('📊 Rank', `#${balance.rank || 999}`, 'rank')
-      );
-      
-      return items;
-    } catch (error) {
-      console.error('[RewardsProvider] Error:', error);
-      return [new RewardItem('❌ Error loading rewards', '', 'error')];
+    if (!element) {
+      // Root level - show mode indicator as sub-header
+      try {
+        const userId = 'test-user'; // TODO: Get actual user ID
+        
+        // Fetch fresh mode before displaying
+        await this.updateRewardsMode();
+        
+        // Add mode indicator as sub-header
+        const modeIcon = this.rewardsMode === 'firestore' ? '🔥' : '⛓️';
+        const modeItem = new RewardItem(
+          `⚙️ ${modeIcon} Rewards Mode: ${this.rewardsMode}`,
+          '',
+          'mode-indicator'
+        );
+        modeItem.tooltip = this.rewardsMode === 'firestore' 
+          ? 'Firestore Mode: Rewards stored in Firestore (off-chain)'
+          : 'Blockchain Mode: Rewards stored on blockchain (on-chain)';
+        modeItem.contextValue = 'mode-indicator';
+        
+        return [modeItem];
+      } catch (error) {
+        console.error('[RewardsProvider] Error:', error);
+        return [new RewardItem('❌ Error loading rewards', '', 'error')];
+      }
+    } else if (element.contextValue === 'mode-indicator') {
+      // Children of mode indicator - show rewards
+      try {
+        const balance = await this.contextPilotService.getBalance();
+        
+        return [
+          new RewardItem('💰 Current Balance', `${balance.balance || 0} CPT`, 'balance'),
+          new RewardItem('📈 Total Earned', `${balance.total_earned || 0} CPT`, 'total'),
+          new RewardItem('🔥 Weekly Streak', `${balance.weeklyStreak || 0} days`, 'streak'),
+          new RewardItem('🏆 Achievements', `${balance.achievements?.length || 0} earned`, 'achievements'),
+          new RewardItem('📊 Rank', `#${balance.rank || 999}`, 'rank')
+        ];
+      } catch (error) {
+        console.error('[RewardsProvider] Error loading balance:', error);
+        return [new RewardItem('❌ Error loading balance', '', 'error')];
+      }
     }
+    
+    return [];
   }
 }
 

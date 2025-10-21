@@ -250,7 +250,7 @@ async def approve_proposal(
         # Update proposal
         await doc_ref.update(
             {
-                "status": ProposalStatus.APPROVED.value,
+                "status": "approved",
                 "approved_by": request.user_id,
                 "approved_at": firestore.SERVER_TIMESTAMP,
             }
@@ -260,7 +260,7 @@ async def approve_proposal(
         if request.edited_changes:
             await doc_ref.update(
                 {
-                    "changes": [c.model_dump() for c in request.edited_changes],
+                    "proposed_changes": [c.model_dump() for c in request.edited_changes],
                     "edited_by_user": True,
                 }
             )
@@ -328,7 +328,7 @@ async def reject_proposal(
         # Update proposal
         await doc_ref.update(
             {
-                "status": ProposalStatus.REJECTED.value,
+                "status": "rejected",
                 "rejected_by": request.user_id,
                 "rejected_at": firestore.SERVER_TIMESTAMP,
                 "rejection_reason": request.reason,
@@ -423,8 +423,8 @@ async def get_proposal_stats(
                 reviewed_count += 1
 
         # Approval rate
-        approved = by_status.get(ProposalStatus.APPROVED, 0)
-        rejected = by_status.get(ProposalStatus.REJECTED, 0)
+        approved = by_status.get("approved", 0)
+        rejected = by_status.get("rejected", 0)
         total_reviewed = approved + rejected
         approval_rate = approved / total_reviewed if total_reviewed > 0 else 0
 

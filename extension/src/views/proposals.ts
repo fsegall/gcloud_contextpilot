@@ -60,7 +60,7 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
       const modeIcon = this.storageMode === 'cloud' ? '☁️' : '📁';
       const modeItem = new ProposalItem(
         `⚙️ ${modeIcon} Storage Mode: ${this.storageMode}`,
-        vscode.TreeItemCollapsibleState.None
+        vscode.TreeItemCollapsibleState.Expanded
       );
       modeItem.tooltip = this.storageMode === 'cloud' 
         ? 'Cloud Mode: Proposals stored in Firestore, commits via GitHub Actions'
@@ -69,13 +69,13 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
       
       const items: ProposalTreeItem[] = [modeItem];
       
-      // Add proposals
-      const proposalItems = proposals
+      return items;
+    } else if (element.contextValue === 'mode-indicator') {
+      // Children of mode indicator - show proposals
+      const proposals = await this.contextPilotService.getProposals();
+      return proposals
         .filter(p => p.status === 'pending')
         .map(p => new ProposalItem(p, vscode.TreeItemCollapsibleState.Collapsed));
-      
-      items.push(...proposalItems);
-      return items;
     } else if (element instanceof ProposalItem && element.proposal) {
       // Show proposal changes
       return element.proposal.proposed_changes.map(

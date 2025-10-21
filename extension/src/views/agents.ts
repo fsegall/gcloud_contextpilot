@@ -38,48 +38,56 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
     return element;
   }
 
-  async getChildren(): Promise<AgentItem[]> {
+  async getChildren(element?: AgentItem): Promise<AgentItem[]> {
     if (!this.contextPilotService.isConnected()) {
       return [];
     }
 
-    try {
-      // Fetch fresh mode before displaying
-      await this.updateEventBusMode();
-      
-      // Add mode indicator as first item
-      const modeIcon = this.eventBusMode === 'pubsub' ? '📡' : '💾';
-      const modeItem = new AgentItem({
-        agent_id: 'event-bus-mode',
-        name: `⚙️ ${modeIcon} Event Bus: ${this.eventBusMode}`,
-        status: 'active',
-        last_activity: 'now'
-      });
-      modeItem.tooltip = this.eventBusMode === 'pubsub' 
-        ? 'Pub/Sub Mode: Agents communicate via Google Pub/Sub (scalable)'
-        : 'In-Memory Mode: Agents communicate via in-memory events (local)';
-      modeItem.contextValue = 'mode-indicator';
-      
-      const items: AgentItem[] = [modeItem];
-      
-      const agents = await this.contextPilotService.getAgentsStatus();
-      const agentItems = agents.map(agent => new AgentItem(agent));
-      items.push(...agentItems);
-      
-      return items;
-    } catch (error) {
-      // Return default agents if API not implemented yet
-      return [
-        new AgentItem({ agent_id: 'context', name: 'Context Agent', status: 'active', last_activity: 'now' }),
-        new AgentItem({ agent_id: 'spec', name: 'Spec Agent', status: 'active', last_activity: '5m ago' }),
-        new AgentItem({ agent_id: 'development', name: 'Development Agent', status: 'active', last_activity: '3m ago' }),
-        new AgentItem({ agent_id: 'retrospective', name: 'Retrospective Agent', status: 'active', last_activity: '15m ago' }),
-        new AgentItem({ agent_id: 'strategy', name: 'Strategy Agent', status: 'idle', last_activity: '1h ago' }),
-        new AgentItem({ agent_id: 'milestone', name: 'Milestone Agent', status: 'active', last_activity: '10m ago' }),
-        new AgentItem({ agent_id: 'git', name: 'Git Agent', status: 'active', last_activity: '2m ago' }),
-        new AgentItem({ agent_id: 'coach', name: 'Coach Agent', status: 'active', last_activity: 'now' }),
-      ];
+    if (!element) {
+      // Root level - show mode indicator as sub-header
+      try {
+        // Fetch fresh mode before displaying
+        await this.updateEventBusMode();
+        
+        // Add mode indicator as sub-header
+        const modeIcon = this.eventBusMode === 'pubsub' ? '📡' : '💾';
+        const modeItem = new AgentItem({
+          agent_id: 'event-bus-mode',
+          name: `⚙️ ${modeIcon} Event Bus: ${this.eventBusMode}`,
+          status: 'active',
+          last_activity: 'now'
+        });
+        modeItem.tooltip = this.eventBusMode === 'pubsub' 
+          ? 'Pub/Sub Mode: Agents communicate via Google Pub/Sub (scalable)'
+          : 'In-Memory Mode: Agents communicate via in-memory events (local)';
+        modeItem.contextValue = 'mode-indicator';
+        
+        return [modeItem];
+      } catch (error) {
+        console.error('[AgentsProvider] Error:', error);
+        return [];
+      }
+    } else if (element.contextValue === 'mode-indicator') {
+      // Children of mode indicator - show agents
+      try {
+        const agents = await this.contextPilotService.getAgentsStatus();
+        return agents.map(agent => new AgentItem(agent));
+      } catch (error) {
+        // Return default agents if API not implemented yet
+        return [
+          new AgentItem({ agent_id: 'context', name: 'Context Agent', status: 'active', last_activity: 'now' }),
+          new AgentItem({ agent_id: 'spec', name: 'Spec Agent', status: 'active', last_activity: '5m ago' }),
+          new AgentItem({ agent_id: 'development', name: 'Development Agent', status: 'active', last_activity: '3m ago' }),
+          new AgentItem({ agent_id: 'retrospective', name: 'Retrospective Agent', status: 'active', last_activity: '15m ago' }),
+          new AgentItem({ agent_id: 'strategy', name: 'Strategy Agent', status: 'idle', last_activity: '1h ago' }),
+          new AgentItem({ agent_id: 'milestone', name: 'Milestone Agent', status: 'active', last_activity: '10m ago' }),
+          new AgentItem({ agent_id: 'git', name: 'Git Agent', status: 'active', last_activity: '2m ago' }),
+          new AgentItem({ agent_id: 'coach', name: 'Coach Agent', status: 'active', last_activity: 'now' }),
+        ];
+      }
     }
+    
+    return [];
   }
 }
 
