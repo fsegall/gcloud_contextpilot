@@ -19,10 +19,16 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
 
   private async updateStorageMode(): Promise<void> {
     try {
+      console.log('[ProposalsProvider] updateStorageMode - isConnected:', this.contextPilotService.isConnected());
       if (this.contextPilotService.isConnected()) {
         const health = await this.contextPilotService.getHealth();
+        console.log('[ProposalsProvider] health response:', health);
+        console.log('[ProposalsProvider] health.config:', health.config);
         // Backend returns config nested: { config: { storage_mode: "cloud" } }
         this.storageMode = health.config?.storage_mode || 'unknown';
+        console.log('[ProposalsProvider] storageMode set to:', this.storageMode);
+      } else {
+        console.log('[ProposalsProvider] Service not connected, keeping unknown');
       }
     } catch (error) {
       console.error('[ProposalsProvider] Failed to update storage mode:', error);
@@ -44,12 +50,16 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
     if (!element) {
       // Root level - show mode indicator + proposals
       console.log('[ProposalsProvider] Fetching proposals...');
+      
+      // Fetch fresh mode before displaying
+      await this.updateStorageMode();
+      
       const proposals = await this.contextPilotService.getProposals();
       
       // Add mode indicator as first item
       const modeIcon = this.storageMode === 'cloud' ? '☁️' : '📁';
       const modeItem = new ProposalItem(
-        `${modeIcon} Storage Mode: ${this.storageMode}`,
+        `⚙️ ${modeIcon} Storage Mode: ${this.storageMode}`,
         vscode.TreeItemCollapsibleState.None
       );
       modeItem.tooltip = this.storageMode === 'cloud' 

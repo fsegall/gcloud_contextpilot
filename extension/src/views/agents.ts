@@ -17,10 +17,16 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
 
   private async updateEventBusMode(): Promise<void> {
     try {
+      console.log('[AgentsProvider] updateEventBusMode - isConnected:', this.contextPilotService.isConnected());
       if (this.contextPilotService.isConnected()) {
         const health = await this.contextPilotService.getHealth();
+        console.log('[AgentsProvider] health response:', health);
+        console.log('[AgentsProvider] health.config:', health.config);
         // Backend returns config nested: { config: { event_bus_mode: "pubsub" } }
         this.eventBusMode = health.config?.event_bus_mode || 'unknown';
+        console.log('[AgentsProvider] eventBusMode set to:', this.eventBusMode);
+      } else {
+        console.log('[AgentsProvider] Service not connected, keeping unknown');
       }
     } catch (error) {
       console.error('[AgentsProvider] Failed to update event bus mode:', error);
@@ -38,6 +44,9 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
     }
 
     try {
+      // Fetch fresh mode before displaying
+      await this.updateEventBusMode();
+      
       // Add mode indicator as first item
       const modeIcon = this.eventBusMode === 'pubsub' ? '📡' : '💾';
       const modeItem = new AgentItem({

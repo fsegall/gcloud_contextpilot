@@ -19,10 +19,16 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
 
   private async updateRewardsMode(): Promise<void> {
     try {
+      console.log('[RewardsProvider] updateRewardsMode - isConnected:', this.contextPilotService.isConnected());
       if (this.contextPilotService.isConnected()) {
         const health = await this.contextPilotService.getHealth();
+        console.log('[RewardsProvider] health response:', health);
+        console.log('[RewardsProvider] health.config:', health.config);
         // Backend returns config nested: { config: { rewards_mode: "firestore" } }
         this.rewardsMode = health.config?.rewards_mode || 'unknown';
+        console.log('[RewardsProvider] rewardsMode set to:', this.rewardsMode);
+      } else {
+        console.log('[RewardsProvider] Service not connected, keeping unknown');
       }
     } catch (error) {
       console.error('[RewardsProvider] Failed to update rewards mode:', error);
@@ -41,6 +47,9 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
 
     try {
       const userId = 'test-user'; // TODO: Get actual user ID
+      
+      // Fetch fresh mode before displaying
+      await this.updateRewardsMode();
       
       // Add mode indicator as first item
       const modeIcon = this.rewardsMode === 'firestore' ? '🔥' : '⛓️';
