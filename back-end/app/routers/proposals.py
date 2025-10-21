@@ -90,11 +90,11 @@ async def create_proposal(proposal: ChangeProposal = Body(...)):
     }
     ```
     """
-    logger.info(f"Creating proposal: {proposal.proposal_id} by {proposal.agent}")
+    logger.info(f"Creating proposal: {proposal.id} by {proposal.agent_id}")
 
     try:
         # Store in Firestore
-        await proposals_col.document(proposal.proposal_id).set(
+        await proposals_col.document(proposal.id).set(
             proposal.model_dump(mode="json")
         )
 
@@ -103,17 +103,16 @@ async def create_proposal(proposal: ChangeProposal = Body(...)):
         event_bus.publish(
             topic="proposals-events",
             event_type="proposal.created.v1",
-            source=proposal.agent,
+            source=proposal.agent_id,
             data={
-                "proposal_id": proposal.proposal_id,
-                "type": proposal.type,
+                "proposal_id": proposal.id,
                 "title": proposal.title,
-                "user_id": proposal.user_id,
-                "priority": proposal.priority,
+                "agent_id": proposal.agent_id,
+                "workspace_id": proposal.workspace_id,
             },
         )
 
-        logger.info(f"✅ Proposal created: {proposal.proposal_id}")
+        logger.info(f"✅ Proposal created: {proposal.id}")
         return proposal
 
     except Exception as e:
@@ -160,7 +159,7 @@ async def list_proposals(
                 continue
             if status and data.get("status") != status:
                 continue
-            if agent and data.get("agent") != agent:
+            if agent and data.get("agent_id") != agent:
                 continue
             
             proposals.append(ChangeProposal(**data))
