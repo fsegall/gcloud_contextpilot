@@ -41,9 +41,9 @@
         "icon": "$(debug-disconnect)"
       },
       {
-        "command": "contextpilot.viewProposals",
-        "title": "ContextPilot: View Change Proposals",
-        "icon": "$(list-unordered)"
+        "command": "contextpilot.dashboard",
+        "title": "ContextPilot: Dashboard",
+        "icon": "$(dashboard)"
       },
       {
         "command": "contextpilot.approveProposal",

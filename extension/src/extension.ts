@@ -99,8 +99,8 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
-    vscode.commands.registerCommand('contextpilot.viewProposals', () => {
-      vscode.commands.executeCommand('contextpilot.proposals.focus');
+    vscode.commands.registerCommand('contextpilot.dashboard', () => {
+      vscode.commands.executeCommand('workbench.view.extension.contextpilot');
     }),
 
     vscode.commands.registerCommand('contextpilot.approveProposal', async (item: any) => {
