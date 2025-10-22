@@ -20,6 +20,7 @@ import json
 from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics, get_event_bus
 from app.utils.workspace_manager import get_workspace_path
+from app.agents.diff_generator import generate_unified_diff
 
 logger = logging.getLogger(__name__)
 

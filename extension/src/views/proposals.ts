@@ -104,8 +104,9 @@ class ProposalItem extends vscode.TreeItem {
     } else {
       // Proposal constructor
       this.proposal = proposalOrTitle;
-      this.tooltip = proposalOrTitle.description;
-      this.description = `by ${proposalOrTitle.agent_id}`;
+      const fileCount = proposalOrTitle.proposed_changes?.length || 0;
+      this.tooltip = `${proposalOrTitle.description}\n\n💡 Click ➕ to expand files\n💡 Right-click for actions (View Diff, Approve, Reject)`;
+      this.description = `by ${proposalOrTitle.agent_id} • ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
       this.contextValue = 'proposal';
       this.iconPath = new vscode.ThemeIcon('git-pull-request');
     }
@@ -115,11 +116,19 @@ class ProposalItem extends vscode.TreeItem {
       console.log(`[ProposalItem] Creating item with ID: ${this.proposal.id}, Title: ${this.proposal.title}`);
     }
     
-    this.command = {
-      command: 'contextpilot.viewProposalDiff',
-      title: 'View Diff',
-      arguments: [this.proposal?.id]
-    };
+    // Only set command if this is NOT an expandable proposal with changes
+    // This allows the tree to expand/collapse naturally
+    if (this.proposal && this.proposal.proposed_changes && this.proposal.proposed_changes.length > 0) {
+      // Don't set command - let the tree handle expansion
+      // User can right-click -> "View Diff" or click on individual files
+    } else if (this.proposal) {
+      // Proposal with no changes - make clickable
+      this.command = {
+        command: 'contextpilot.viewProposalDiff',
+        title: 'View Diff',
+        arguments: [this.proposal.id]
+      };
+    }
   }
 }
 
@@ -129,16 +138,22 @@ class ProposalChangeItem extends vscode.TreeItem {
       file_path: string;
       change_type: string;
       description: string;
+      content?: string;
     }
   ) {
     super(change.file_path, vscode.TreeItemCollapsibleState.None);
-    this.tooltip = change.description;
+    this.tooltip = `${change.change_type}: ${change.description}`;
     this.description = change.change_type;
     this.iconPath = new vscode.ThemeIcon(
       change.change_type === 'create' ? 'new-file' :
       change.change_type === 'update' ? 'edit' :
       'trash'
     );
+    this.contextValue = 'proposalChange';
+    
+    // Don't set command - files might not exist yet
+    // User can view the full diff by clicking the proposal itself
+    // or use right-click context menu actions
   }
 }
 
