@@ -349,14 +349,34 @@ export async function viewProposalDiff(
       return;
     }
     
-    // Create virtual document with diff
+    // Generate content - try diff first, fallback to description + changes
+    let content = proposal.diff?.content || '';
+    
+    if (!content) {
+      // Fallback: generate pseudo-diff from proposed_changes
+      content = `# ${proposal.title}\n\n${proposal.description}\n\n`;
+      content += `## Proposed Changes:\n\n`;
+      
+      for (const change of proposal.proposed_changes) {
+        content += `### ${change.file_path} (${change.change_type})\n\n`;
+        content += `${change.description}\n\n`;
+        
+        if (change.diff) {
+          content += `\`\`\`diff\n${change.diff}\n\`\`\`\n\n`;
+        } else if (change.after) {
+          content += `**New Content:**\n\`\`\`\n${change.after}\n\`\`\`\n\n`;
+        }
+      }
+    }
+    
+    // Create virtual document
     const uri = vscode.Uri.parse(`contextpilot-diff:${proposalId}.diff`);
-    const content = proposal.diff?.content || 'No diff available';
+    const language = proposal.diff?.content ? 'diff' : 'markdown';
     
     // Show diff in editor
     const doc = await vscode.workspace.openTextDocument({
       content: content,
-      language: 'diff'
+      language: language
     });
     
     await vscode.window.showTextDocument(doc, { preview: false });

@@ -838,6 +838,14 @@ Implementing these changes will:
 
                 # Generate proposal ID
                 proposal_id = f"retro-proposal-{retrospective['retrospective_id']}"
+                
+                # Generate diff for the new file
+                file_path = f"docs/agent_improvements_{retrospective['retrospective_id']}.md"
+                diff_content = generate_unified_diff(
+                    file_path=file_path,
+                    old_content="",  # New file - no old content
+                    new_content=proposal_description
+                )
 
                 proposal_data = {
                     "id": proposal_id,
@@ -846,12 +854,17 @@ Implementing these changes will:
                     "agent_id": "retrospective",
                     "title": proposal_title,
                     "description": proposal_description,
+                    "diff": {
+                        "format": "unified",
+                        "content": diff_content
+                    },
                     "proposed_changes": [
                         {
-                            "file_path": f"docs/agent_improvements_{retrospective['retrospective_id']}.md",
+                            "file_path": file_path,
                             "change_type": "create",
                             "description": "Agent improvement action plan",
                             "after": proposal_description,
+                            "diff": diff_content,
                         }
                     ],
                     "status": "pending",
@@ -872,6 +885,14 @@ Implementing these changes will:
                 proposal_id = f"retro-proposal-{retrospective['retrospective_id']}"
                 proposals_dir = Path(self.workspace_path) / "proposals"
                 proposals_dir.mkdir(exist_ok=True)
+                
+                # Generate diff for the new file
+                file_path = f"docs/agent_improvements_{retrospective['retrospective_id']}.md"
+                diff_content = generate_unified_diff(
+                    file_path=file_path,
+                    old_content="",  # New file - no old content
+                    new_content=proposal_description
+                )
 
                 proposal_data = {
                     "id": proposal_id,
@@ -880,12 +901,17 @@ Implementing these changes will:
                     "agent_id": "retrospective",
                     "title": proposal_title,
                     "description": proposal_description,
+                    "diff": {
+                        "format": "unified",
+                        "content": diff_content
+                    },
                     "proposed_changes": [
                         {
-                            "file_path": f"docs/agent_improvements_{retrospective['retrospective_id']}.md",
+                            "file_path": file_path,
                             "change_type": "create",
                             "description": "Agent improvement action plan",
                             "after": proposal_description,
+                            "diff": diff_content,
                         }
                     ],
                     "status": "pending",
