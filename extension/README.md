@@ -63,11 +63,19 @@ code --install-extension contextpilot-0.1.0.vsix
 ## 🏆 Rewards & Achievements
 
 ### **CPT Earning Actions:**
-- ✅ **Approve Proposal**: +10 CPT
-- 📚 **Create Documentation**: +25 CPT
-- 🔧 **Fix Issues**: +15 CPT
-- 🔥 **Daily Streak**: +5 CPT
-- 🏆 **Week Warrior**: +100 CPT (7-day streak)
+
+**✅ Active Now:**
+- 🎯 **Approve Proposal**: +25 CPT
+- ⌨️ **CLI Actions**: +10 CPT
+
+**🚀 Roadmap:**
+- 🏆 **Milestone Completion**: +20 CPT
+- ✅ **Strategy Accepted**: +15 CPT
+- 🧪 **Add Tests**: +12 CPT
+- 🎓 **Coach Completion**: +10 CPT
+- 📚 **Doc Updates**: +8 CPT
+- 👀 **Code Review**: +7 CPT
+- 📝 **Spec Commits**: +5 CPT
 
 ### **Achievement Badges:**
 - 🎯 **First Approval**: Approve your first proposal

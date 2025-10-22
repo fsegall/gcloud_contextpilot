@@ -70,7 +70,7 @@ export async function approveProposal(
       return;
     }
 
-    // 4. Approve in backend (updates Firestore)
+    // 4. Approve in backend (updates Firestore and awards CPTs automatically)
     console.log(`[approveProposal] Marking as approved in backend: ${proposalId}`);
     const result = await service.approveProposal(proposalId);
     if (!result.ok) {
@@ -78,16 +78,14 @@ export async function approveProposal(
       return;
     }
 
-    // 5. Add rewards
+    // 5. Get updated balance and show reward notification
     try {
-      const { RewardsService } = await import('../services/rewards');
-      const rewards = new RewardsService();
-      const userId = 'local_dev'; // TODO: Get actual user ID
-      const userReward = await rewards.addCPT(userId, 10, 'approve_proposal');
+      const balanceData = await service.getBalance();
+      const rewardPoints = 25; // Backend awards 25 CPT for proposal approval
       
-      // Show reward notification
+      // Show reward notification with actual balance from backend
       vscode.window.showInformationMessage(
-        `🎉 +10 CPT! Total: ${userReward.cptBalance} CPT`,
+        `🎉 +${rewardPoints} CPT! Total: ${balanceData.balance} CPT`,
         'View Rewards'
       ).then(selection => {
         if (selection === 'View Rewards') {
@@ -95,8 +93,9 @@ export async function approveProposal(
         }
       });
     } catch (rewardError) {
-      console.warn('[approveProposal] Reward system error:', rewardError);
+      console.warn('[approveProposal] Failed to fetch updated balance:', rewardError);
       // Don't fail the approval for reward errors
+      vscode.window.showInformationMessage('✅ Proposal approved!');
     }
     
     // 6. Apply changes locally
@@ -205,7 +204,7 @@ export async function askCoach(
   coachProvider: CoachProvider
 ): Promise<void> {
   const question = await vscode.window.showInputBox({
-    prompt: 'Ask the Coach Agent anything about your project',
+    prompt: 'Ask the Strategy Coach Agent anything about your project',
     placeHolder: 'How can I improve my code structure?',
   });
 
@@ -790,38 +789,25 @@ export async function triggerRetrospective(service: ContextPilotService): Promis
           
           panel.webview.html = getRetrospectiveWebviewContent(retro, topic);
           
-          // Also show notification with summary
+          // Show completion notification (non-blocking)
           const insightCount = retro.insights?.length || 0;
           const actionCount = retro.action_items?.length || 0;
           const proposalCreated = retro.proposal_id ? true : false;
           
           const message = proposalCreated
-            ? `✅ Retrospective complete! ${insightCount} insights, ${actionCount} actions → Proposal created!`
+            ? `✅ Retrospective complete! ${insightCount} insights, ${actionCount} actions → Check Proposals view!`
             : `✅ Retrospective complete! ${insightCount} insights, ${actionCount} actions`;
           
-          const buttons = proposalCreated
-            ? ['View Proposal', 'View Full Report', 'OK']
-            : ['View Full Report', 'OK'];
+          // Show simple notification that auto-dismisses
+          vscode.window.showInformationMessage(message);
           
-          const result = await vscode.window.showInformationMessage(message, ...buttons);
-          
-          if (result === 'View Proposal' && retro.proposal_id) {
-            // Open the proposal in the proposals view
-            await vscode.commands.executeCommand('contextpilot.viewProposalDiff', retro.proposal_id);
-          } else if (result === 'View Full Report') {
-            // Open the saved markdown file
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (workspaceRoot) {
-              const retroPath = `${workspaceRoot}/workspaces/${workspaceId}/retrospectives/${retro.retrospective_id}.md`;
-              try {
-                const uri = vscode.Uri.file(retroPath);
-                const doc = await vscode.workspace.openTextDocument(uri);
-                await vscode.window.showTextDocument(doc);
-              } catch (error) {
-                vscode.window.showWarningMessage('Retrospective saved but could not open file');
-              }
-            }
+          // Refresh proposals view to show new proposal
+          if (proposalCreated) {
+            vscode.commands.executeCommand('contextpilot.refreshProposals');
           }
+          
+          // No await - let user continue working
+          return;
           
         } else {
           vscode.window.showErrorMessage('Failed to conduct retrospective');

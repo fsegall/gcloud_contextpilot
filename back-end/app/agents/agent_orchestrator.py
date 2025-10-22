@@ -32,7 +32,14 @@ class AgentOrchestrator:
         agent_imports = [
             ("spec", "app.agents.spec_agent", "SpecAgent"),
             ("git", "app.agents.git_agent", "GitAgent"),
-            ("strategy", "app.agents.strategy_agent", "StrategyAgent"),
+            ("development", "app.agents.development_agent", "DevelopmentAgent"),
+            ("context", "app.agents.context_agent", "ContextAgent"),
+            (
+                "coach",
+                "app.agents.coach_agent",
+                "CoachAgent",
+            ),  # Strategy Coach (unified)
+            ("milestone", "app.agents.milestone_agent", "MilestoneAgent"),
         ]
 
         for agent_id, module_name, class_name in agent_imports:
@@ -81,11 +88,17 @@ class AgentOrchestrator:
                     )
                 elif agent_id == "git":
                     agent = agent_class(workspace_id=self.workspace_id)
-                elif agent_id == "strategy":
-                    # Strategy agent needs project_id, use workspace_id as fallback
+                elif agent_id == "development":
+                    # Development agent needs workspace_path and workspace_id
                     agent = agent_class(
                         workspace_path=str(self.workspace_path),
-                        project_id=self.workspace_id,
+                        workspace_id=self.workspace_id,
+                    )
+                elif agent_id in ["context", "coach", "milestone"]:
+                    # New agents need workspace_path and workspace_id
+                    agent = agent_class(
+                        workspace_path=str(self.workspace_path),
+                        workspace_id=self.workspace_id,
                     )
                 else:
                     # Default: try both parameters

@@ -2,7 +2,7 @@
   "name": "contextpilot",
   "displayName": "ContextPilot by Livre Solutions",
   "description": "AI-powered context management with multi-agent system and blockchain rewards. By Livre Solutions.",
-  "version": "0.4.0",
+  "version": "0.4.3",
   "publisher": "livresoltech",
   "icon": "assets/icon.png",
   "repository": {

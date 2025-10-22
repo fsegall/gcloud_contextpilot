@@ -305,6 +305,7 @@ class SpecAgent(BaseAgent):
         # 4. Create proposal with diff
         proposal = {
             "id": proposal_id,
+            "user_id": "system",  # Agent-generated proposals use "system" user_id
             "agent_id": "spec",
             "workspace_id": self.workspace_id,
             "title": f"Docs issue: {issue['file']}",

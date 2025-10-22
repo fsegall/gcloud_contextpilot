@@ -667,7 +667,7 @@ def health_check():
     """Health check for extension connectivity"""
     logger.info("Health check called")
     config = get_config()
-    
+
     return {
         "status": "ok",
         "version": "2.1.0",
@@ -678,13 +678,12 @@ def health_check():
             "event_bus_mode": config.event_bus_mode.value,
         },
         "agents": [
-            "context",
             "spec",
-            "strategy",
-            "milestone",
             "git",
-            "coach",
             "development",
+            "context",
+            "coach",  # Strategy Coach Agent (unified)
+            "milestone",
             "retrospective",
         ],
     }
@@ -711,86 +710,267 @@ def get_abuse_stats():
 
 
 @app.get("/agents/status")
-def get_agents_status():
-    """Get status of all agents (mock for now)"""
-    logger.info("GET /agents/status called")
-    return [
-        {
-            "agent_id": "context",
-            "name": "Context Agent",
-            "status": "active",
-            "last_activity": "Just now",
-        },
-        {
-            "agent_id": "spec",
-            "name": "Spec Agent",
-            "status": "active",
-            "last_activity": "5 minutes ago",
-        },
-        {
-            "agent_id": "strategy",
-            "name": "Strategy Agent",
-            "status": "idle",
-            "last_activity": "1 hour ago",
-        },
-        {
-            "agent_id": "milestone",
-            "name": "Milestone Agent",
-            "status": "active",
-            "last_activity": "10 minutes ago",
-        },
-        {
-            "agent_id": "git",
-            "name": "Git Agent",
-            "status": "active",
-            "last_activity": "2 minutes ago",
-        },
-        {
-            "agent_id": "coach",
-            "name": "Coach Agent",
-            "status": "active",
-            "last_activity": "Just now",
-        },
-        {
-            "agent_id": "development",
-            "name": "Development Agent",
-            "status": "active",
-            "last_activity": "3 minutes ago",
-        },
-        {
-            "agent_id": "retrospective",
-            "name": "Retrospective Agent",
-            "status": "active",
-            "last_activity": "15 minutes ago",
-        },
-    ]
+def get_agents_status(workspace_id: str = Query(default="default")):
+    """
+    Get real-time status of all agents from AgentOrchestrator.
+
+    Returns metrics from actual agent state files.
+    """
+    logger.info(f"GET /agents/status called for workspace: {workspace_id}")
+
+    try:
+        from app.agents.agent_orchestrator import AgentOrchestrator
+        from datetime import datetime, timezone
+
+        # Get workspace path
+        workspace_path = get_workspace_path(workspace_id)
+
+        # Initialize orchestrator
+        orchestrator = AgentOrchestrator(
+            workspace_id=workspace_id, workspace_path=str(workspace_path)
+        )
+
+        # Initialize all agents to get their state
+        orchestrator.initialize_agents()
+
+        # Get real metrics from agents
+        agent_metrics = orchestrator.get_agent_metrics()
+
+        # Agent metadata (names, emojis)
+        agent_info = {
+            "spec": {"name": "Spec Agent", "emoji": "📋"},
+            "git": {"name": "Git Agent", "emoji": "🔧"},
+            "development": {"name": "Development Agent", "emoji": "💻"},
+            "context": {"name": "Context Agent", "emoji": "📦"},
+            "coach": {"name": "Strategy Coach Agent", "emoji": "🎯"},
+            "milestone": {"name": "Milestone Agent", "emoji": "🏁"},
+            "retrospective": {"name": "Retrospective Agent", "emoji": "🔄"},
+        }
+
+        # Build response with real data
+        result = []
+        for agent_id, info in agent_info.items():
+            metrics = agent_metrics.get(agent_id, {})
+
+            # Determine status based on metrics
+            events_processed = metrics.get("events_processed", 0)
+            errors = metrics.get("errors", 0)
+
+            if errors > 0:
+                status = "error"
+            elif events_processed == 0:
+                status = "idle"
+            else:
+                status = "active"
+
+            # Get last activity from agent state
+            agent = orchestrator.agents.get(agent_id)
+            last_activity = "Never"
+            if agent and hasattr(agent, "state"):
+                last_updated = agent.state.get("last_updated")
+                if last_updated:
+                    try:
+                        last_time = datetime.fromisoformat(
+                            last_updated.replace("Z", "+00:00")
+                        )
+                        now = datetime.now(timezone.utc)
+                        delta = now - last_time.replace(tzinfo=timezone.utc)
+
+                        if delta.total_seconds() < 60:
+                            last_activity = "Just now"
+                        elif delta.total_seconds() < 3600:
+                            mins = int(delta.total_seconds() / 60)
+                            last_activity = (
+                                f"{mins} minute{'s' if mins > 1 else ''} ago"
+                            )
+                        elif delta.total_seconds() < 86400:
+                            hours = int(delta.total_seconds() / 3600)
+                            last_activity = (
+                                f"{hours} hour{'s' if hours > 1 else ''} ago"
+                            )
+                        else:
+                            days = int(delta.total_seconds() / 86400)
+                            last_activity = f"{days} day{'s' if days > 1 else ''} ago"
+                    except Exception as e:
+                        logger.warning(
+                            f"Error parsing last_updated for {agent_id}: {e}"
+                        )
+
+            result.append(
+                {
+                    "agent_id": agent_id,
+                    "name": info["name"],
+                    "status": status,
+                    "last_activity": last_activity,
+                    "metrics": {
+                        "events_processed": events_processed,
+                        "events_published": metrics.get("events_published", 0),
+                        "errors": errors,
+                    },
+                }
+            )
+
+        # Cleanup
+        orchestrator.shutdown_agents()
+
+        logger.info(f"[agents/status] Returned status for {len(result)} agents")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting agent status: {e}", exc_info=True)
+        # Fallback to basic structure if orchestrator fails
+        return [
+            {
+                "agent_id": "spec",
+                "name": "Spec Agent",
+                "status": "unknown",
+                "last_activity": "Unknown",
+            },
+            {
+                "agent_id": "git",
+                "name": "Git Agent",
+                "status": "unknown",
+                "last_activity": "Unknown",
+            },
+            {
+                "agent_id": "development",
+                "name": "Development Agent",
+                "status": "unknown",
+                "last_activity": "Unknown",
+            },
+            {
+                "agent_id": "context",
+                "name": "Context Agent",
+                "status": "unknown",
+                "last_activity": "Unknown",
+            },
+            {
+                "agent_id": "coach",
+                "name": "Strategy Coach Agent",
+                "status": "unknown",
+                "last_activity": "Unknown",
+            },
+            {
+                "agent_id": "milestone",
+                "name": "Milestone Agent",
+                "status": "unknown",
+                "last_activity": "Unknown",
+            },
+            {
+                "agent_id": "retrospective",
+                "name": "Retrospective Agent",
+                "status": "unknown",
+                "last_activity": "Unknown",
+            },
+        ]
 
 
 @app.post("/agents/coach/ask")
-def coach_ask(user_id: str = Body(...), question: str = Body(...)):
-    """Ask the coach agent a question (mock for now)"""
-    logger.info(f"POST /agents/coach/ask - user: {user_id}, question: {question}")
-    # TODO: Integrate with actual coach agent
-    mock_answer = f"Great question! For '{question}', I recommend: 1) Break it into smaller tasks, 2) Write tests first, 3) Document as you go. Let me know if you need more specific guidance!"
-    return {"answer": mock_answer}
+async def coach_ask(
+    user_id: str = Body(...),
+    question: str = Body(...),
+    workspace_id: str = Body(default="default"),
+):
+    """Ask the Strategy Coach Agent a question (integrated with real agent)"""
+    logger.info(
+        f"POST /agents/coach/ask - user: {user_id}, workspace: {workspace_id}, question: {question}"
+    )
+
+    try:
+        from app.agents.coach_agent import CoachAgent
+
+        workspace_path = str(get_workspace_path(workspace_id))
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
+
+        # Initialize Coach Agent
+        coach = CoachAgent(
+            workspace_path=workspace_path,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+
+        # Get answer from coach (using Gemini API if available)
+        gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+        if gemini_api_key:
+            # Use LLM for intelligent response
+            try:
+                import google.generativeai as genai
+
+                genai.configure(api_key=gemini_api_key)
+                model = genai.GenerativeModel("gemini-1.5-flash")
+
+                # Build context-aware prompt
+                context_info = f"User question: {question}\n\n"
+                context_info += "As the Strategy Coach Agent, provide strategic, technical, and motivational guidance. "
+                context_info += "Focus on: 1) Strategic direction, 2) Code quality best practices, 3) Practical next steps."
+
+                response = model.generate_content(context_info)
+                answer = response.text
+
+            except Exception as llm_error:
+                logger.warning(f"LLM generation failed, using fallback: {llm_error}")
+                answer = _fallback_coach_response(question)
+        else:
+            logger.warning("No Gemini API key found, using fallback response")
+            answer = _fallback_coach_response(question)
+
+        return {"answer": answer, "agent_id": "coach", "workspace_id": workspace_id}
+
+    except Exception as e:
+        logger.error(f"Error in coach agent: {str(e)}", exc_info=True)
+        # Fallback to helpful error message
+        return {
+            "answer": f"I encountered an issue processing your question. Here's what I'd generally recommend: {_fallback_coach_response(question)}",
+            "error": str(e),
+        }
+
+
+def _fallback_coach_response(question: str) -> str:
+    """Generate a helpful fallback response when LLM is unavailable"""
+    question_lower = question.lower()
+
+    if any(
+        word in question_lower
+        for word in ["test", "testing", "qa", "quality assurance"]
+    ):
+        return (
+            "Great question about testing! I recommend: 1) Start with unit tests for critical logic, "
+            "2) Use integration tests for API endpoints, 3) Consider TDD for complex features. "
+            "What specific area would you like to test first?"
+        )
+    elif any(word in question_lower for word in ["refactor", "clean", "improve"]):
+        return (
+            "Excellent focus on code quality! For refactoring: 1) Identify code smells (long functions, duplicates), "
+            "2) Write tests before refactoring, 3) Refactor in small steps with frequent commits. "
+            "Would you like me to analyze your codebase for issues?"
+        )
+    elif any(
+        word in question_lower for word in ["architecture", "design", "structure"]
+    ):
+        return (
+            "Great architectural question! Consider: 1) Separation of concerns (keep business logic separate), "
+            "2) SOLID principles, 3) Ports and Adapters pattern for external dependencies. "
+            "What part of the architecture are you working on?"
+        )
+    elif any(word in question_lower for word in ["start", "begin", "first", "next"]):
+        return (
+            "Let's break this down! Here's a strategic approach: 1) Define clear success criteria, "
+            "2) Break into smaller, testable milestones, 3) Start with the riskiest/most uncertain part. "
+            "What's the most important outcome you're aiming for?"
+        )
+    else:
+        return (
+            f"For '{question}', I recommend: 1) Break it into smaller, concrete tasks, "
+            "2) Identify any risks or unknowns early, 3) Define what 'done' looks like. "
+            "Would you like me to help you create a specific action plan?"
+        )
 
 
 # Mock endpoint removed - no more fallbacks to mask real issues
-
-
-@app.get("/rewards/balance")
-def get_balance(user_id: str = Query("test")):
-    """Get rewards balance for user"""
-    logger.info(f"GET /rewards/balance called for user: {user_id}")
-    # For now, return mock data (integrate with actual rewards system later)
-    return {"balance": 150, "total_earned": 300, "pending_rewards": 50}
-
-
-@app.get("/rewards/balance/mock")
-def get_mock_balance(user_id: str = Query("test")):
-    """Get mock rewards balance for testing"""
-    logger.info(f"GET /rewards/balance/mock called for user: {user_id}")
-    return {"balance": 150, "total_earned": 300, "pending_rewards": 50}
 
 
 # ===== GIT AGENT ENDPOINTS =====
@@ -1042,23 +1222,23 @@ async def list_proposals_local(
 ):
     """List proposals (LOCAL mode - file-based storage)"""
     config = get_config()
-    
+
     if config.is_cloud_storage:
         raise HTTPException(
             status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
         )
-    
+
     paths = _proposals_paths(workspace_id)
     proposals = _read_proposals_from_dir(paths["dir"])
-    
+
     if not proposals:
         proposals = _read_proposals(paths["json"])
-    
+
     # Filter by status if provided
     if status:
         proposals = [p for p in proposals if p.get("status") == status]
-    
+
     return {"proposals": proposals, "total": len(proposals)}
 
 
@@ -1066,26 +1246,26 @@ async def list_proposals_local(
 async def get_proposal_local(proposal_id: str, workspace_id: str = Query("default")):
     """Get proposal by ID (LOCAL mode - file-based storage)"""
     config = get_config()
-    
+
     if config.is_cloud_storage:
         raise HTTPException(
             status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
         )
-    
+
     paths = _proposals_paths(workspace_id)
     proposal_file = paths["dir"] / f"{proposal_id}.json"
-    
+
     if proposal_file.exists():
         with open(proposal_file, "r") as f:
             return json.load(f)
-    
+
     # Fallback to proposals.json
     proposals = _read_proposals(paths["json"])
     for p in proposals:
         if p.get("id") == proposal_id:
             return p
-    
+
     raise HTTPException(status_code=404, detail="Proposal not found")
 
 
@@ -1093,15 +1273,15 @@ async def get_proposal_local(proposal_id: str, workspace_id: str = Query("defaul
 async def create_proposals_local(workspace_id: str = Query("default")):
     """Generate proposals from SpecAgent (LOCAL mode - file-based storage)"""
     config = get_config()
-    
+
     if config.is_cloud_storage:
         raise HTTPException(
             status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
         )
-    
+
     logger.info(f"POST /proposals/create - workspace: {workspace_id}")
-    
+
     try:
         workspace_path = str(get_workspace_path(workspace_id))
         agent = SpecAgent(
@@ -1110,21 +1290,21 @@ async def create_proposals_local(workspace_id: str = Query("default")):
             project_id=config.gcp_project_id,
         )
         issues: List[Dict] = await agent.validate_docs()
-        
+
         # Create proposals using agent's method
         new_proposals = []
         for issue in issues:
             proposal_id = await agent._create_proposal_for_issue(issue)
             if proposal_id:
                 new_proposals.append(proposal_id)
-        
+
         # Count total proposals
         paths = _proposals_paths(workspace_id)
         proposals = _read_proposals_from_dir(paths["dir"])
         if not proposals:
             proposals = _read_proposals(paths["json"])
         total = len(proposals)
-        
+
         return {"created": len(new_proposals), "total": total}
     except Exception as e:
         logger.error(f"Error creating proposals: {str(e)}")
@@ -1167,19 +1347,21 @@ async def get_context_summary(
 
 
 @app.post("/proposals/{proposal_id}/approve")
-async def approve_proposal_local(proposal_id: str, workspace_id: str = Query("default")):
+async def approve_proposal_local(
+    proposal_id: str, workspace_id: str = Query("default")
+):
     """Approve proposal (LOCAL mode - file-based storage)"""
     config = get_config()
-    
+
     if config.is_cloud_storage:
         raise HTTPException(
             status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
         )
-    
+
     # LOCAL mode: file-based storage
     paths = _proposals_paths(workspace_id)
-    
+
     # Try individual file first
     proposal_file = paths["dir"] / f"{proposal_id}.json"
     if proposal_file.exists():
@@ -1189,17 +1371,17 @@ async def approve_proposal_local(proposal_id: str, workspace_id: str = Query("de
         # Fallback to proposals.json
         proposals = _read_proposals(paths["json"])
         prop = next((p for p in proposals if p.get("id") == proposal_id), None)
-    
+
     if not prop:
         return {"status": "not_found"}
-    
+
     summary = prop.get("description", "")
     try:
         commit_hash = None
         if _auto_approve_enabled():
             try:
                 from app.agents.git_agent import commit_via_agent
-                
+
                 commit_hash = await commit_via_agent(
                     workspace_id=workspace_id,
                     event_type="proposal.approved",
@@ -1208,141 +1390,18 @@ async def approve_proposal_local(proposal_id: str, workspace_id: str = Query("de
                 )
             except Exception as git_error:
                 logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
-        
+
         # Update proposal status
         prop["status"] = "approved"
         if commit_hash:
             prop["commit_hash"] = commit_hash
-        
+
         # Save
         if proposal_file.exists():
             with open(proposal_file, "w") as f:
                 json.dump(prop, f, indent=2)
         else:
             _write_proposals(paths["json"], proposals)
-        
-        # Update MD file
-        md_path = paths["dir"] / f"{proposal_id}.md"
-        if md_path.exists():
-            md_content = md_path.read_text(encoding="utf-8")
-            md_content += f"\n\n---\n**Status:** approved\n"
-            if commit_hash:
-                md_content += f"**Commit:** {commit_hash}\n"
-            md_path.write_text(md_content, encoding="utf-8")
-        
-        return {
-            "status": "approved",
-            "commit_hash": commit_hash,
-            "auto_committed": bool(commit_hash),
-        }
-    except Exception as e:
-        logger.error(f"Error approving proposal: {str(e)}")
-        return {"status": "error", "error": str(e)}
-
-
-# LEGACY CLOUD CODE - REMOVED, NOW IN proposals.router
-"""
-async def approve_proposal_cloud(proposal_id: str, workspace_id: str = Query("default")):
-    # OLD Firestore implementation
-    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
-        try:
-            from app.repositories.proposal_repository import get_proposal_repository
-
-            repo = get_proposal_repository()
-            prop = repo.get(proposal_id)
-
-            if not prop:
-                return {"status": "not_found"}
-
-            summary = prop.get("description", "")
-            commit_hash = None
-
-            if _auto_approve_enabled():
-                try:
-                    from app.agents.git_agent import commit_via_agent
-
-                    commit_hash = await commit_via_agent(
-                        workspace_id=workspace_id,
-                        event_type="proposal.approved",
-                        data={
-                            "proposal_id": proposal_id,
-                            "workspace_id": workspace_id,
-                            "changes_summary": summary,
-                        },
-                        source="spec-agent",
-                    )
-                except Exception as git_error:
-                    logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
-                    # Continue with approval even if Git fails
-
-            # Update status in Firestore
-            repo.approve(proposal_id, commit_hash)
-
-            # Trigger GitHub Actions workflow for cloud deployment
-            github_triggered = False
-            if os.getenv("ENVIRONMENT") == "production" and not commit_hash:
-                try:
-                    github_triggered = await _trigger_github_workflow(proposal_id, prop)
-                    logger.info(
-                        f"[API] GitHub Actions triggered for proposal {proposal_id}"
-                    )
-                except Exception as gh_error:
-                    logger.warning(f"[API] GitHub trigger failed: {gh_error}")
-
-            return {
-                "status": "approved",
-                "commit_hash": commit_hash,
-                "auto_committed": bool(commit_hash),
-                "github_triggered": github_triggered,
-            }
-        except Exception as e:
-            logger.error(f"[API] Firestore approve error: {e}")
-            return {"status": "error", "error": str(e)}
-
-    # Fallback to local file storage
-    paths = _proposals_paths(workspace_id)
-
-    # Try to read from individual file first (new format)
-    proposal_file = paths["dir"] / f"{proposal_id}.json"
-    if proposal_file.exists():
-        with open(proposal_file, "r") as f:
-            prop = json.load(f)
-    else:
-        # Fallback to proposals.json (legacy)
-        proposals = _read_proposals(paths["json"])
-        prop = next((p for p in proposals if p.get("id") == proposal_id), None)
-
-    if not prop:
-        return {"status": "not_found"}
-
-    summary = prop.get("description", "")
-    try:
-        commit_hash = None
-        if _auto_approve_enabled():
-            try:
-                from app.agents.git_agent import commit_via_agent
-
-                commit_hash = await commit_via_agent(
-                    workspace_id=workspace_id,
-                    event_type="proposal.approved",
-                    data={"proposal_id": proposal_id, "changes_summary": summary},
-                    source="spec-agent",
-                )
-            except Exception as git_error:
-                logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
-                # Continue with approval even if Git fails
-        # Update proposal status
-        prop["status"] = "approved"
-        if commit_hash:
-            prop["commit_hash"] = commit_hash
-
-        # Save to individual file if it exists
-        if proposal_file.exists():
-            with open(proposal_file, "w") as f:
-                json.dump(prop, f, indent=2)
-        else:
-            # Save to proposals.json (legacy)
-            _write_proposals(paths["json"], proposals)
 
         # Update MD file
         md_path = paths["dir"] / f"{proposal_id}.md"
@@ -1361,40 +1420,38 @@ async def approve_proposal_cloud(proposal_id: str, workspace_id: str = Query("de
     except Exception as e:
         logger.error(f"Error approving proposal: {str(e)}")
         return {"status": "error", "error": str(e)}
-"""
+
 
 @app.post("/proposals/{proposal_id}/reject")
 async def reject_proposal_local(
-    proposal_id: str,
-    workspace_id: str = Query("default"),
-    reason: str = Body("")
+    proposal_id: str, workspace_id: str = Query("default"), reason: str = Body("")
 ):
     """Reject proposal (LOCAL mode - file-based storage)"""
     config = get_config()
-    
+
     if config.is_cloud_storage:
         raise HTTPException(
             status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode."
+            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
         )
-    
+
     paths = _proposals_paths(workspace_id)
     proposals = _read_proposals(paths["json"])
     prop = next((p for p in proposals if p.get("id") == proposal_id), None)
-    
+
     if not prop:
         return {"status": "not_found"}
-    
+
     prop["status"] = "rejected"
     prop["reason"] = reason
     _write_proposals(paths["json"], proposals)
-    
+
     md_path = paths["dir"] / f"{proposal_id}.md"
     if md_path.exists():
         md_content = md_path.read_text(encoding="utf-8")
         md_content += f"\nStatus: rejected\nReason: {reason}\n"
         md_path.write_text(md_content, encoding="utf-8")
-    
+
     return {"status": "rejected"}
 
 

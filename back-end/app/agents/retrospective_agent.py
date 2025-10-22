@@ -387,12 +387,8 @@ class RetrospectiveAgent(BaseAgent):
         try:
             import requests
 
-            # Define agent roles and their expertise
+            # Define agent roles and their expertise (matching actual registered agents)
             agents = [
-                (
-                    "📦 Context Agent",
-                    "context management, knowledge indexing, and semantic retrieval",
-                ),
                 (
                     "📋 Spec Agent",
                     "technical specifications, requirements, and validation criteria",
@@ -402,16 +398,20 @@ class RetrospectiveAgent(BaseAgent):
                     "version control, code changes, and commit automation",
                 ),
                 (
-                    "🎯 Coach Agent",
-                    "developer guidance, best practices, and team collaboration",
+                    "💻 Development Agent",
+                    "code implementation, proposal generation with AI",
+                ),
+                (
+                    "📦 Context Agent",
+                    "context management, knowledge indexing, and semantic retrieval",
+                ),
+                (
+                    "🎯 Strategy Coach Agent",
+                    "strategic direction, code quality analysis, and motivational progress tracking",
                 ),
                 (
                     "🏁 Milestone Agent",
                     "project progress tracking, deliverables, and completion criteria",
-                ),
-                (
-                    "🧠 Strategy Agent",
-                    "long-term planning, architectural decisions, and system evolution",
                 ),
             ]
 
@@ -425,12 +425,12 @@ Generate a brief (1-2 sentence) perspective from EACH of the following agents:
 {chr(10).join(f"{i+1}. {name} - Expertise: {expertise}" for i, (name, expertise) in enumerate(agents))}
 
 Format your response as exactly 6 lines, one per agent, like:
-📦 Context Agent: [perspective]
 📋 Spec Agent: [perspective]
 🔧 Git Agent: [perspective]
-🎯 Coach Agent: [perspective]
+💻 Development Agent: [perspective]
+📦 Context Agent: [perspective]
+🎯 Strategy Coach Agent: [perspective]
 🏁 Milestone Agent: [perspective]
-🧠 Strategy Agent: [perspective]
 
 Make each perspective specific, actionable, and focused on that agent's role.
 NO preamble, just the 6 lines."""
@@ -501,18 +501,18 @@ NO preamble, just the 6 lines."""
     def _fallback_agent_discussion(self, topic: str) -> List[str]:
         """Fallback hardcoded discussion when LLM is unavailable"""
         return [
-            f"📦 Context Agent: '{topic}' relates to our context management strategy. "
-            "We should ensure new content is properly indexed and tagged for retrieval.",
             f"📋 Spec Agent: Regarding '{topic}', we need clear specifications for "
             "content inclusion criteria and validation rules.",
             f"🔧 Git Agent: For '{topic}', we should implement automated detection "
-            "of new .md files and trigger context updates on commits.",
-            f"🎯 Coach Agent: '{topic}' suggests we need better developer guidance "
-            "on when and how to add documentation to context.",
-            f"🏁 Milestone Agent: '{topic}' indicates we should track documentation "
-            "completeness as part of our milestone criteria.",
-            f"🧠 Strategy Agent: '{topic}' requires a strategic approach to content "
-            "curation and knowledge management across the project lifecycle.",
+            "of new files and trigger updates on commits.",
+            f"💻 Development Agent: I can generate implementation code for '{topic}' "
+            "using AI analysis of existing patterns.",
+            f"📦 Context Agent: '{topic}' relates to our context management strategy. "
+            "We should ensure new content is properly indexed and tagged for retrieval.",
+            f"🎯 Strategy Coach Agent: Let's align '{topic}' with our technical vision, "
+            "analyze code quality implications, and track progress towards milestones.",
+            f"🏁 Milestone Agent: '{topic}' indicates we should track completion "
+            "as part of our milestone criteria and measure velocity impact.",
         ]
 
     def _propose_action_items(self, insights: List[str]) -> List[Dict[str, str]]:
@@ -841,6 +841,7 @@ Implementing these changes will:
                 proposal_data = {
                     "id": proposal_id,
                     "workspace_id": self.workspace_id,
+                    "user_id": "system",  # Agent-generated proposals use "system" user_id
                     "agent_id": "retrospective",
                     "title": proposal_title,
                     "description": proposal_description,
@@ -874,6 +875,7 @@ Implementing these changes will:
                 proposal_data = {
                     "id": proposal_id,
                     "workspace_id": self.workspace_id,
+                    "user_id": "system",  # Agent-generated proposals use "system" user_id
                     "agent_id": "retrospective",
                     "title": proposal_title,
                     "description": proposal_description,

@@ -75,15 +75,15 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
         return agents.map(agent => new AgentItem(agent));
       } catch (error) {
         // Return default agents if API not implemented yet
+        // 6 active agents + 1 meta-agent (retrospective)
         return [
-          new AgentItem({ agent_id: 'context', name: 'Context Agent', status: 'active', last_activity: 'now' }),
-          new AgentItem({ agent_id: 'spec', name: 'Spec Agent', status: 'active', last_activity: '5m ago' }),
-          new AgentItem({ agent_id: 'development', name: 'Development Agent', status: 'active', last_activity: '3m ago' }),
-          new AgentItem({ agent_id: 'retrospective', name: 'Retrospective Agent', status: 'active', last_activity: '15m ago' }),
-          new AgentItem({ agent_id: 'strategy', name: 'Strategy Agent', status: 'idle', last_activity: '1h ago' }),
-          new AgentItem({ agent_id: 'milestone', name: 'Milestone Agent', status: 'active', last_activity: '10m ago' }),
-          new AgentItem({ agent_id: 'git', name: 'Git Agent', status: 'active', last_activity: '2m ago' }),
-          new AgentItem({ agent_id: 'coach', name: 'Coach Agent', status: 'active', last_activity: 'now' }),
+          new AgentItem({ agent_id: 'spec', name: '📋 Spec Agent', status: 'active', last_activity: '5m ago' }),
+          new AgentItem({ agent_id: 'git', name: '🔧 Git Agent', status: 'active', last_activity: '2m ago' }),
+          new AgentItem({ agent_id: 'development', name: '💻 Development Agent', status: 'active', last_activity: '3m ago' }),
+          new AgentItem({ agent_id: 'context', name: '📦 Context Agent', status: 'active', last_activity: 'now' }),
+          new AgentItem({ agent_id: 'strategy-coach', name: '🎯 Strategy Coach Agent', status: 'active', last_activity: 'now' }),
+          new AgentItem({ agent_id: 'milestone', name: '🏁 Milestone Agent', status: 'active', last_activity: '10m ago' }),
+          new AgentItem({ agent_id: 'retrospective', name: '🔄 Retrospective Agent', status: 'active', last_activity: '15m ago' }),
         ];
       }
     }

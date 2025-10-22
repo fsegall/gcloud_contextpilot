@@ -13,7 +13,7 @@ Event-driven architecture: Reacts to changes, doesn't make them directly.
 
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from app.git_context_manager import Git_Context_Manager
 from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
@@ -22,6 +22,9 @@ from app.repositories.proposal_repository import get_proposal_repository
 from enum import Enum
 from pathlib import Path
 import json
+import os
+import httpx
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,10 @@ class GitAgent(BaseAgent):
         # Subscribe to events
         self.subscribe_to_event(EventTypes.PROPOSAL_APPROVED)
         self.subscribe_to_event(EventTypes.MILESTONE_COMPLETE)
+
+        # Configuration for LLM-enhanced commits
+        self.use_llm_commits = os.getenv("USE_LLM_COMMITS", "false").lower() == "true"
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
 
         logger.info(f"[GitAgent] Initialized for workspace: {workspace_id}")
 
@@ -323,6 +330,39 @@ class GitAgent(BaseAgent):
         else:
             return CommitType.FEAT
 
+    async def _generate_commit_message_async(
+        self,
+        commit_type: CommitType,
+        scope: str,
+        subject: str,
+        body: str = "",
+        agent_name: str = "git-agent",
+    ) -> str:
+        """
+        Generate semantic commit message, optionally using LLM
+
+        Format:
+        <type>(<scope>): <subject>
+
+        <body>
+
+        Generated-by: <agent_name>
+        """
+        # Try LLM first if enabled
+        if self.use_llm_commits:
+            changes_context = f"{subject}\n{body}" if body else subject
+            llm_message = await self._generate_llm_commit_message(
+                commit_type, scope, changes_context
+            )
+            if llm_message:
+                # Add metadata footer
+                return f"{llm_message}\n\nGenerated-by: {agent_name} (LLM-enhanced)"
+
+        # Fallback to template
+        return self._generate_commit_message(
+            commit_type, scope, subject, body, agent_name
+        )
+
     def _generate_commit_message(
         self,
         commit_type: CommitType,
@@ -332,7 +372,7 @@ class GitAgent(BaseAgent):
         agent_name: str = "git-agent",
     ) -> str:
         """
-        Generate semantic commit message following conventional commits
+        Generate semantic commit message following conventional commits (template)
 
         Format:
         <type>(<scope>): <subject>
@@ -363,7 +403,14 @@ class GitAgent(BaseAgent):
 
     def _commit(self, message: str, agent: str = "git-agent") -> Optional[str]:
         """
-        Execute git commit using Git_Context_Manager
+        Execute git commit using Git_Context_Manager.
+
+        Git_Context_Manager already handles:
+        - History logging (history.json + task_history.md)
+        - Markdown updates (context.md, timeline.md)
+        - Reward tracking (via _track_reward_action)
+
+        GitAgent only adds LLM-enhanced commit messages on top.
 
         Args:
             message: Commit message
@@ -374,12 +421,61 @@ class GitAgent(BaseAgent):
         """
         try:
             logger.info(f"[GitAgent] Committing with message: {message[:50]}...")
+            # Git_Context_Manager handles everything: commit + history + markdown + rewards
             result = self.git_manager.commit_changes(message=message, agent=agent)
             logger.info(f"[GitAgent] Commit successful: {result}")
             return result
         except Exception as e:
             logger.error(f"[GitAgent] Commit failed: {str(e)}")
             return None
+
+    # ===== LLM-Enhanced Commit Messages (GitAgent-specific feature) =====
+
+    async def _generate_llm_commit_message(
+        self, commit_type: CommitType, scope: str, changes_context: str
+    ) -> Optional[str]:
+        """
+        Generate commit message using Gemini LLM
+
+        Falls back to template if LLM fails
+        """
+        if not self.use_llm_commits or not self.gemini_api_key:
+            return None
+
+        try:
+            import google.generativeai as genai
+
+            genai.configure(api_key=self.gemini_api_key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+
+            prompt = f"""Generate a concise git commit message following Conventional Commits format.
+
+Type: {commit_type.value}
+Scope: {scope}
+Context: {changes_context}
+
+Requirements:
+- Format: <type>(<scope>): <subject>
+- Subject: imperative mood, lowercase, no period
+- Max 50 chars for subject
+- Be specific and actionable
+
+Generate ONLY the commit message, nothing else."""
+
+            response = model.generate_content(prompt)
+            message = response.text.strip()
+
+            # Validate format
+            if ":" in message and len(message.split("\n")[0]) <= 72:
+                logger.info(
+                    f"[GitAgent] Generated LLM commit message: {message[:50]}..."
+                )
+                return message
+
+        except Exception as e:
+            logger.warning(f"[GitAgent] LLM commit generation failed: {e}")
+
+        return None
 
     # ===== Proposal Application Methods =====
 

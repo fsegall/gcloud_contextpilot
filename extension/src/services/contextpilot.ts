@@ -121,20 +121,46 @@ export class ContextPilotService {
   async getProposals(): Promise<ChangeProposal[]> {
     console.log('[ContextPilot] getProposals() called');
     try {
-      const response = await this.client.get('/proposals/list', {
-        params: { 
-          workspace_id: this.workspaceId || 'contextpilot',
-          user_id: this.userId, // Always send user_id (required by backend)
-          status: 'pending'
-        }
-      });
-      console.log('[ContextPilot] Raw response:', response.data);
-      const arr = Array.isArray(response.data) ? response.data : response.data?.proposals || [];
-      console.log(`[ContextPilot] Fetched ${arr.length} proposals:`, arr.map((p: any) => ({ id: p.id, title: p.title })));
+      // Fetch proposals for both the user and system-generated proposals
+      const [userProposals, systemProposals] = await Promise.all([
+        // User's proposals
+        this.client.get('/proposals/list', {
+          params: { 
+            workspace_id: this.workspaceId || 'contextpilot',
+            user_id: this.userId,
+            status: 'pending'
+          }
+        }).catch(err => {
+          console.warn('[ContextPilot] Failed to fetch user proposals:', err);
+          return { data: { proposals: [] } };
+        }),
+        // System proposals (from agents)
+        this.client.get('/proposals/list', {
+          params: { 
+            workspace_id: this.workspaceId || 'contextpilot',
+            user_id: 'system',
+            status: 'pending'
+          }
+        }).catch(err => {
+          console.warn('[ContextPilot] Failed to fetch system proposals:', err);
+          return { data: { proposals: [] } };
+        })
+      ]);
+
+      // Combine and deduplicate
+      const userArr = Array.isArray(userProposals.data) ? userProposals.data : userProposals.data?.proposals || [];
+      const systemArr = Array.isArray(systemProposals.data) ? systemProposals.data : systemProposals.data?.proposals || [];
+      
+      const combined = [...userArr, ...systemArr];
+      const uniqueMap = new Map();
+      combined.forEach(p => uniqueMap.set(p.id, p));
+      const arr = Array.from(uniqueMap.values());
+      
+      console.log(`[ContextPilot] Fetched ${arr.length} proposals (${userArr.length} user + ${systemArr.length} system):`, 
+        arr.map((p: any) => ({ id: p.id, title: p.title, user_id: p.user_id })));
       return arr;
     } catch (error) {
       console.error('Failed to fetch proposals:', error);
-      // NO FALLBACK - let the error bubble up to show real issues
       return []; // Return empty array instead of throwing to avoid breaking the UI
     }
   }

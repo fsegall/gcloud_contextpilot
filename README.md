@@ -141,12 +141,20 @@ This creates a **self-improving system** where agents continuously optimize thei
 ### 🎮 Gamification & Rewards
 
 - **CPT Tokens**: Earn points for productive actions
-  - +10 CPT for approving proposals
-  - +5 CPT for documentation updates
-  - +20 CPT for milestone completion
-- **Achievements**: Unlock badges (First Approval, Productivity Pro, Context Champion)
-- **Daily Streaks**: Build consistent development habits
-- **Leaderboards**: Compete with other developers (coming soon)
+  - **Currently Active:**
+    - +25 CPT for approving proposals 🎯
+    - +10 CPT for CLI actions ⌨️
+  - **Coming Soon:**
+    - +20 CPT for milestone completion 🏆
+    - +15 CPT for strategy accepted ✅
+    - +12 CPT for adding tests 🧪
+    - +10 CPT for coach completion 🎓
+    - +8 CPT for documentation updates 📚
+    - +7 CPT for code reviews 👀
+    - +5 CPT for spec commits 📝
+- **Achievements**: Unlock badges (First Approval, Productivity Pro, Context Champion) - Coming Soon
+- **Daily Streaks**: Build consistent development habits - Coming Soon
+- **Leaderboards**: Compete with other developers - Coming Soon
 
 ### 📊 Smart Change Proposals
 

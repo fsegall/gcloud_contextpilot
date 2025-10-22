@@ -21,6 +21,7 @@ from app.models.proposal import (
 )
 from google.cloud import firestore
 from app.services.event_bus import get_event_bus
+from app.dependencies import get_rewards_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,9 @@ async def list_proposals(
         # Build query - NO ORDER BY to avoid composite index requirement
         # We'll sort client-side instead
         query = proposals_col.where("workspace_id", "==", workspace_id)
-        query = query.limit(200)  # Fetch more docs for client-side filtering and sorting
+        query = query.limit(
+            200
+        )  # Fetch more docs for client-side filtering and sorting
 
         # Execute
         docs = query.stream()
@@ -185,13 +188,13 @@ async def list_proposals(
         logger.info(
             f"Query completed: {total_docs} total docs, {filtered_docs} passed filters, {len(proposals)} proposals before sorting"
         )
-        
+
         # Sort client-side by created_at descending
         proposals.sort(key=lambda p: p.created_at, reverse=True)
-        
+
         # Apply limit after sorting
         proposals = proposals[:limit]
-        
+
         logger.info(f"Returning {len(proposals)} proposals after sorting and limit")
 
         # Count by status
@@ -253,7 +256,10 @@ async def approve_proposal(
         proposal = ChangeProposal(**doc.to_dict())
 
         # Verify ownership
-        if proposal.user_id != request.user_id:
+        # Allow approval if:
+        # 1. User is the owner (proposal.user_id == request.user_id)
+        # 2. Proposal is from system/agents (proposal.user_id == "system")
+        if proposal.user_id != request.user_id and proposal.user_id != "system":
             raise HTTPException(status_code=403, detail="Not authorized")
 
         # Check status
@@ -292,13 +298,33 @@ async def approve_proposal(
                 "proposal_id": proposal_id,
                 "user_id": request.user_id,
                 "changes": [
-                    c.model_dump() for c in (request.edited_changes or proposal.proposed_changes)
+                    c.model_dump()
+                    for c in (request.edited_changes or proposal.proposed_changes)
                 ],
                 "comment": request.comment,
             },
         )
 
         logger.info(f"✅ Proposal approved: {proposal_id}")
+
+        # Award CPTs for approving a proposal
+        try:
+            rewards_adapter = get_rewards_adapter()
+            await rewards_adapter.track_action(
+                user_id=request.user_id,
+                action_type="proposal_approval",
+                metadata={
+                    "proposal_id": proposal_id,
+                    "agent_id": proposal.agent_id,
+                    "title": proposal.title,
+                },
+            )
+            logger.info(
+                f"💰 Rewarded user {request.user_id} for approving proposal {proposal_id}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to award reward: {e}")
+            # Don't fail the approval if rewards fail
 
         # Trigger GitHub Action via repository_dispatch webhook
         await trigger_github_action(proposal_id)
@@ -337,7 +363,10 @@ async def reject_proposal(
         proposal = ChangeProposal(**doc.to_dict())
 
         # Verify ownership
-        if proposal.user_id != request.user_id:
+        # Allow rejection if:
+        # 1. User is the owner (proposal.user_id == request.user_id)
+        # 2. Proposal is from system/agents (proposal.user_id == "system")
+        if proposal.user_id != request.user_id and proposal.user_id != "system":
             raise HTTPException(status_code=403, detail="Not authorized")
 
         # Update proposal
