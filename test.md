@@ -1,2 +1,1 @@
-Test
-CPT rewards work!
+# Test Proposal
