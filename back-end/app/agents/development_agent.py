@@ -69,6 +69,16 @@ class DevelopmentAgent(BaseAgent):
                 "[DevelopmentAgent] GEMINI_API_KEY not set - agent will have limited functionality (expected in local mode)"
             )
 
+        # Sandbox mode configuration
+        self.sandbox_enabled = os.getenv("SANDBOX_ENABLED", "false").lower() == "true"
+        self.sandbox_repo_url = os.getenv("SANDBOX_REPO_URL", "https://github.com/fsegall/contextpilot-sandbox.git")
+        self.github_token = os.getenv("GITHUB_TOKEN")
+        
+        if self.sandbox_enabled and not self.github_token:
+            logger.warning("[DevelopmentAgent] SANDBOX_ENABLED=true but GITHUB_TOKEN not set")
+        
+        logger.info(f"[DevelopmentAgent] Sandbox mode: {'enabled' if self.sandbox_enabled else 'disabled'}")
+
         # Subscribe to events
         self.subscribe_to_event(EventTypes.RETROSPECTIVE_TRIGGER)
         self.subscribe_to_event("spec.requirement.created")
@@ -219,6 +229,17 @@ class DevelopmentAgent(BaseAgent):
         Returns:
             Proposal ID if created, None otherwise
         """
+        # Check if sandbox mode is enabled
+        if self.sandbox_enabled:
+            logger.info("[DevelopmentAgent] Sandbox mode enabled - implementing directly in sandbox")
+            branch_name = await self._implement_in_sandbox(description, context)
+            if branch_name:
+                # Create a proposal to track the sandbox implementation
+                return await self._create_sandbox_proposal(description, branch_name, context)
+            else:
+                logger.warning("[DevelopmentAgent] Sandbox implementation failed, falling back to proposal mode")
+        
+        # Original proposal-based implementation
         if not self.gemini_api_key:
             logger.error(
                 "[DevelopmentAgent] Cannot implement feature - GEMINI_API_KEY not set"
@@ -374,23 +395,406 @@ Consider:
 
     def _get_workspace_structure(self) -> Dict:
         """Get a simplified workspace structure for AI context."""
-        structure = {"backend": [], "extension": [], "docs": []}
-
-        # Scan key directories
-        for key, pattern in [
-            ("backend", "back-end/app/**/*.py"),
-            ("extension", "extension/src/**/*.ts"),
-            ("docs", "docs/**/*.md"),
-        ]:
-            try:
-                files = list(self.workspace_path.glob(pattern))
-                structure[key] = [
-                    str(f.relative_to(self.workspace_path)) for f in files[:50]
-                ]  # Limit to 50 files
-            except Exception as e:
-                logger.debug(f"Error scanning {pattern}: {e}")
-
+        # In Cloud Run, we don't have access to the full workspace
+        # So we provide a static structure based on the actual project
+        structure = {
+            "backend": [
+                "back-end/app/agents/base_agent.py",
+                "back-end/app/agents/retrospective_agent.py", 
+                "back-end/app/agents/development_agent.py",
+                "back-end/app/agents/spec_agent.py",
+                "back-end/app/agents/git_agent.py",
+                "back-end/app/agents/context_agent.py",
+                "back-end/app/agents/coach_agent.py",
+                "back-end/app/agents/milestone_agent.py",
+                "back-end/app/routers/proposals.py",
+                "back-end/app/models/proposal.py",
+                "back-end/app/services/event_bus.py",
+                "back-end/app/server.py"
+            ],
+            "extension": [
+                "extension/src/views/proposals.ts",
+                "extension/src/commands/index.ts",
+                "extension/src/services/contextpilot.ts",
+                "extension/package.json"
+            ],
+            "docs": [
+                "docs/agent_improvements_retro-20251022-012119.md",
+                "GIT_ARCHITECTURE.md",
+                "AGENT_INTERFACE_SPEC.md"
+            ]
+        }
+        
+        logger.info(f"[DevelopmentAgent] Using static workspace structure with {sum(len(files) for files in structure.values())} files")
         return structure
+
+    async def _implement_in_sandbox(self, description: str, context: Optional[Dict] = None) -> Optional[str]:
+        """
+        Implement feature directly in sandbox repository.
+        
+        Args:
+            description: Feature description
+            context: Additional context
+            
+        Returns:
+            Branch name if successful, None otherwise
+        """
+        if not self.sandbox_enabled:
+            logger.info("[DevelopmentAgent] Sandbox mode disabled, falling back to proposal mode")
+            return await self.implement_feature(description, context)
+            
+        if not self.github_token:
+            logger.error("[DevelopmentAgent] GITHUB_TOKEN required for sandbox mode")
+            return None
+            
+        try:
+            # Generate branch name
+            branch_name = f"dev-agent/{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            
+            logger.info(f"[DevelopmentAgent] Starting sandbox implementation: {branch_name}")
+            
+            # Step 1: Clone sandbox repo
+            sandbox_path = await self._clone_sandbox_repo()
+            if not sandbox_path:
+                return None
+                
+            # Step 2: Create branch
+            await self._create_branch(sandbox_path, branch_name)
+            
+            # Step 3: Analyze and implement changes
+            target_files = await self._infer_target_files_from_sandbox(description, sandbox_path)
+            if not target_files:
+                logger.warning("[DevelopmentAgent] Could not determine target files in sandbox")
+                return None
+                
+            # Step 4: Generate and apply code changes
+            changes_made = await self._apply_code_changes(sandbox_path, target_files, description, context)
+            if not changes_made:
+                logger.warning("[DevelopmentAgent] No changes were made in sandbox")
+                return None
+                
+            # Step 5: Commit and push
+            commit_message = await self._generate_commit_message(description, changes_made)
+            await self._commit_and_push(sandbox_path, branch_name, commit_message)
+            
+            logger.info(f"[DevelopmentAgent] Sandbox implementation completed: {branch_name}")
+            return branch_name
+            
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error in sandbox implementation: {e}", exc_info=True)
+            return None
+
+    async def _clone_sandbox_repo(self) -> Optional[Path]:
+        """Clone sandbox repository to temporary directory."""
+        try:
+            import tempfile
+            import subprocess
+            
+            # Create temporary directory
+            temp_dir = Path(tempfile.mkdtemp(prefix="contextpilot-sandbox-"))
+            sandbox_path = temp_dir / "sandbox"
+            
+            # Clone with token authentication
+            repo_url = self.sandbox_repo_url.replace("https://", f"https://{self.github_token}@")
+            
+            result = subprocess.run([
+                "git", "clone", repo_url, str(sandbox_path)
+            ], capture_output=True, text=True, timeout=60)
+            
+            if result.returncode != 0:
+                logger.error(f"[DevelopmentAgent] Failed to clone sandbox: {result.stderr}")
+                return None
+                
+            logger.info(f"[DevelopmentAgent] Cloned sandbox to: {sandbox_path}")
+            return sandbox_path
+            
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error cloning sandbox: {e}")
+            return None
+
+    async def _create_branch(self, sandbox_path: Path, branch_name: str) -> bool:
+        """Create new branch in sandbox."""
+        try:
+            import subprocess
+            
+            result = subprocess.run([
+                "git", "checkout", "-b", branch_name
+            ], cwd=sandbox_path, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                logger.error(f"[DevelopmentAgent] Failed to create branch: {result.stderr}")
+                return False
+                
+            logger.info(f"[DevelopmentAgent] Created branch: {branch_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error creating branch: {e}")
+            return False
+
+    async def _infer_target_files_from_sandbox(self, description: str, sandbox_path: Path) -> List[str]:
+        """Infer target files by scanning actual sandbox repository."""
+        try:
+            # Get actual file structure from sandbox
+            structure = {"backend": [], "extension": [], "docs": []}
+            
+            for key, pattern in [
+                ("backend", "back-end/app/**/*.py"),
+                ("extension", "extension/src/**/*.ts"),
+                ("docs", "docs/**/*.md"),
+            ]:
+                files = list(sandbox_path.glob(pattern))
+                structure[key] = [str(f.relative_to(sandbox_path)) for f in files[:50]]
+            
+            # Use AI to infer files (same logic as before but with real structure)
+            prompt = f"""Based on this feature request:
+
+"{description}"
+
+And this workspace structure:
+{json.dumps(structure, indent=2)}
+
+Identify the files that need to be created or modified. Return ONLY a JSON array of file paths.
+Format: ["path/to/file1.py", "path/to/file2.ts"]
+
+Consider:
+- Backend files are in back-end/app/
+- Frontend/extension files are in extension/src/
+- Keep paths relative to workspace root
+"""
+
+            if not self.gemini_api_key:
+                logger.warning("[DevelopmentAgent] No Gemini API key for file inference")
+                return []
+                
+            url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1024},
+            }
+            headers = {"Content-Type": "application/json"}
+
+            response = requests.post(
+                f"{url}?key={self.gemini_api_key}",
+                json=payload,
+                headers=headers,
+                timeout=30,
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                text = (
+                    result.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
+
+                if "[" in text and "]" in text:
+                    start = text.index("[")
+                    end = text.rindex("]") + 1
+                    file_list = json.loads(text[start:end])
+                    logger.info(f"[DevelopmentAgent] Inferred target files: {file_list}")
+                    return file_list
+
+            logger.warning("[DevelopmentAgent] Could not infer target files from AI")
+            return []
+
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error inferring files from sandbox: {e}")
+            return []
+
+    async def _apply_code_changes(self, sandbox_path: Path, target_files: List[str], description: str, context: Optional[Dict]) -> List[str]:
+        """Apply code changes to files in sandbox."""
+        changes_made = []
+        
+        try:
+            for file_path in target_files:
+                full_path = sandbox_path / file_path
+                
+                # Read current content
+                current_content = ""
+                if full_path.exists():
+                    current_content = full_path.read_text(encoding="utf-8")
+                
+                # Generate new content using AI
+                new_content = await self._generate_code_with_ai(
+                    description, 
+                    {file_path: current_content}, 
+                    context or {}
+                )
+                
+                if new_content and file_path in new_content:
+                    # Write new content
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    full_path.write_text(new_content[file_path], encoding="utf-8")
+                    changes_made.append(file_path)
+                    logger.info(f"[DevelopmentAgent] Modified file: {file_path}")
+                    
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error applying changes: {e}")
+            
+        return changes_made
+
+    async def _generate_commit_message(self, description: str, changes_made: List[str]) -> str:
+        """Generate commit message for changes."""
+        try:
+            if self.gemini_api_key:
+                # Use AI to generate commit message
+                prompt = f"""Generate a conventional commit message for these changes:
+
+Description: {description}
+Files changed: {', '.join(changes_made)}
+
+Format: type(scope): description
+
+Examples:
+- feat(agents): add error handling to base agent
+- fix(api): resolve timeout issues in proposals endpoint
+- docs(readme): update installation instructions
+"""
+
+                url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.3, "maxOutputTokens": 200},
+                }
+                headers = {"Content-Type": "application/json"}
+
+                response = requests.post(
+                    f"{url}?key={self.gemini_api_key}",
+                    json=payload,
+                    headers=headers,
+                    timeout=30,
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    message = (
+                        result.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "")
+                        .strip()
+                    )
+                    if message:
+                        return message
+                        
+        except Exception as e:
+            logger.debug(f"[DevelopmentAgent] Error generating AI commit message: {e}")
+            
+        # Fallback to simple message
+        return f"feat: {description[:50]}"
+
+    async def _commit_and_push(self, sandbox_path: Path, branch_name: str, commit_message: str) -> bool:
+        """Commit changes and push to sandbox repository."""
+        try:
+            import subprocess
+            
+            # Add all changes
+            result = subprocess.run([
+                "git", "add", "."
+            ], cwd=sandbox_path, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                logger.error(f"[DevelopmentAgent] Failed to add changes: {result.stderr}")
+                return False
+                
+            # Commit changes
+            result = subprocess.run([
+                "git", "commit", "-m", commit_message
+            ], cwd=sandbox_path, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                logger.error(f"[DevelopmentAgent] Failed to commit: {result.stderr}")
+                return False
+                
+            # Push branch
+            result = subprocess.run([
+                "git", "push", "origin", branch_name
+            ], cwd=sandbox_path, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode != 0:
+                logger.error(f"[DevelopmentAgent] Failed to push: {result.stderr}")
+                return False
+                
+            logger.info(f"[DevelopmentAgent] Successfully pushed branch: {branch_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error committing and pushing: {e}")
+            return False
+
+    async def _create_sandbox_proposal(self, description: str, branch_name: str, context: Optional[Dict]) -> Optional[str]:
+        """Create a proposal to track sandbox implementation."""
+        try:
+            proposal_id = f"dev-sandbox-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            
+            # Create proposal with sandbox info
+            proposal_data = {
+                "id": proposal_id,
+                "workspace_id": self.workspace_id,
+                "user_id": "system",
+                "agent_id": "development",
+                "is_system_proposal": True,
+                "title": f"🤖 Sandbox Implementation: {description[:60]}",
+                "description": f"""# Sandbox Implementation
+
+**Generated by:** Development Agent (Sandbox Mode)
+**Branch:** `{branch_name}`
+**Date:** {datetime.now(timezone.utc).isoformat()}
+
+## Feature Request
+
+{description}
+
+## Implementation Status
+
+✅ **Code implemented** in sandbox repository
+✅ **Branch created:** `{branch_name}`
+✅ **Changes committed** and pushed
+🔄 **PR will be created** automatically via GitHub Actions
+
+## Next Steps
+
+1. Review the changes in the [sandbox repository](https://github.com/fsegall/contextpilot-sandbox/tree/{branch_name})
+2. GitHub Actions will automatically create a PR to the main repository
+3. Review and merge the PR when ready
+
+## Context
+
+{context.get('retrospective_id', 'Manual request') if context else 'Manual request'}
+""",
+                "proposed_changes": [
+                    {
+                        "file_path": f"sandbox-branch-{branch_name}",
+                        "change_type": "create",
+                        "description": f"Sandbox implementation in branch {branch_name}",
+                        "before": "",
+                        "after": f"Branch {branch_name} with implemented changes",
+                        "diff": f"Sandbox branch: {branch_name}\nRepository: https://github.com/fsegall/contextpilot-sandbox"
+                    }
+                ],
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc),
+                "metadata": {
+                    "sandbox_branch": branch_name,
+                    "implementation_type": "sandbox",
+                    "retrospective_id": context.get("retrospective_id") if context else None
+                }
+            }
+
+            # Save to repository
+            repo = get_proposal_repository()
+            await repo.create_proposal(ChangeProposal(**proposal_data))
+            
+            logger.info(f"[DevelopmentAgent] Created sandbox proposal: {proposal_id}")
+            return proposal_id
+            
+        except Exception as e:
+            logger.error(f"[DevelopmentAgent] Error creating sandbox proposal: {e}")
+            return None
 
     async def _generate_code_with_ai(
         self,

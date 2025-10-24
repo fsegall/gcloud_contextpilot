@@ -6,7 +6,7 @@ Defines the structure for change proposals with diffs.
 
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class ProposedChange(BaseModel):
@@ -58,7 +58,7 @@ class ChangeProposal(BaseModel):
     status: Literal["pending", "approved", "rejected"] = Field(default="pending")
 
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
     approved_at: Optional[datetime] = None
     rejected_at: Optional[datetime] = None

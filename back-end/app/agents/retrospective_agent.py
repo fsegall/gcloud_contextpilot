@@ -715,6 +715,8 @@ Keep the tone encouraging and constructive. Maximum 200 words.
         Create a change proposal from retrospective action items.
 
         This closes the feedback loop: retrospective → insights → proposal → code changes
+        
+        NEW: If action items require code changes, triggers DevelopmentAgent for implementation
         """
         action_items = retrospective.get("action_items", [])
 
@@ -723,6 +725,15 @@ Keep the tone encouraging and constructive. Maximum 200 words.
                 "[RetrospectiveAgent] No action items, skipping proposal creation"
             )
             return None
+        
+        # Check if any action items need code implementation
+        code_action_items = self._identify_code_actions(action_items)
+        if code_action_items:
+            logger.info(
+                f"[RetrospectiveAgent] Found {len(code_action_items)} action items requiring code implementation"
+            )
+            # Trigger Development Agent for code generation
+            await self._trigger_development_agent(retrospective, code_action_items)
 
         # Get high and medium priority actions
         high_priority_actions = [
@@ -938,6 +949,109 @@ Implementing these changes will:
         except Exception as e:
             logger.error(f"[RetrospectiveAgent] Failed to create proposal: {e}")
             return None
+
+    def _identify_code_actions(self, action_items: List[Dict]) -> List[Dict]:
+        """
+        Identify action items that require code implementation.
+        
+        Returns action items that contain keywords indicating code work is needed.
+        
+        Args:
+            action_items: List of action item dictionaries
+            
+        Returns:
+            Filtered list of action items requiring code changes
+        """
+        code_keywords = [
+            "implement", "add", "create", "fix", "refactor", "update", 
+            "error handling", "validation", "endpoint", "api", "function",
+            "method", "class", "component", "service", "agent code",
+            "schema", "protocol", "message", "event handler"
+        ]
+        
+        code_actions = []
+        for item in action_items:
+            action = item.get("action", "").lower()
+            # Check if action contains code-related keywords
+            if any(keyword in action for keyword in code_keywords):
+                # Exclude purely documentation tasks
+                if not any(doc_word in action for doc_word in ["document", "readme", "guide", "manual"]):
+                    code_actions.append(item)
+                    logger.info(f"[RetrospectiveAgent] Identified code action: {item.get('action')[:80]}")
+        
+        return code_actions
+
+    async def _trigger_development_agent(self, retrospective: Dict, code_actions: List[Dict]) -> None:
+        """
+        Trigger Development Agent to generate code implementations.
+        
+        Creates a detailed implementation request and lets DevelopmentAgent
+        generate actual code proposals with diffs.
+        
+        Args:
+            retrospective: Full retrospective data for context
+            code_actions: Action items that need code implementation
+        """
+        try:
+            from app.agents.development_agent import DevelopmentAgent
+            
+            logger.info(
+                f"[RetrospectiveAgent] Triggering DevelopmentAgent for {len(code_actions)} code actions"
+            )
+            
+            # Initialize Development Agent
+            dev_agent = DevelopmentAgent(
+                workspace_path=str(self.workspace_path),
+                workspace_id=self.workspace_id,
+                project_id=self.project_id,
+            )
+            
+            # Process each code action
+            for action_item in code_actions:
+                action = action_item.get("action", "")
+                priority = action_item.get("priority", "medium")
+                
+                # Build comprehensive description
+                description = f"""**From Retrospective:** {retrospective['retrospective_id']}
+**Priority:** {priority.upper()}
+
+**Action Item:** {action}
+
+**Context from Retrospective:**
+"""
+                # Add relevant insights
+                for insight in retrospective.get("insights", [])[:3]:
+                    if any(keyword in insight.lower() for keyword in action.lower().split()):
+                        description += f"- {insight}\n"
+                
+                description += f"\n**Implementation Goal:**\n{action}"
+                
+                # Call Development Agent to generate code
+                logger.info(f"[RetrospectiveAgent] Requesting implementation: {action[:80]}")
+                proposal_id = await dev_agent.implement_feature(
+                    description=description,
+                    context={
+                        "retrospective_id": retrospective["retrospective_id"],
+                        "priority": priority,
+                        "topic": retrospective.get("topic"),
+                        "trigger": "retrospective_analysis",
+                    },
+                )
+                
+                if proposal_id:
+                    logger.info(
+                        f"[RetrospectiveAgent] ✅ DevelopmentAgent created code proposal: {proposal_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"[RetrospectiveAgent] ⚠️ DevelopmentAgent could not generate proposal for: {action[:80]}"
+                    )
+                    
+        except Exception as e:
+            logger.error(
+                f"[RetrospectiveAgent] Error triggering DevelopmentAgent: {e}",
+                exc_info=True,
+            )
 
 
 # Standalone helper function for API endpoint
