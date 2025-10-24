@@ -478,3 +478,4 @@ See [ROADMAP.md](ROADMAP.md) for implementation timeline.
 **Event**: Google Cloud Run Hackathon 2025  
 **Demo**: [Extension Download](https://github.com/fsegall/gcloud_contextpilot/releases/v0.1.0)  
 **Live Backend**: [API Health Check](https://contextpilot-backend-581368740395.us-central1.run.app/health)
+# Test sync trigger
