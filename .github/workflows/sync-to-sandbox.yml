@@ -30,6 +30,9 @@ jobs:
           # Verify remote was added
           git remote -v
           
+          # Configure git to use the personal token for this push
+          git config --global url."https://${{ secrets.PERSONAL_GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          
           # Push to sandbox main branch with verbose output
           git push sandbox main:main --force --verbose
           
