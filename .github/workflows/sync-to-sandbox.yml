@@ -21,8 +21,8 @@ jobs:
           git config --global user.name "ContextPilot Bot"
           git config --global user.email "bot@contextpilot.dev"
           
-          # Add sandbox as remote
-          git remote add sandbox https://github.com/fsegall/contextpilot-sandbox.git
+          # Add sandbox as remote with personal token
+          git remote add sandbox https://${{ secrets.PERSONAL_GITHUB_TOKEN }}@github.com/fsegall/contextpilot-sandbox.git
           
           # Push to sandbox main branch
           git push sandbox main:main --force
