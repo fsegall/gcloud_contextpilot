@@ -1489,6 +1489,16 @@ async def trigger_agent_retrospective(
 
     try:
         from app.agents.retrospective_agent import trigger_retrospective
+        from app.utils.workspace_manager import get_workspace_path, create_workspace
+
+        # Ensure workspace exists, create if not
+        try:
+            workspace_path = get_workspace_path(workspace_id)
+        except FileNotFoundError:
+            logger.info(f"Workspace '{workspace_id}' not found, creating it...")
+            create_workspace(workspace_id, f"{workspace_id.title()} Workspace")
+            workspace_path = get_workspace_path(workspace_id)
+            logger.info(f"Workspace '{workspace_id}' created successfully")
 
         # Get Gemini API key if LLM synthesis requested
         gemini_api_key = None
@@ -1724,4 +1734,42 @@ async def development_implement_from_retrospective(
 
     except Exception as e:
         logger.error(f"Error implementing from retrospective: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/workspace/create")
+async def create_workspace_endpoint(
+    workspace_id: str = Body("default"),
+    workspace_name: str = Body("Default Workspace")
+):
+    """Create a new workspace."""
+    logger.info(f"POST /workspace/create - workspace: {workspace_id}")
+    
+    try:
+        from app.utils.workspace_manager import create_workspace
+        
+        # Create workspace directory
+        workspace_path = os.path.join("/app", ".contextpilot", "workspaces", workspace_id)
+        os.makedirs(workspace_path, exist_ok=True)
+        
+        # Create basic workspace files
+        meta_file = os.path.join(workspace_path, "meta.json")
+        with open(meta_file, "w") as f:
+            json.dump({
+                "workspace_id": workspace_id,
+                "name": workspace_name,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "status": "active"
+            }, f, indent=2)
+        
+        logger.info(f"Workspace created: {workspace_path}")
+        return {
+            "status": "success",
+            "workspace_id": workspace_id,
+            "workspace_path": workspace_path,
+            "message": f"Workspace '{workspace_id}' created successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating workspace: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
