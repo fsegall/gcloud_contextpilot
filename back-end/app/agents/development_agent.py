@@ -76,6 +76,8 @@ class DevelopmentAgent(BaseAgent):
             "SANDBOX_REPO_URL", "https://github.com/fsegall/contextpilot-sandbox.git"
         )
         self.github_token = os.getenv("GITHUB_TOKEN")
+        if self.github_token:
+            self.github_token = self.github_token.strip()  # Remove whitespace and newlines
 
         # Codespaces mode configuration
         self.codespaces_enabled = (
