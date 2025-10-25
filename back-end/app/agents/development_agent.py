@@ -1260,6 +1260,8 @@ Examples:
         """Create a new branch from main."""
         try:
             github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+            if github_token:
+                github_token = github_token.strip()  # Remove whitespace and newlines
             if not github_token:
                 logger.error("[DevelopmentAgent] No GitHub token available for branch creation")
                 return False
@@ -1303,6 +1305,8 @@ Examples:
         """Make a commit to the branch with a simple test file."""
         try:
             github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+            if github_token:
+                github_token = github_token.strip()  # Remove whitespace and newlines
             if not github_token:
                 logger.error("[DevelopmentAgent] No GitHub token available for commit")
                 return False
@@ -1368,6 +1372,8 @@ This demonstrates the full workflow of the ContextPilot Dev Agent with GitHub Co
         try:
             # Get GitHub token from environment
             github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+            if github_token:
+                github_token = github_token.strip()  # Remove whitespace and newlines
             if not github_token:
                 logger.error("[DevelopmentAgent] No GitHub token available for PR creation")
                 return None
