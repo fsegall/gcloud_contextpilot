@@ -1,11 +1,6 @@
 name: Create PR from Sandbox
 
 on:
-  push:
-    branches: [dev-agent/*]
-    paths-ignore:
-      - 'README.md'
-      - '.gitignore'
   workflow_dispatch:
     inputs:
       branch:
