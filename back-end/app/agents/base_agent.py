@@ -19,6 +19,7 @@ from pathlib import Path
 
 from app.services.event_bus import get_event_bus, EventBusInterface
 from app.utils.workspace_manager import get_workspace_path
+from app.utils.project_structure_analyzer import ProjectStructureAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,57 @@ class BaseAgent(ABC):
         self.artifacts_config = self._load_artifacts_config()
         self.agent_rules = self._get_my_rules()
         
+        # Initialize project structure analyzer
+        self.project_analyzer = ProjectStructureAnalyzer(self.workspace_path)
+        self.project_context = None
+        
         logger.info(f"[{self.agent_id}] Initialized for workspace: {workspace_id}")
         if self.agent_rules:
             logger.info(f"[{self.agent_id}] Loaded {len(self.agent_rules)} artifact rules")
     
+    # ========== Project Context Management ==========
+    
+    async def load_project_context(self, force_refresh: bool = False):
+        """Load project context for this agent."""
+        try:
+            self.project_context = await self.project_analyzer.get_agent_context(self.agent_id)
+            logger.info(f"[{self.agent_id}] Loaded project context: {len(self.project_context.get('relevant_files', []))} files")
+        except Exception as e:
+            logger.error(f"[{self.agent_id}] Failed to load project context: {e}")
+            self.project_context = {"error": str(e)}
+    
+    def get_project_context_summary(self) -> str:
+        """Get a summary of project context for use in prompts."""
+        if not self.project_context:
+            return "No project context available."
+        
+        context = self.project_context
+        summary_parts = []
+        
+        # Project overview
+        overview = context.get("project_overview", {})
+        if overview:
+            summary_parts.append(f"Project has {overview.get('total_files', 0)} files")
+            
+            languages = overview.get("languages", {})
+            if languages:
+                lang_list = ", ".join([f"{lang} ({count})" for lang, count in languages.items()])
+                summary_parts.append(f"Languages: {lang_list}")
+        
+        # Key files
+        key_files = overview.get("key_files", [])
+        if key_files:
+            key_file_names = [f["name"] for f in key_files[:5]]  # Limit to 5
+            summary_parts.append(f"Key files: {', '.join(key_file_names)}")
+        
+        # Relevant files for this agent
+        relevant_files = context.get("relevant_files", [])
+        if relevant_files:
+            file_names = [f["name"] for f in relevant_files[:10]]  # Limit to 10
+            summary_parts.append(f"Relevant files: {', '.join(file_names)}")
+        
+        return ". ".join(summary_parts) + "." if summary_parts else "No project context available."
+
     # ========== State Management ==========
     
     def _get_state_path(self) -> Path:
