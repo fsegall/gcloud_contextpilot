@@ -9,21 +9,28 @@ from datetime import datetime
 # Configure logging
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.join(os.getcwd(), ".contextpilot", "workspaces")
+# Determine base directory based on environment
+if os.getcwd().endswith('/back-end'):
+    # Running in Cloud Run - use /app
+    BASE_DIR = os.path.join("/app", ".contextpilot", "workspaces")
+else:
+    # Running locally - use current directory
+    BASE_DIR = os.path.join(os.getcwd(), ".contextpilot", "workspaces")
 logger.info(f"Base directory for workspaces: {BASE_DIR}")
 os.makedirs(BASE_DIR, exist_ok=True)
 logger.info(f"Base directory created/verified: {BASE_DIR}")
 
-def create_workspace(name: str) -> str:
-    """Cria um novo workspace com UUID e nome opcional."""
-    workspace_id = str(uuid.uuid4())
+def create_workspace(workspace_id: str, name: str) -> str:
+    """Cria um novo workspace com ID específico e nome."""
     path = os.path.join(BASE_DIR, workspace_id)
     os.makedirs(path, exist_ok=True)
 
     metadata = {
         "id": workspace_id,
         "name": name,
-        "path": path
+        "path": path,
+        "created_at": datetime.now().isoformat(),
+        "status": "active"
     }
 
     with open(os.path.join(path, "meta.json"), "w") as f:
