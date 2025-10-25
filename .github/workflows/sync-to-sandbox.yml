@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
 
       - name: Sync to sandbox
         run: |
@@ -21,10 +21,16 @@ jobs:
           git config --global user.name "ContextPilot Bot"
           git config --global user.email "bot@contextpilot.dev"
           
+          # Verify we're on main branch
+          git branch --show-current
+          
           # Add sandbox as remote with personal token
           git remote add sandbox https://${{ secrets.PERSONAL_GITHUB_TOKEN }}@github.com/fsegall/contextpilot-sandbox.git
           
-          # Push to sandbox main branch
-          git push sandbox main:main --force
+          # Verify remote was added
+          git remote -v
+          
+          # Push to sandbox main branch with verbose output
+          git push sandbox main:main --force --verbose
           
           echo "✅ Synced main to sandbox successfully"
