@@ -357,3 +357,10 @@ class ProjectStructureAnalyzer:
             ]
         
         return context
+
+
+
+
+
+
+

@@ -184,7 +184,7 @@ curl http://localhost:8000/health
 ```bash
 # Generate new proposal
 cd back-end
-export GOOGLE_API_KEY=AIzaSyBNxMHMiAbuq5Yh63DgcD6obERUb8iD_Pg
+export GOOGLE_API_KEY=your_api_key_here
 python test_proposal_diffs.py
 ```
 

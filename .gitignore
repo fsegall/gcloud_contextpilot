@@ -51,6 +51,8 @@ build/
 .env
 .env.local
 .env.*.local
+back-end/.env
+back-end/.env.*
 *.log
 
 # Google Cloud

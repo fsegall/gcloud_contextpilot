@@ -8,6 +8,8 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      SANDBOX_REPO_URL: ${{ vars.SANDBOX_REPO_URL }}
     steps:
       - name: Checkout main repo
         uses: actions/checkout@v4
@@ -24,8 +26,14 @@ jobs:
           # Verify we're on main branch
           git branch --show-current
           
+          # Resolve sandbox remote URL (from repo variable or fallback)
+          REMOTE_URL="${SANDBOX_REPO_URL}"
+          if [ -z "$REMOTE_URL" ]; then
+            REMOTE_URL="https://github.com/fsegall/contextpilot-sandbox.git"
+          fi
           # Add sandbox as remote with personal token
-          git remote add sandbox https://${{ secrets.PERSONAL_GITHUB_TOKEN }}@github.com/fsegall/contextpilot-sandbox.git
+          AUTH_REMOTE_URL="${REMOTE_URL/https:\/\//https:\/\/${{ secrets.PERSONAL_GITHUB_TOKEN }}@}"
+          git remote add sandbox "$AUTH_REMOTE_URL"
           
           # Verify remote was added
           git remote -v

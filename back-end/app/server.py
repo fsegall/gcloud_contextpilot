@@ -1489,16 +1489,6 @@ async def trigger_agent_retrospective(
 
     try:
         from app.agents.retrospective_agent import trigger_retrospective
-        from app.utils.workspace_manager import get_workspace_path, create_workspace
-
-        # Ensure workspace exists, create if not
-        try:
-            workspace_path = get_workspace_path(workspace_id)
-        except FileNotFoundError:
-            logger.info(f"Workspace '{workspace_id}' not found, creating it...")
-            create_workspace(workspace_id, f"{workspace_id.title()} Workspace")
-            workspace_path = get_workspace_path(workspace_id)
-            logger.info(f"Workspace '{workspace_id}' created successfully")
 
         # Get Gemini API key if LLM synthesis requested
         gemini_api_key = None

@@ -72,9 +72,7 @@ class DevelopmentAgent(BaseAgent):
 
         # Sandbox mode configuration
         self.sandbox_enabled = os.getenv("SANDBOX_ENABLED", "false").lower() == "true"
-        self.sandbox_repo_url = os.getenv(
-            "SANDBOX_REPO_URL", "https://github.com/fsegall/contextpilot-sandbox.git"
-        )
+        self.sandbox_repo_url = os.getenv("SANDBOX_REPO_URL", "")
         self.github_token = os.getenv("GITHUB_TOKEN")
         if self.github_token:
             self.github_token = self.github_token.strip()  # Remove whitespace and newlines
@@ -83,19 +81,27 @@ class DevelopmentAgent(BaseAgent):
         self.codespaces_enabled = (
             os.getenv("CODESPACES_ENABLED", "false").lower() == "true"
         )
-        self.codespaces_repo = os.getenv(
-            "CODESPACES_REPO", "fsegall/gcloud_contextpilot"
-        )
+        self.codespaces_repo = os.getenv("CODESPACES_REPO", "")
         self.codespaces_machine = os.getenv("CODESPACES_MACHINE", "basicLinux32gb")
 
         if self.sandbox_enabled and not self.github_token:
             logger.warning(
                 "[DevelopmentAgent] SANDBOX_ENABLED=true but GITHUB_TOKEN not set"
             )
+        if self.sandbox_enabled and not self.sandbox_repo_url:
+            logger.warning(
+                "[DevelopmentAgent] SANDBOX_ENABLED=true but SANDBOX_REPO_URL not set - disabling sandbox mode"
+            )
+            self.sandbox_enabled = False
         if self.codespaces_enabled and not self.github_token:
             logger.warning(
                 "[DevelopmentAgent] CODESPACES_ENABLED=true but GITHUB_TOKEN not set"
             )
+        if self.codespaces_enabled and not self.codespaces_repo:
+            logger.warning(
+                "[DevelopmentAgent] CODESPACES_ENABLED=true but CODESPACES_REPO not set - disabling codespaces mode"
+            )
+            self.codespaces_enabled = False
 
         logger.info(
             f"[DevelopmentAgent] Sandbox mode: {'enabled' if self.sandbox_enabled else 'disabled'}"
