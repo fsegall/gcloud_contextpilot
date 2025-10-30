@@ -388,8 +388,8 @@ async def reject_proposal(
             source="proposals-api",
             data={
                 "proposal_id": proposal_id,
-                # Use correct field name from ChangeProposal
-                "agent_id": proposal.agent_id,
+                # camelCase for event payload keys
+                "agentId": proposal.agent_id,
                 "reason": request.reason,
                 "feedback": request.feedback,
             },
