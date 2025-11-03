@@ -75,6 +75,26 @@ async def trigger_github_action(proposal_id: str):
         logger.error(f"❌ Error triggering GitHub Action: {e}")
 
 
+async def _get_proposal_doc_and_data_by_id(proposal_id: str):
+    """Fetch a proposal Firestore document strictly by its document key.
+
+    Returns (doc_ref, data_dict) or (None, None) if not found.
+    """
+    doc_ref = proposals_col.document(proposal_id)
+    doc = await doc_ref.get()
+    if not doc.exists:
+        return None, None
+    data = doc.to_dict()
+    stored_id = data.get("id")
+    if stored_id and stored_id != proposal_id:
+        logger.warning(
+            "Proposal doc mismatch: path id=%s, stored id=%s (enforcing path id)",
+            proposal_id,
+            stored_id,
+        )
+    return doc_ref, data
+
+
 @router.post("/create", response_model=ChangeProposal)
 async def create_proposal(proposal: ChangeProposal = Body(...)):
     """
@@ -242,12 +262,12 @@ async def get_proposal(proposal_id: str):
     """Get detailed proposal by ID."""
 
     try:
-        doc = await proposals_col.document(proposal_id).get()
+        doc_ref, data = await _get_proposal_doc_and_data_by_id(proposal_id)
 
-        if not doc.exists:
+        if not doc_ref:
             raise HTTPException(status_code=404, detail="Proposal not found")
 
-        return ChangeProposal(**doc.to_dict())
+        return ChangeProposal(**data)
 
     except HTTPException:
         raise
@@ -268,14 +288,12 @@ async def approve_proposal(
     logger.info(f"Approving proposal: {proposal_id} by user: {request.user_id}")
 
     try:
-        # Get proposal
-        doc_ref = proposals_col.document(proposal_id)
-        doc = await doc_ref.get()
-
-        if not doc.exists:
+        # Get proposal strictly by document key
+        doc_ref, data = await _get_proposal_doc_and_data_by_id(proposal_id)
+        if not doc_ref:
             raise HTTPException(status_code=404, detail="Proposal not found")
 
-        proposal = ChangeProposal(**doc.to_dict())
+        proposal = ChangeProposal(**data)
 
         # Verify authorization
         # Allow approval if:
@@ -380,13 +398,11 @@ async def reject_proposal(
     logger.info(f"Rejecting proposal: {proposal_id} by user: {request.user_id}")
 
     try:
-        doc_ref = proposals_col.document(proposal_id)
-        doc = await doc_ref.get()
-
-        if not doc.exists:
+        doc_ref, data = await _get_proposal_doc_and_data_by_id(proposal_id)
+        if not doc_ref:
             raise HTTPException(status_code=404, detail="Proposal not found")
 
-        proposal = ChangeProposal(**doc.to_dict())
+        proposal = ChangeProposal(**data)
 
         # Verify authorization (same policy as approval)
         is_owner = proposal.user_id == request.user_id

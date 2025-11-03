@@ -22,6 +22,7 @@ from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
 from app.agents.diff_generator import generate_unified_diff, read_file_safe
 from app.repositories.proposal_repository import get_proposal_repository
+from app.config import get_config
 from app.models.proposal import ChangeProposal, ProposedChange, ProposalDiff
 
 logger = logging.getLogger(__name__)
@@ -1846,10 +1847,11 @@ This proposal implements the requested feature with the following changes:
             },
         )
 
-        # Save to Firestore
+        # Persist proposal according to storage mode
         try:
-            if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
-                repo = get_proposal_repository()
+            config = get_config()
+            if config.is_cloud_storage:
+                repo = get_proposal_repository(project_id=config.gcp_project_id)
                 repo.create(proposal.model_dump())
                 logger.info(
                     f"[DevelopmentAgent] Saved proposal to Firestore: {proposal_id}"
@@ -1857,7 +1859,7 @@ This proposal implements the requested feature with the following changes:
                 return proposal_id
             else:
                 logger.warning(
-                    "[DevelopmentAgent] Firestore not enabled - proposal not saved"
+                    "[DevelopmentAgent] STORAGE_MODE=local - skipping Firestore persistence for implementation proposal"
                 )
                 return None
         except Exception as e:
