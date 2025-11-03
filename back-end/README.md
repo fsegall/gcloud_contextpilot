@@ -354,6 +354,32 @@ See [ENV_TEMPLATE.md](../ENV_TEMPLATE.md) for complete list.
 
 ---
 
+## 🌍 Local vs Cloud: How Environment Switching Works
+
+The backend exposes the same routes in both modes; the storage/event bus differ under the hood.
+
+- **Detection**: The extension calls `GET /health` and reads `config.storage_mode` (`cloud` or `local`).
+- **Routers**:
+  - Cloud: Firestore router (`app/routers/proposals.py`) is mounted.
+  - Local: File-based endpoints inside `app/server.py` are used.
+- **Event Bus**: `config.event_bus_mode` returns `pubsub` (prod) or `in-memory` (local).
+
+### Unified payloads (avoids breaking either mode)
+
+- Approve: `POST /proposals/{id}/approve` — unchanged.
+- Reject: `POST /proposals/{id}/reject`
+  - Cloud expects `{ user_id, reason }` (see `ProposalRejectionRequest`).
+  - Local now accepts either a raw string reason or the same object `{ reason, user_id }`. The server normalizes both.
+
+### Extension defaults
+
+- Default API URL points to Cloud Run. You can override in settings: `ContextPilot: API URL`.
+- The extension includes `workspace_id` as a query param when needed by local endpoints.
+
+This alignment prevents regressions when switching between environments.
+
+---
+
 ## 📚 Documentation
 
 - **Architecture**: [../ARCHITECTURE.md](../ARCHITECTURE.md)

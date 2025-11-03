@@ -114,6 +114,12 @@ const apiUrl = 'http://localhost:8000';
 
 **Important**: Proposals are stored per workspace. The extension now searches **all workspaces** to avoid missing proposals created in different workspace contexts.
 
+#### Local vs Cloud behavior (handled automatically)
+
+- The extension calls `GET /health` to detect `storage_mode` and `event_bus_mode` and adjusts calls accordingly.
+- It always includes `workspace_id` when required by local endpoints.
+- For rejecting proposals, the backend now accepts both a plain string reason (local legacy) and an object `{ user_id, reason }` (cloud). No manual switch needed.
+
 ### **Settings**
 ```json
 {

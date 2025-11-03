@@ -16,7 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Initialize service
   const config = vscode.workspace.getConfiguration('contextpilot');
-  const apiUrl = config.get<string>('apiUrl', 'https://contextpilot-backend-l7g6shydza-uc.a.run.app');
+  const apiUrl = config.get<string>('apiUrl', 'https://contextpilot-backend-581368740395.us-central1.run.app');
   const userId = config.get<string>('userId', 'test-user');
   const walletAddress = config.get<string>('walletAddress', '0xtest...');
   
@@ -64,6 +64,43 @@ export function activate(context: vscode.ExtensionContext) {
       updateStatusBar();
     }),
 
+    vscode.commands.registerCommand('contextpilot.configureRepos', async () => {
+      const extConfig = vscode.workspace.getConfiguration('contextpilot');
+      const currentMain = extConfig.get<string>('mainRepo', '');
+      const currentSandbox = extConfig.get<string>('sandboxRepoUrl', '');
+
+      const mainRepo = await vscode.window.showInputBox({
+        title: 'Main GitHub Repository',
+        placeHolder: 'owner/repo',
+        value: currentMain,
+        ignoreFocusOut: true,
+        validateInput: (val) => {
+          if (!val) { return null; }
+          return /.+\/.+/.test(val) ? null : 'Use format owner/repo';
+        }
+      });
+
+      if (mainRepo === undefined) { return; }
+
+      const sandboxRepoUrl = await vscode.window.showInputBox({
+        title: 'Sandbox Repository URL',
+        placeHolder: 'https://github.com/owner/sandbox.git',
+        value: currentSandbox,
+        ignoreFocusOut: true,
+        validateInput: (val) => {
+          if (!val) { return null; }
+          try { new URL(val); return null; } catch { return 'Provide a valid URL'; }
+        }
+      });
+
+      if (sandboxRepoUrl === undefined) { return; }
+
+      await extConfig.update('mainRepo', mainRepo || '', vscode.ConfigurationTarget.Global);
+      await extConfig.update('sandboxRepoUrl', sandboxRepoUrl || '', vscode.ConfigurationTarget.Global);
+
+      vscode.window.showInformationMessage('ContextPilot repositories saved.');
+    }),
+
     vscode.commands.registerCommand('contextpilot.disconnect', () => {
       commands.disconnect(contextPilotService);
       updateStatusBar();
@@ -91,6 +128,16 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
         
+        // Show extension-side repo configuration
+        const extConfig = vscode.workspace.getConfiguration('contextpilot');
+        const mainRepo = extConfig.get<string>('mainRepo', '');
+        const sandboxRepoUrl = extConfig.get<string>('sandboxRepoUrl', '');
+        if (mainRepo || sandboxRepoUrl) {
+          message += `\n**Repositories:**\n`;
+          if (mainRepo) message += `• Main Repo: \`${mainRepo}\`\n`;
+          if (sandboxRepoUrl) message += `• Sandbox Repo URL: \`${sandboxRepoUrl}\`\n`;
+        }
+
         message += `\n**Active Agents:** ${health.agents?.length || 0}`;
         
         vscode.window.showInformationMessage(message, { modal: false });

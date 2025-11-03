@@ -2,7 +2,7 @@
   "name": "contextpilot",
   "displayName": "ContextPilot by Livre Solutions",
   "description": "AI-powered context management with multi-agent system and blockchain rewards. By Livre Solutions.",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "livresoltech",
   "icon": "assets/icon.png",
   "repository": {
@@ -34,6 +34,11 @@
         "command": "contextpilot.connect",
         "title": "ContextPilot: Connect to Backend",
         "icon": "$(plug)"
+      },
+      {
+        "command": "contextpilot.configureRepos",
+        "title": "ContextPilot: Configure Repositories",
+        "icon": "$(repo)"
       },
       {
         "command": "contextpilot.disconnect",
@@ -161,6 +166,16 @@
           "type": "string",
           "default": "https://contextpilot-backend-581368740395.us-central1.run.app",
           "description": "ContextPilot API URL"
+        },
+        "contextpilot.mainRepo": {
+          "type": "string",
+          "default": "",
+          "description": "Main GitHub repository (e.g. owner/repo)"
+        },
+        "contextpilot.sandboxRepoUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Sandbox repository URL (e.g. https://github.com/owner/sandbox.git)"
         },
         "contextpilot.autoConnect": {
           "type": "boolean",

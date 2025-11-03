@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Body, Query, HTTPException, Request
-from typing import Optional
+from typing import Optional, Any, Union
 from app.git_context_manager import Git_Context_Manager
 from datetime import datetime
 from dotenv import load_dotenv
@@ -1424,7 +1424,9 @@ async def approve_proposal_local(
 
 @app.post("/proposals/{proposal_id}/reject")
 async def reject_proposal_local(
-    proposal_id: str, workspace_id: str = Query("default"), reason: str = Body("")
+    proposal_id: str,
+    workspace_id: str = Query("default"),
+    payload: Any = Body("")
 ):
     """Reject proposal (LOCAL mode - file-based storage)"""
     config = get_config()
@@ -1435,21 +1437,45 @@ async def reject_proposal_local(
             detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
         )
 
+    # Accept both legacy proposals.json and new proposals directory
     paths = _proposals_paths(workspace_id)
-    proposals = _read_proposals(paths["json"])
+    proposals = _read_proposals_from_dir(paths["dir"]) or _read_proposals(paths["json"])
     prop = next((p for p in proposals if p.get("id") == proposal_id), None)
 
     if not prop:
         return {"status": "not_found"}
 
+    # Normalize reason from payload: support string or object with { reason, user_id }
+    normalized_reason: str = ""
+    try:
+        if isinstance(payload, str):
+            normalized_reason = payload
+        elif isinstance(payload, dict):
+            # Align with cloud payload shape
+            normalized_reason = str(payload.get("reason", ""))
+        else:
+            normalized_reason = str(payload)
+    except Exception:
+        normalized_reason = ""
+
     prop["status"] = "rejected"
-    prop["reason"] = reason
-    _write_proposals(paths["json"], proposals)
+    prop["reason"] = normalized_reason
+
+    # Persist back to whichever storage exists
+    proposal_file = paths["dir"] / f"{proposal_id}.json"
+    if proposal_file.exists():
+        try:
+            with open(proposal_file, "w") as f:
+                json.dump(prop, f, indent=2)
+        except Exception:
+            _write_proposals(paths["json"], proposals)
+    else:
+        _write_proposals(paths["json"], proposals)
 
     md_path = paths["dir"] / f"{proposal_id}.md"
     if md_path.exists():
         md_content = md_path.read_text(encoding="utf-8")
-        md_content += f"\nStatus: rejected\nReason: {reason}\n"
+        md_content += f"\nStatus: rejected\nReason: {normalized_reason}\n"
         md_path.write_text(md_content, encoding="utf-8")
 
     return {"status": "rejected"}

@@ -194,7 +194,9 @@ export class ContextPilotService {
         });
       } else {
         // LOCAL mode: Send without body (only proposal_id in URL)
-        response = await this.client.post(`/proposals/${proposalId}/approve`);
+        response = await this.client.post(`/proposals/${proposalId}/approve`, null, {
+          params: { workspace_id: this.workspaceId || 'contextpilot' }
+        });
       }
       
       const autoCommitted = !!response.data?.auto_committed;
@@ -219,8 +221,10 @@ export class ContextPilotService {
           reason: reason || 'Rejected by user'
         });
       } else {
-        // LOCAL mode: Send reason as string directly
-        await this.client.post(`/proposals/${proposalId}/reject`, reason || 'Rejected by user');
+        // LOCAL mode: Send reason as string directly with workspace param
+        await this.client.post(`/proposals/${proposalId}/reject`, reason || 'Rejected by user', {
+          params: { workspace_id: this.workspaceId || 'contextpilot' }
+        });
       }
       
       return true;
@@ -276,7 +280,9 @@ export class ContextPilotService {
 
   async getAgentsStatus(): Promise<AgentStatus[]> {
     try {
-      const response = await this.client.get('/agents/status');
+      const response = await this.client.get('/agents/status', {
+        params: { workspace_id: this.workspaceId || 'contextpilot' }
+      });
       return response.data;
     } catch (error) {
       console.error('Failed to fetch agents status:', error);

@@ -17,17 +17,16 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
 
   private async updateEventBusMode(): Promise<void> {
     try {
-      console.log('[AgentsProvider] updateEventBusMode - isConnected:', this.contextPilotService.isConnected());
-      if (this.contextPilotService.isConnected()) {
-        const health = await this.contextPilotService.getHealth();
-        console.log('[AgentsProvider] health response:', health);
-        console.log('[AgentsProvider] health.config:', health.config);
-        // Backend returns config nested: { config: { event_bus_mode: "pubsub" } }
-        this.eventBusMode = health.config?.event_bus_mode || 'unknown';
-        console.log('[AgentsProvider] eventBusMode set to:', this.eventBusMode);
-      } else {
-        console.log('[AgentsProvider] Service not connected, keeping unknown');
-      }
+      console.log('[AgentsProvider] updateEventBusMode - fetching /health');
+      // Fetch directly from backend regardless of local connected flag
+      const health = await this.contextPilotService.getHealth();
+      console.log('[AgentsProvider] health response:', health);
+      console.log('[AgentsProvider] health.config:', health?.config);
+      // Backend returns config nested: { config: { event_bus_mode: "pubsub" } }
+      const mode = health?.config?.event_bus_mode;
+      this.eventBusMode = typeof mode === 'string' && mode.length > 0 ? mode : 'unknown';
+      console.log('[AgentsProvider] eventBusMode set to:', this.eventBusMode);
+      // Do NOT fire here to avoid refresh loops; refresh() controls repaint
     } catch (error) {
       console.error('[AgentsProvider] Failed to update event bus mode:', error);
       this.eventBusMode = 'unknown';
@@ -46,10 +45,7 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
     if (!element) {
       // Root level - show mode indicator as sub-header
       try {
-        // Fetch fresh mode before displaying
-        await this.updateEventBusMode();
-        
-        // Add mode indicator as sub-header
+        // Use last known mode; avoid triggering update here to prevent loops
         const modeIcon = this.eventBusMode === 'pubsub' ? '📡' : '💾';
         const modeItem = new AgentItem({
           agent_id: 'event-bus-mode',
@@ -72,7 +68,12 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
       // Children of mode indicator - show agents
       try {
         const agents = await this.contextPilotService.getAgentsStatus();
-        return agents.map(agent => new AgentItem(agent));
+        const normalized = agents.map(a => {
+          const validStatuses = ['active', 'idle', 'error'] as const;
+          const status = validStatuses.includes(a.status as any) ? a.status : 'idle';
+          return { ...a, status } as AgentStatus;
+        });
+        return normalized.map(agent => new AgentItem(agent));
       } catch (error) {
         // Return default agents if API not implemented yet
         // 6 active agents + 1 meta-agent (retrospective)

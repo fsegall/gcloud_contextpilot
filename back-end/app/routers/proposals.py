@@ -189,8 +189,30 @@ async def list_proposals(
             f"Query completed: {total_docs} total docs, {filtered_docs} passed filters, {len(proposals)} proposals before sorting"
         )
 
-        # Sort client-side by created_at descending
-        proposals.sort(key=lambda p: p.created_at, reverse=True)
+        # Sort client-side by created_at descending (normalize tz-aware)
+        from datetime import datetime, timezone
+
+        def _sort_key(p: ChangeProposal):
+            dt = getattr(p, "created_at", None)
+            try:
+                if isinstance(dt, str):
+                    # Try ISO parsing
+                    try:
+                        parsed = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+                    except Exception:
+                        return datetime.min.replace(tzinfo=timezone.utc)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    return parsed
+                if isinstance(dt, datetime):
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return dt
+            except Exception:
+                pass
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+        proposals.sort(key=_sort_key, reverse=True)
 
         # Apply limit after sorting
         proposals = proposals[:limit]
@@ -255,11 +277,15 @@ async def approve_proposal(
 
         proposal = ChangeProposal(**doc.to_dict())
 
-        # Verify ownership
+        # Verify authorization
         # Allow approval if:
-        # 1. User is the owner (proposal.user_id == request.user_id)
-        # 2. Proposal is from system/agents (proposal.user_id == "system")
-        if proposal.user_id != request.user_id and proposal.user_id != "system":
+        # 1) Owner approves (proposal.user_id == request.user_id)
+        # 2) System proposal (proposal.user_id == "system" or None)
+        # 3) Agent-created proposal (has agent_id set) regardless of stored user_id
+        is_owner = proposal.user_id == request.user_id
+        is_system = proposal.user_id in (None, "system")
+        is_agent_created = bool(getattr(proposal, "agent_id", None))
+        if not (is_owner or is_system or is_agent_created):
             raise HTTPException(status_code=403, detail="Not authorized")
 
         # Check status
@@ -362,21 +388,22 @@ async def reject_proposal(
 
         proposal = ChangeProposal(**doc.to_dict())
 
-        # Verify ownership
-        # Allow rejection if:
-        # 1. User is the owner (proposal.user_id == request.user_id)
-        # 2. Proposal is from system/agents (proposal.user_id == "system")
-        if proposal.user_id != request.user_id and proposal.user_id != "system":
+        # Verify authorization (same policy as approval)
+        is_owner = proposal.user_id == request.user_id
+        is_system = proposal.user_id in (None, "system")
+        is_agent_created = bool(getattr(proposal, "agent_id", None))
+        if not (is_owner or is_system or is_agent_created):
             raise HTTPException(status_code=403, detail="Not authorized")
 
         # Update proposal
+        feedback_val = getattr(request, "feedback", None)
         await doc_ref.update(
             {
                 "status": "rejected",
                 "rejected_by": request.user_id,
                 "rejected_at": firestore.SERVER_TIMESTAMP,
                 "rejection_reason": request.reason,
-                "feedback": request.feedback,
+                "feedback": feedback_val,
             }
         )
 
@@ -391,7 +418,7 @@ async def reject_proposal(
                 # camelCase for event payload keys
                 "agentId": proposal.agent_id,
                 "reason": request.reason,
-                "feedback": request.feedback,
+                "feedback": feedback_val,
             },
         )
 
