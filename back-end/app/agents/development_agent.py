@@ -850,6 +850,21 @@ Examples:
             proposal_id = f"dev-sandbox-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
             # Create proposal with sandbox info
+            # Derive sandbox repo slug (owner/repo) from SANDBOX_REPO_URL when available
+            sandbox_repo_slug = None
+            try:
+                repo_url = os.getenv("SANDBOX_REPO_URL", "")
+                if repo_url:
+                    # Handle forms like https://github.com/owner/repo.git or git@github.com:owner/repo.git
+                    cleaned = repo_url.replace(".git", "")
+                    if "github.com" in cleaned:
+                        parts = cleaned.split("github.com")[-1].lstrip("/:")
+                        # parts now like owner/repo
+                        if parts.count("/") >= 1:
+                            sandbox_repo_slug = "/".join(parts.split("/")[:2])
+            except Exception:
+                sandbox_repo_slug = None
+
             proposal_data = {
                 "id": proposal_id,
                 "workspace_id": self.workspace_id,
@@ -899,6 +914,7 @@ Examples:
                 "metadata": {
                     "sandbox_branch": branch_name,
                     "implementation_type": "sandbox",
+                    "sandbox_repo": sandbox_repo_slug or "fsegall/contextpilot-sandbox",
                     "retrospective_id": (
                         context.get("retrospective_id") if context else None
                     ),
