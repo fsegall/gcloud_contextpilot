@@ -267,6 +267,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('contextpilot.openContextFile', async (item: any) => {
       await commands.openContextFile(item);
+    }),
+
+    vscode.commands.registerCommand('contextpilot.resetAgentMetrics', async (agentId?: string) => {
+      await commands.resetAgentMetrics(contextPilotService, agentId, agentsProvider);
+    }),
+
+    vscode.commands.registerCommand('contextpilot.resetAllAgentMetrics', async () => {
+      await commands.resetAgentMetrics(contextPilotService, undefined, agentsProvider);
     })
   );
 

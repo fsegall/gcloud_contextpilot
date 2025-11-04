@@ -410,7 +410,24 @@ export async function viewProposalDiff(
     if (action?.action === 'review') {
       await askClaudeToReview(proposal);
     } else if (action?.action === 'approve') {
-      await approveProposal(service, proposalId);
+      const next = await vscode.window.showQuickPick([
+        { label: '$(robot) Ask Claude first', description: 'Open review with context, then approve', value: 'ask' },
+        { label: '$(check) Approve now', description: 'Skip AI review', value: 'approve' },
+        { label: '$(x) Cancel', value: 'cancel' }
+      ], { placeHolder: 'Would you like to ask Claude to review before approving?' });
+
+      if (next?.value === 'ask') {
+        await askClaudeToReview(proposal);
+        const confirmApprove = await vscode.window.showQuickPick([
+          { label: '$(check) Approve after review', value: 'approve' },
+          { label: '$(x) Cancel', value: 'cancel' }
+        ], { placeHolder: 'Proceed to approve after Claude review?' });
+        if (confirmApprove?.value === 'approve') {
+          await approveProposal(service, proposalId);
+        }
+      } else if (next?.value === 'approve') {
+        await approveProposal(service, proposalId);
+      }
     } else if (action?.action === 'reject') {
       await rejectProposal(service, proposalId);
     } else if (action?.action === 'files') {
@@ -1164,6 +1181,55 @@ function getContextDetailWebviewContent(content: string): string {
 }
 
 // ===== OPEN CONTEXT FILE COMMAND =====
+
+export async function resetAgentMetrics(
+  service: ContextPilotService,
+  agentId?: string,
+  agentsProvider?: any
+): Promise<void> {
+  try {
+    const agentName = agentId ? `agent '${agentId}'` : 'all agents';
+    
+    const confirm = await vscode.window.showWarningMessage(
+      `Reset metrics for ${agentName}? This will clear errors, events_processed, and events_published counters.`,
+      'Yes, Reset',
+      'Cancel'
+    );
+    
+    if (confirm !== 'Yes, Reset') {
+      return;
+    }
+    
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Resetting metrics for ${agentName}...`,
+        cancellable: false,
+      },
+      async () => {
+        const success = await service.resetAgentMetrics(agentId);
+        if (success) {
+          vscode.window.showInformationMessage(
+            `✅ Metrics reset successfully for ${agentName}`
+          );
+          // Refresh agents view
+          if (agentsProvider) {
+            agentsProvider.refresh();
+          }
+        } else {
+          vscode.window.showErrorMessage(
+            `❌ Failed to reset metrics for ${agentName}`
+          );
+        }
+      }
+    );
+  } catch (error) {
+    console.error('[resetAgentMetrics] Error:', error);
+    vscode.window.showErrorMessage(
+      `Failed to reset agent metrics: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+}
 
 export async function openContextFile(item: any): Promise<void> {
   try {

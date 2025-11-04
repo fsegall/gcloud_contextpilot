@@ -43,7 +43,7 @@ elif [ "$ENVIRONMENT" = "prod" ]; then
         --source . \
         --region $REGION \
         --allow-unauthenticated \
-        --set-env-vars="USE_PUBSUB=true,FIRESTORE_ENABLED=true,GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production" \
+        --set-env-vars="STORAGE_MODE=cloud,EVENT_BUS_MODE=pubsub,GCP_PROJECT_ID=$PROJECT_ID,ENVIRONMENT=production,USE_PUBSUB=true" \
         --memory 2Gi \
         --cpu 2 \
         --timeout 300 \

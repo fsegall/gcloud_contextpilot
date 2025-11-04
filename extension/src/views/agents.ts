@@ -46,16 +46,31 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
       // Root level - show mode indicator as sub-header
       try {
         // Use last known mode; avoid triggering update here to prevent loops
-        const modeIcon = this.eventBusMode === 'pubsub' ? '📡' : '💾';
+        let modeIcon: string;
+        let modeName: string;
+        let tooltipText: string;
+        
+        if (this.eventBusMode === 'pubsub') {
+          modeIcon = '📡';
+          modeName = 'Pub/Sub';
+          tooltipText = 'Pub/Sub Mode: Agents communicate via Google Pub/Sub (scalable)';
+        } else if (this.eventBusMode === 'in_memory') {
+          modeIcon = '💾';
+          modeName = 'In-Memory';
+          tooltipText = 'In-Memory Mode: Agents communicate via in-memory events (local)';
+        } else {
+          modeIcon = '⚠️';
+          modeName = 'Unknown';
+          tooltipText = 'Event Bus Mode: Not detected. Ensure EVENT_BUS_MODE is set in Cloud Run (pubsub or in_memory)';
+        }
+        
         const modeItem = new AgentItem({
           agent_id: 'event-bus-mode',
-          name: `⚙️ ${modeIcon} Event Bus: ${this.eventBusMode}`,
+          name: `⚙️ ${modeIcon} Event Bus: ${modeName}`,
           status: 'active',
           last_activity: 'now'
         }, vscode.TreeItemCollapsibleState.Expanded);
-        modeItem.tooltip = this.eventBusMode === 'pubsub' 
-          ? 'Pub/Sub Mode: Agents communicate via Google Pub/Sub (scalable)'
-          : 'In-Memory Mode: Agents communicate via in-memory events (local)';
+        modeItem.tooltip = tooltipText;
         modeItem.contextValue = 'mode-indicator';
         modeItem.description = ''; // Remove "active" from mode indicator
         

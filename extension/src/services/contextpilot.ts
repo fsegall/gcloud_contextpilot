@@ -290,6 +290,26 @@ export class ContextPilotService {
     }
   }
 
+  async resetAgentMetrics(agentId?: string): Promise<boolean> {
+    try {
+      if (agentId) {
+        // Reset specific agent
+        await this.client.post(`/agents/${agentId}/reset-metrics`, null, {
+          params: { workspace_id: this.workspaceId || 'contextpilot' }
+        });
+      } else {
+        // Reset all agents
+        await this.client.post('/agents/reset-metrics', null, {
+          params: { workspace_id: this.workspaceId || 'contextpilot' }
+        });
+      }
+      return true;
+    } catch (error) {
+      console.error('Failed to reset agent metrics:', error);
+      return false;
+    }
+  }
+
   async askCoach(question: string): Promise<string> {
     try {
       const response = await this.client.post('/agents/coach/ask', {

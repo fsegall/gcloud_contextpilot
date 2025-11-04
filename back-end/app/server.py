@@ -865,6 +865,137 @@ def get_agents_status(workspace_id: str = Query(default="default")):
         ]
 
 
+@app.post("/agents/{agent_id}/reset-metrics")
+def reset_agent_metrics(agent_id: str, workspace_id: str = Query(default="default")):
+    """
+    Reset metrics for a specific agent (clear errors, events_processed, etc.).
+    
+    Useful for clearing persistent error states.
+    """
+    logger.info(f"POST /agents/{agent_id}/reset-metrics called for workspace: {workspace_id}")
+    
+    try:
+        from app.agents.agent_orchestrator import AgentOrchestrator
+        
+        # Get workspace path
+        workspace_path = get_workspace_path(workspace_id)
+        
+        # Initialize orchestrator
+        orchestrator = AgentOrchestrator(
+            workspace_id=workspace_id, workspace_path=str(workspace_path)
+        )
+        
+        # Initialize agents
+        orchestrator.initialize_agents()
+        
+        # Get the specific agent
+        agent = orchestrator.agents.get(agent_id)
+        if not agent:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Agent '{agent_id}' not found. Available: {list(orchestrator.agents.keys())}"
+            )
+        
+        # Reset metrics in agent state
+        if hasattr(agent, "state") and "metrics" in agent.state:
+            agent.state["metrics"] = {
+                "events_processed": 0,
+                "events_published": 0,
+                "errors": 0
+            }
+            agent._save_state()
+            logger.info(f"[agents/reset-metrics] Reset metrics for {agent_id}")
+            
+            # Cleanup
+            orchestrator.shutdown_agents()
+            
+            return {
+                "success": True,
+                "agent_id": agent_id,
+                "message": f"Metrics reset for {agent_id}",
+                "metrics": agent.state["metrics"]
+            }
+        else:
+            # Cleanup
+            orchestrator.shutdown_agents()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent '{agent_id}' does not have metrics state"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting agent metrics: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset metrics: {str(e)}"
+        )
+
+
+@app.post("/agents/reset-metrics")
+def reset_all_agents_metrics(workspace_id: str = Query(default="default")):
+    """
+    Reset metrics for all agents in the workspace.
+    
+    Useful for clearing all persistent error states.
+    """
+    logger.info(f"POST /agents/reset-metrics called for workspace: {workspace_id}")
+    
+    try:
+        from app.agents.agent_orchestrator import AgentOrchestrator
+        
+        # Get workspace path
+        workspace_path = get_workspace_path(workspace_id)
+        
+        # Initialize orchestrator
+        orchestrator = AgentOrchestrator(
+            workspace_id=workspace_id, workspace_path=str(workspace_path)
+        )
+        
+        # Initialize agents
+        orchestrator.initialize_agents()
+        
+        reset_count = 0
+        results = {}
+        
+        for agent_id, agent in orchestrator.agents.items():
+            try:
+                if hasattr(agent, "state") and "metrics" in agent.state:
+                    agent.state["metrics"] = {
+                        "events_processed": 0,
+                        "events_published": 0,
+                        "errors": 0
+                    }
+                    agent._save_state()
+                    reset_count += 1
+                    results[agent_id] = "reset"
+                    logger.info(f"[agents/reset-metrics] Reset metrics for {agent_id}")
+                else:
+                    results[agent_id] = "no_metrics"
+            except Exception as e:
+                logger.error(f"Error resetting metrics for {agent_id}: {e}")
+                results[agent_id] = f"error: {str(e)}"
+        
+        # Cleanup
+        orchestrator.shutdown_agents()
+        
+        return {
+            "success": True,
+            "workspace_id": workspace_id,
+            "reset_count": reset_count,
+            "total_agents": len(results),
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Error resetting all agent metrics: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset metrics: {str(e)}"
+        )
+
+
 @app.post("/agents/coach/ask")
 async def coach_ask(
     user_id: str = Body(...),

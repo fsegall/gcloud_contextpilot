@@ -25,7 +25,8 @@
     "web3"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onCommand:contextpilot.configureRepos"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -114,6 +115,16 @@
         "command": "contextpilot.resetChatSession",
         "title": "ContextPilot: Reset Chat Session",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "contextpilot.resetAgentMetrics",
+        "title": "ContextPilot: Reset Agent Metrics",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "contextpilot.resetAllAgentMetrics",
+        "title": "ContextPilot: Reset All Agents Metrics",
+        "icon": "$(sync)"
       },
       {
         "command": "contextpilot.triggerRetrospective",
@@ -206,6 +217,9 @@
           "when": "!contextpilot.connected"
         },
         {
+          "command": "contextpilot.configureRepos"
+        },
+        {
           "command": "contextpilot.disconnect",
           "when": "contextpilot.connected"
         }
@@ -215,6 +229,11 @@
           "command": "contextpilot.refreshStatus",
           "when": "view == contextpilot.proposals",
           "group": "navigation"
+        },
+        {
+          "command": "contextpilot.configureRepos",
+          "when": "view == contextpilot.proposals || view == contextpilot.context || view == contextpilot.agents",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
