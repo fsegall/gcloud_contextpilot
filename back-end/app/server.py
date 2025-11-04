@@ -1631,6 +1631,9 @@ async def trigger_agent_retrospective(
     - Generating insights and action items
     - (Optional) Synthesizing with LLM
 
+    Note: This is a long-running operation (can take 2-5 minutes). The proposal
+    will be created even if the HTTP request times out.
+
     Args:
         workspace_id: Workspace identifier
         trigger: What triggered the retrospective (e.g., "manual", "milestone_complete", "cycle_end")
@@ -1641,7 +1644,7 @@ async def trigger_agent_retrospective(
         Retrospective summary with agent insights
     """
     logger.info(
-        f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}, topic: {trigger_topic}"
+        f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}, topic: {trigger_topic}, use_llm: {use_llm}"
     )
 
     try:
@@ -1654,17 +1657,26 @@ async def trigger_agent_retrospective(
             if not gemini_api_key:
                 logger.warning("[API] LLM synthesis requested but no API key found")
 
+        logger.info("[API] Starting retrospective process...")
         retrospective = await trigger_retrospective(
             workspace_id=workspace_id,
             trigger=trigger,
             gemini_api_key=gemini_api_key,
             trigger_topic=trigger_topic,
         )
+        logger.info(f"[API] Retrospective completed: {retrospective.get('retrospective_id')}")
 
         return {"status": "success", "retrospective": retrospective}
 
+    except TimeoutError as e:
+        logger.error(f"Retrospective timeout: {str(e)}")
+        # Even if timeout, the proposal might have been created
+        return {
+            "status": "timeout",
+            "message": "Retrospective is processing in background. Check proposals list for generated proposal.",
+        }
     except Exception as e:
-        logger.error(f"Error triggering retrospective: {str(e)}")
+        logger.error(f"Error triggering retrospective: {str(e)}", exc_info=True)
         return {"status": "error", "message": str(e)}
 
 
