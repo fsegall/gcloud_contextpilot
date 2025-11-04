@@ -62,8 +62,15 @@ jobs:
           STATUS=$(jq -r '.status // "pending"' proposal.json)
           
           # Sanitize title for GitHub Actions output (remove markdown and special chars that break output)
-          # Remove markdown bold (**text**), strip newlines, and escape special characters
-          TITLE_SANITIZED=$(echo "$TITLE" | sed 's/\*\*//g' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -c 200)
+          # Remove markdown bold (**text**), strip newlines, remove empty markdown patterns, and escape special characters
+          TITLE_SANITIZED=$(echo "$TITLE" | \
+            sed 's/\*\*[^*]*\*\*//g' | \
+            sed 's/\*\*[[:space:]]*//g' | \
+            sed 's/[[:space:]]*\*\*//g' | \
+            tr '\n' ' ' | \
+            sed 's/[[:space:]]\{2,\}/ /g' | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+            head -c 200)
           
           # Check if this is a sandbox proposal
           IMPLEMENTATION_TYPE=$(jq -r '.metadata.implementation_type // ""' proposal.json)

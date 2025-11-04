@@ -124,6 +124,8 @@ class RetrospectiveAgent(BaseAgent):
         self._save_retrospective(retrospective)
 
         # 9. Create improvement proposal from action items
+        # Note: If code actions are implemented via Codespaces/Sandbox, those will create
+        # their own proposals. We only create a "Recommendations" proposal for non-code actions.
         proposal_id = await self._create_improvement_proposal(retrospective)
         if proposal_id:
             retrospective["proposal_id"] = proposal_id
@@ -728,28 +730,48 @@ Keep the tone encouraging and constructive. Maximum 200 words.
         
         # Check if any action items need code implementation
         code_action_items = self._identify_code_actions(action_items)
+        code_proposals_created = []
         if code_action_items:
             logger.info(
                 f"[RetrospectiveAgent] Found {len(code_action_items)} action items requiring code implementation"
             )
-            # Trigger Development Agent for code generation
-            await self._trigger_development_agent(retrospective, code_action_items)
+            # Trigger Development Agent for code generation (creates Codespaces/Sandbox proposals)
+            code_proposals_created = await self._trigger_development_agent(retrospective, code_action_items)
+            if code_proposals_created:
+                logger.info(
+                    f"[RetrospectiveAgent] DevelopmentAgent created {len(code_proposals_created)} code proposals"
+                )
 
-        # Get high and medium priority actions
+        # Filter out code action items from the recommendations proposal
+        # Only create "Recommendations" proposal for non-code actions
+        code_action_texts = {item.get("action", "") for item in code_action_items}
+        non_code_action_items = [
+            item for item in action_items
+            if item.get("action", "") not in code_action_texts
+        ]
+        
+        # If all actions are code actions and proposals were created, skip recommendations proposal
+        if not non_code_action_items and code_proposals_created:
+            logger.info(
+                "[RetrospectiveAgent] All actions are code actions with proposals - skipping Recommendations proposal"
+            )
+            return code_proposals_created[0] if code_proposals_created else None
+
+        # Get high and medium priority actions (from non-code actions only)
         high_priority_actions = [
-            item for item in action_items if item.get("priority") == "high"
+            item for item in non_code_action_items if item.get("priority") == "high"
         ]
         medium_priority_actions = [
-            item for item in action_items if item.get("priority") == "medium"
+            item for item in non_code_action_items if item.get("priority") == "medium"
         ]
 
-        # Prioritize high, then include medium if needed, or all actions
+        # Prioritize high, then include medium if needed, or all non-code actions
         if high_priority_actions:
             actions_to_propose = high_priority_actions
         elif medium_priority_actions:
             actions_to_propose = medium_priority_actions[:3]
         else:
-            actions_to_propose = action_items[:3]
+            actions_to_propose = non_code_action_items[:3]
 
         if not actions_to_propose:
             return None
@@ -1012,12 +1034,12 @@ Implementing these changes will:
                 priority = action_item.get("priority", "medium")
                 
                 # Build comprehensive description
-                description = f"""**From Retrospective:** {retrospective['retrospective_id']}
-**Priority:** {priority.upper()}
+                description = f"""From Retrospective: {retrospective['retrospective_id']}
+Priority: {priority.upper()}
 
-**Action Item:** {action}
+Action Item: {action}
 
-**Context from Retrospective:**
+Context from Retrospective:
 """
                 # Add relevant insights
                 for insight in retrospective.get("insights", [])[:3]:
