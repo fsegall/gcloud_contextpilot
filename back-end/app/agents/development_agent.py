@@ -1545,8 +1545,15 @@ Generate a detailed implementation plan with code examples:"""
 
             # Sanitize description for title (remove markdown and newlines)
             import re
-            title_desc = re.sub(r'\*\*[^*]*\*\*', '', description)  # Remove **bold**
+            # Remove markdown bold patterns (including incomplete ones like **Priority:** )
+            title_desc = re.sub(r'\*\*[^*]*?\*\*', '', description)  # Remove **bold** patterns
+            title_desc = re.sub(r'\*\*[^*]*$', '', title_desc)  # Remove incomplete ** at end
+            title_desc = re.sub(r'^\*\*[^*]*', '', title_desc)  # Remove incomplete ** at start
+            title_desc = re.sub(r'\*\*[^*:]*:\s*\*\*', '', title_desc)  # Remove **text:** patterns
+            title_desc = re.sub(r'\*\*[^*:]*:\s*', '', title_desc)  # Remove **text: patterns (incomplete)
             title_desc = re.sub(r'\*[^*]*\*', '', title_desc)  # Remove *italic*
+            title_desc = re.sub(r'\*\*', '', title_desc)  # Remove any remaining **
+            title_desc = re.sub(r'\*', '', title_desc)  # Remove any remaining *
             title_desc = re.sub(r'\n', ' ', title_desc)  # Replace newlines with spaces
             title_desc = re.sub(r'\s+', ' ', title_desc).strip()  # Collapse whitespace
             title_desc = title_desc[:60]  # Limit length

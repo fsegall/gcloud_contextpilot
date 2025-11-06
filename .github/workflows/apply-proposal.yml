@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN_PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Configure Git
         run: |
@@ -62,11 +62,14 @@ jobs:
           STATUS=$(jq -r '.status // "pending"' proposal.json)
           
           # Sanitize title for GitHub Actions output (remove markdown and special chars that break output)
-          # Remove markdown bold (**text**), strip newlines, remove empty markdown patterns, and escape special characters
+          # Remove markdown bold (**text**), including incomplete patterns like **Priority:** or **text:** 
           TITLE_SANITIZED=$(echo "$TITLE" | \
+            sed 's/\*\*[^*]*:\s*\*\*//g' | \
+            sed 's/\*\*[^*:]*:\s*//g' | \
             sed 's/\*\*[^*]*\*\*//g' | \
             sed 's/\*\*[[:space:]]*//g' | \
             sed 's/[[:space:]]*\*\*//g' | \
+            sed 's/\*\*//g' | \
             tr '\n' ' ' | \
             sed 's/[[:space:]]\{2,\}/ /g' | \
             sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
@@ -165,9 +168,9 @@ jobs:
           SANDBOX_REPO: ${{ steps.fetch.outputs.sandbox_repo }}
           SANDBOX_BRANCH: ${{ steps.fetch.outputs.sandbox_branch }}
           PROPOSAL_ID: ${{ steps.proposal.outputs.proposal_id }}
-          MAIN_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN_PAT || secrets.GITHUB_TOKEN }}
+          MAIN_REPO_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
         with:
-          github-token: ${{ secrets.SANDBOX_REPO_TOKEN }}
+          github-token: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const sandboxRepo = process.env.SANDBOX_REPO.split('/');
@@ -297,7 +300,7 @@ jobs:
                   if (error.status === 403) {
                     core.warning(`⚠️ Permission denied creating PR. Please ensure:
 1. Repository setting "Allow GitHub Actions to create and approve pull requests" is enabled, OR
-2. Set GITHUB_TOKEN_PAT secret with a Personal Access Token that has 'repo' and 'workflow' scopes`);
+2. Set PERSONAL_GITHUB_TOKEN secret with a Personal Access Token that has 'repo' and 'workflow' scopes`);
                   }
                   throw error;
                 }
@@ -310,7 +313,7 @@ jobs:
       - name: Commit and push changes to feature branch
         if: steps.fetch.outputs.is_sandbox == 'false'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
           TITLE="${{ steps.fetch.outputs.title }}"
@@ -352,7 +355,7 @@ jobs:
         env:
           BRANCH_NAME: cp/proposal-${{ steps.proposal.outputs.proposal_id }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN_PAT || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const branch = process.env.BRANCH_NAME;
             const base = 'main';
