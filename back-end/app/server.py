@@ -1802,6 +1802,127 @@ async def get_retrospective(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/agents/retrospective/status")
+async def get_retrospective_status(
+    workspace_id: str = Query("default"),
+    since: Optional[str] = Query(None, description="ISO timestamp to check for new retrospectives/proposals since")
+):
+    """
+    Get status of the latest retrospective and proposal.
+    
+    Useful for polling to detect when a retrospective completes and creates a new proposal.
+    The frontend can use this to trigger a page reload after approving a proposal and
+    waiting for the retrospective to complete.
+    
+    Args:
+        workspace_id: Workspace identifier
+        since: Optional ISO timestamp - only return retrospectives/proposals created after this time
+    
+    Returns:
+        {
+            "latest_retrospective": {
+                "retrospective_id": "...",
+                "timestamp": "...",
+                "proposal_id": "...",
+                "has_proposal": true/false
+            },
+            "latest_proposal": {
+                "proposal_id": "...",
+                "created_at": "...",
+                "status": "...",
+                "title": "..."
+            },
+            "has_new_proposal": true/false  # If since timestamp provided
+        }
+    """
+    logger.info(f"GET /agents/retrospective/status - workspace: {workspace_id}, since: {since}")
+
+    try:
+        workspace_path = get_workspace_path(workspace_id)
+        retro_dir = Path(workspace_path) / "retrospectives"
+        proposals_dir = Path(workspace_path) / "proposals"
+        
+        result = {
+            "latest_retrospective": None,
+            "latest_proposal": None,
+            "has_new_proposal": False
+        }
+        
+        # Get latest retrospective
+        if retro_dir.exists():
+            retro_files = sorted(retro_dir.glob("*.json"), reverse=True)
+            if retro_files:
+                try:
+                    with open(retro_files[0], "r") as f:
+                        retro = json.load(f)
+                    
+                    retro_timestamp = retro.get("timestamp", "")
+                    if since and retro_timestamp:
+                        # Check if retrospective is newer than 'since'
+                        from datetime import datetime
+                        try:
+                            retro_dt = datetime.fromisoformat(retro_timestamp.replace('Z', '+00:00'))
+                            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                            if retro_dt <= since_dt:
+                                # No new retrospective
+                                pass
+                        except:
+                            pass
+                    
+                    proposal_id = retro.get("proposal_id")
+                    result["latest_retrospective"] = {
+                        "retrospective_id": retro.get("retrospective_id"),
+                        "timestamp": retro_timestamp,
+                        "proposal_id": proposal_id,
+                        "has_proposal": bool(proposal_id)
+                    }
+                except Exception as e:
+                    logger.error(f"Error reading latest retrospective: {e}")
+        
+        # Get latest proposal
+        proposals = []
+        if proposals_dir.exists():
+            proposals = _read_proposals_from_dir(proposals_dir)
+        else:
+            proposals_path = Path(workspace_path) / "proposals.json"
+            if proposals_path.exists():
+                proposals = _read_proposals(proposals_path)
+        
+        if proposals:
+            # Sort by created_at
+            proposals.sort(key=lambda p: p.get("created_at", ""), reverse=True)
+            latest_proposal = proposals[0]
+            
+            result["latest_proposal"] = {
+                "proposal_id": latest_proposal.get("id"),
+                "created_at": latest_proposal.get("created_at"),
+                "status": latest_proposal.get("status"),
+                "title": latest_proposal.get("title", "")
+            }
+            
+            # Check if there's a new proposal since 'since' timestamp
+            if since and latest_proposal.get("created_at"):
+                try:
+                    from datetime import datetime
+                    proposal_dt = datetime.fromisoformat(latest_proposal["created_at"].replace('Z', '+00:00'))
+                    since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                    if proposal_dt > since_dt:
+                        result["has_new_proposal"] = True
+                except:
+                    pass
+        
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting retrospective status: {str(e)}")
+        return {
+            "latest_retrospective": None,
+            "latest_proposal": None,
+            "has_new_proposal": False,
+            "error": str(e)
+        }
+
+
 # ========== Development Agent Endpoints ==========
 
 

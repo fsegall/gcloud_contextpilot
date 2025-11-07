@@ -1,414 +1,182 @@
-"""
-Event Bus Service - Pub/Sub Integration
-
-Provides event-driven communication between agents.
-Supports both GCP Pub/Sub (production) and in-memory (development).
-"""
-
-import os
-import json
-import logging
-from typing import Dict, List, Callable, Optional, Any
-from datetime import datetime
-from abc import ABC, abstractmethod
 import asyncio
+import logging
 from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Callable, Any, Dict, List
+from dataclasses import dataclass, field
 
+# Configure logger for this module
 logger = logging.getLogger(__name__)
 
-# Event schema version
-EVENT_SCHEMA_VERSION = "1.0.0"
 
-
-class EventBusInterface(ABC):
-    """Abstract interface for event bus implementations"""
-    
-    @abstractmethod
-    async def publish(self, topic: str, event_type: str, source: str, data: Dict) -> str:
-        """Publish event to topic"""
-        pass
-    
-    @abstractmethod
-    def subscribe(self, event_type: str, handler: Callable) -> None:
-        """Subscribe handler to event type"""
-        pass
-    
-    @abstractmethod
-    async def start_listening(self) -> None:
-        """Start listening for events"""
-        pass
-    
-    @abstractmethod
-    async def stop_listening(self) -> None:
-        """Stop listening for events"""
-        pass
-
-
-class InMemoryEventBus(EventBusInterface):
+@dataclass
+class Event:
     """
-    In-memory event bus for development/testing.
-    Events are processed synchronously in the same process.
+    Base class for all events in the system.
+
+    Events are immutable data structures that represent something that has
+    occurred in the system. They are dispatched via the EventBus to interested
+    subscribers.
+
+    Attributes:
+        event_type (str): A string identifying the type of event (e.g., "AGENT_STATUS_UPDATE", "TASK_COMPLETED").
+        payload (Dict[str, Any]): A dictionary containing event-specific data.
+        timestamp (str): ISO formatted UTC timestamp when the event was created.
     """
-    
-    def __init__(self):
-        self.subscriptions: Dict[str, List[Callable]] = defaultdict(list)
-        self.event_log: List[Dict] = []
-        self.listening = False
-        logger.info("[InMemoryEventBus] Initialized (development mode)")
-    
-    async def publish(self, topic: str, event_type: str, source: str, data: Dict) -> str:
-        """Publish event to in-memory subscribers"""
-        event = {
-            'event_id': f"evt-{len(self.event_log)}",
-            'event_type': event_type,
-            'source': source,
-            'topic': topic,
-            'data': data,
-            'timestamp': datetime.utcnow().isoformat(),
-            'schema_version': EVENT_SCHEMA_VERSION
-        }
-        
-        # Log event
-        self.event_log.append(event)
-        logger.info(f"[EventBus] Published: {event_type} from {source} to {topic}")
-        
-        # Call subscribers immediately (in-memory)
-        if event_type in self.subscriptions:
-            for handler in self.subscriptions[event_type]:
-                try:
-                    if asyncio.iscoroutinefunction(handler):
-                        await handler(event_type, data)
-                    else:
-                        handler(event_type, data)
-                except Exception as e:
-                    logger.error(f"[EventBus] Handler error for {event_type}: {e}")
-        
-        return event['event_id']
-    
-    def subscribe(self, event_type: str, handler: Callable) -> None:
-        """Subscribe handler to event type"""
-        self.subscriptions[event_type].append(handler)
-        logger.info(f"[EventBus] Subscribed to {event_type} (total: {len(self.subscriptions[event_type])})")
-    
-    async def start_listening(self) -> None:
-        """Start listening (no-op for in-memory)"""
-        self.listening = True
-        logger.info("[EventBus] Listening started (in-memory mode)")
-    
-    async def stop_listening(self) -> None:
-        """Stop listening"""
-        self.listening = False
-        logger.info("[EventBus] Listening stopped")
-    
-    def get_event_log(self) -> List[Dict]:
-        """Get all events (for debugging)"""
-        return self.event_log
-    
-    def clear_log(self) -> None:
-        """Clear event log"""
-        self.event_log.clear()
+    event_type: str
+    payload: Dict[str, Any] = field(default_factory=dict)
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def __post_init__(self):
+        """Ensures event_type is not empty after initialization."""
+        if not self.event_type:
+            raise ValueError("Event type cannot be empty.")
+
+    def __str__(self):
+        """Provides a human-readable representation of the event."""
+        return f"Event(type='{self.event_type}', timestamp='{self.timestamp}', payload={self.payload})"
 
 
-class PubSubEventBus(EventBusInterface):
+class EventBus:
     """
-    Google Cloud Pub/Sub event bus for production.
-    Events are published to GCP Pub/Sub topics.
+    An asynchronous in-memory event bus for dispatching events to subscribed handlers.
+
+    This bus facilitates communication between different components (e.g., agents, services)
+    by allowing them to publish and subscribe to specific event types. Handlers are
+    executed asynchronously to prevent blocking the publisher.
+
+    It is implemented as an async singleton to ensure a single, globally accessible
+    instance across the application that can be initialized asynchronously.
     """
-    
-    # Map event types to Pub/Sub subscriptions
-    EVENT_TO_SUBSCRIPTION = {
-        'git.commit.v1': 'git-agent-sub',
-        'git.branch.created.v1': 'git-agent-sub',
-        'git.merge.v1': 'git-agent-sub',
-        'git.rollback.v1': 'git-agent-sub',
-        'spec.validation.v1': 'spec-agent-sub',
-        'spec.update.v1': 'spec-agent-sub',
-        'proposal.created.v1': 'spec-agent-sub',
-        'proposal.approved.v1': 'git-agent-sub',
-        'proposal.rejected.v1': 'git-agent-sub',
-        'strategy.insight.v1': 'strategy-agent-sub',
-        'strategy.options.v1': 'strategy-agent-sub',
-        'coach.nudge.v1': 'coach-agent-sub',
-        'coach.unblock.v1': 'coach-agent-sub',
-        'retrospective.summary.v1': 'retrospective-agent-sub',
-    }
-    
-    # Map topics to subscriptions (for listening to all events on a topic)
-    TOPIC_TO_SUBSCRIPTION = {
-        'git-events': 'git-agent-sub',
-        'proposal-events': 'spec-agent-sub',
-        'spec-events': 'spec-agent-sub',
-        'strategy-events': 'strategy-agent-sub',
-        'coach-events': 'coach-agent-sub',
-        'retrospective-events': 'retrospective-agent-sub',
-    }
-    
-    def __init__(self, project_id: str, agent_id: str = None):
-        try:
-            from google.cloud import pubsub_v1
-            self.publisher = pubsub_v1.PublisherClient()
-            self.subscriber = pubsub_v1.SubscriberClient()
-            self.project_id = project_id
-            self.agent_id = agent_id
-            self.subscriptions: Dict[str, List[Callable]] = defaultdict(list)
-            self.subscription_futures = []
-            self.listening = False
-            logger.info(f"[PubSubEventBus] Initialized for project: {project_id}, agent: {agent_id}")
-        except ImportError:
-            logger.error("[PubSubEventBus] google-cloud-pubsub not installed")
-            raise
-    
-    async def publish(self, topic: str, event_type: str, source: str, data: Dict) -> str:
-        """Publish event to Pub/Sub topic"""
-        topic_path = self.publisher.topic_path(self.project_id, topic)
-        
-        event = {
-            'event_type': event_type,
-            'source': source,
-            'data': data,
-            'timestamp': datetime.utcnow().isoformat(),
-            'schema_version': EVENT_SCHEMA_VERSION
-        }
-        
-        # Publish to Pub/Sub
-        message_bytes = json.dumps(event).encode('utf-8')
-        future = self.publisher.publish(topic_path, message_bytes)
-        message_id = future.result()  # Block until published
-        
-        logger.info(f"[PubSubEventBus] Published {event_type} to {topic} (msg_id: {message_id})")
-        return message_id
-    
-    def subscribe(self, event_type: str, handler: Callable) -> None:
-        """Register handler for event type (local registry)"""
-        self.subscriptions[event_type].append(handler)
-        logger.info(f"[PubSubEventBus] Registered handler for {event_type}")
-    
-    def _get_subscription_for_agent(self) -> Optional[str]:
-        """Get the Pub/Sub subscription name for this agent"""
-        if not self.agent_id:
-            return None
-        
-        # Map agent_id to subscription name
-        agent_subscription_map = {
-            'spec': 'spec-agent-sub',
-            'git': 'git-agent-sub',
-            'strategy': 'strategy-agent-sub',
-            'coach': 'coach-agent-sub',
-            'retrospective': 'retrospective-agent-sub',
-            'milestone': 'git-agent-sub',  # Milestone events go to git-agent-sub
-            'context': 'spec-agent-sub',   # Context events go to spec-agent-sub
-        }
-        
-        return agent_subscription_map.get(self.agent_id)
-    
-    async def start_listening(self) -> None:
-        """Start listening to Pub/Sub subscriptions"""
-        self.listening = True
-        
-        # Determine which subscription to listen to based on agent_id
-        subscription_name = self._get_subscription_for_agent()
-        if not subscription_name:
-            logger.warning(f"[PubSubEventBus] No subscription found for agent: {self.agent_id}")
+    _instance = None
+    _lock = asyncio.Lock()  # Protects _instance creation and shared state
+
+    def __new__(cls):
+        """
+        Ensures only one instance of EventBus is created (singleton pattern).
+        """
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False  # Flag to track async initialization status
+        return cls._instance
+
+    async def initialize(self):
+        """
+        Initializes the event bus's internal state. This method should be awaited
+        once at application startup to set up the bus properly.
+        """
+        async with self._lock:
+            if not self._initialized:
+                self._subscribers: Dict[str, List[Callable[[Event], Any]]] = defaultdict(list)
+                self._initialized = True
+                logger.info("EventBus initialized successfully.")
+
+    async def subscribe(self, event_type: str, handler: Callable[[Event], Any]):
+        """
+        Subscribes a handler function to a specific event type.
+
+        The handler function will be called with an `Event` object when an event
+        of the specified type is published. It can be a regular synchronous function
+        or an asynchronous coroutine function.
+
+        Args:
+            event_type (str): The type of event to subscribe to.
+            handler (Callable[[Event], Any]): The function to call when the event occurs.
+        """
+        if not self._initialized:
+            logger.warning(
+                f"EventBus not initialized. Attempting to initialize before subscribing "
+                f"handler '{handler.__name__}' to '{event_type}'."
+            )
+            await self.initialize()  # Attempt to initialize if not already
+
+        async with self._lock:
+            if handler not in self._subscribers[event_type]:
+                self._subscribers[event_type].append(handler)
+                logger.debug(f"Handler '{handler.__name__}' subscribed to event type '{event_type}'.")
+            else:
+                logger.warning(f"Handler '{handler.__name__}' is already subscribed to event type '{event_type}'.")
+
+    async def unsubscribe(self, event_type: str, handler: Callable[[Event], Any]):
+        """
+        Unsubscribes a handler function from a specific event type.
+
+        Args:
+            event_type (str): The type of event to unsubscribe from.
+            handler (Callable[[Event], Any]): The handler function to remove.
+        """
+        if not self._initialized:
+            logger.warning("Attempted to unsubscribe from an uninitialized EventBus. No action taken.")
             return
-        
-        subscription_path = self.subscriber.subscription_path(
-            self.project_id, subscription_name
-        )
-        
-        logger.info(f"[PubSubEventBus] Listening to subscription: {subscription_name}")
-        
-        def callback(message):
-            """Handle incoming Pub/Sub message"""
-            try:
-                event = json.loads(message.data.decode('utf-8'))
-                event_type = event['event_type']
-                data = event['data']
-                
-                logger.info(f"[PubSubEventBus] Received {event_type} on {subscription_name}")
-                
-                # Call registered handlers
-                if event_type in self.subscriptions:
-                    for handler in self.subscriptions[event_type]:
-                        try:
-                            if asyncio.iscoroutinefunction(handler):
-                                asyncio.create_task(handler(event_type, data))
-                            else:
-                                handler(event_type, data)
-                        except Exception as e:
-                            logger.error(f"[PubSubEventBus] Handler error: {e}")
-                
-                message.ack()
-            except Exception as e:
-                logger.error(f"[PubSubEventBus] Message processing error: {e}")
-                message.nack()
-        
-        # Start streaming pull
-        future = self.subscriber.subscribe(subscription_path, callback)
-        self.subscription_futures.append(future)
-        
-        logger.info(f"[PubSubEventBus] Listening on {subscription_path}")
-    
-    async def stop_listening(self) -> None:
-        """Stop listening to Pub/Sub"""
-        self.listening = False
-        for future in self.subscription_futures:
-            future.cancel()
-        self.subscription_futures.clear()
-        logger.info("[PubSubEventBus] Stopped listening")
 
+        async with self._lock:
+            if handler in self._subscribers[event_type]:
+                self._subscribers[event_type].remove(handler)
+                logger.debug(f"Handler '{handler.__name__}' unsubscribed from event type '{event_type}'.")
+            else:
+                logger.warning(
+                    f"Handler '{handler.__name__}' not found for event type '{event_type}'. "
+                    f"No action taken during unsubscribe."
+                )
 
-# Global event bus instance
-_event_bus: Optional[EventBusInterface] = None
+    async def publish(self, event: Event):
+        """
+        Publishes an event to the bus.
 
+        This method dispatches the event to all currently subscribed handlers for
+        its `event_type`. Each handler is executed as a separate `asyncio.Task`,
+        ensuring that the publishing operation is non-blocking.
 
-def get_event_bus(project_id: Optional[str] = None, force_in_memory: bool = False, agent_id: Optional[str] = None) -> EventBusInterface:
-    """
-    Get or create event bus instance.
-    
-    Args:
-        project_id: GCP project ID (for Pub/Sub)
-        force_in_memory: Force in-memory bus even if GCP is available
-        agent_id: Agent identifier (for Pub/Sub subscription routing)
-    
-    Returns:
-        EventBus instance (Pub/Sub or in-memory)
-    """
-    global _event_bus
-    
-    if _event_bus is not None:
-        return _event_bus
-    
-    # Determine which implementation to use
-    use_pubsub = (
-        not force_in_memory and
-        project_id is not None and
-        os.getenv('USE_PUBSUB', 'false').lower() == 'true'
-    )
-    
-    if use_pubsub:
+        Args:
+            event (Event): The event object to publish.
+        """
+        if not self._initialized:
+            logger.error(f"Attempted to publish event '{event.event_type}' to an uninitialized EventBus. Event dropped.")
+            return
+
+        logger.info(f"Publishing event: {event}")
+        handlers_to_dispatch = []
+        async with self._lock:
+            # Get a copy of the handlers list to prevent issues if subscribers modify it
+            # during iteration (e.g., unsubscribe themselves).
+            handlers_to_dispatch = list(self._subscribers[event.event_type])
+
+        if not handlers_to_dispatch:
+            logger.debug(f"No handlers subscribed for event type '{event.event_type}'. Event not dispatched.")
+            return
+
+        for handler in handlers_to_dispatch:
+            # Create a task for each handler to run concurrently without blocking the publisher
+            asyncio.create_task(self._dispatch_event_to_handler(event, handler))
+
+    async def _dispatch_event_to_handler(self, event: Event, handler: Callable[[Event], Any]):
+        """
+        Internal method to safely call a single handler with an event.
+
+        This method handles both synchronous and asynchronous handler functions
+        and catches any exceptions raised by the handler to prevent them from
+        crashing the event bus or other handlers.
+
+        Args:
+            event (Event): The event object to pass to the handler.
+            handler (Callable[[Event], Any]): The handler function to execute.
+        """
         try:
-            _event_bus = PubSubEventBus(project_id, agent_id=agent_id)
-            logger.info(f"[EventBus] Using Google Pub/Sub for agent: {agent_id}")
+            if asyncio.iscoroutinefunction(handler):
+                await handler(event)
+            else:
+                # Run synchronous handlers in a thread pool to avoid blocking the event loop.
+                # This is crucial for long-running synchronous operations in an async application.
+                await asyncio.to_thread(handler, event)
+            logger.debug(f"Event '{event.event_type}' successfully dispatched to handler '{handler.__name__}'.")
         except Exception as e:
-            logger.warning(f"[EventBus] Pub/Sub init failed, falling back to in-memory: {e}")
-            _event_bus = InMemoryEventBus()
-    else:
-        _event_bus = InMemoryEventBus()
-        logger.info("[EventBus] Using in-memory event bus (development mode)")
-    
-    return _event_bus
+            logger.error(
+                f"Error dispatching event '{event.event_type}' to handler '{handler.__name__}': {e}",
+                exc_info=True  # Log full traceback for debugging
+            )
 
 
-def reset_event_bus():
-    """Reset global event bus (for testing)"""
-    global _event_bus
-    _event_bus = None
-
-
-# Event type constants (for type safety)
-class EventTypes:
-    """Standard event types used across the system"""
-    
-    # Git events
-    GIT_COMMIT = "git.commit.v1"
-    GIT_BRANCH_CREATED = "git.branch.created.v1"
-    GIT_MERGE = "git.merge.v1"
-    GIT_ROLLBACK = "git.rollback.v1"
-    
-    # Proposal events
-    PROPOSAL_CREATED = "proposal.created.v1"
-    PROPOSAL_APPROVED = "proposal.approved.v1"
-    PROPOSAL_REJECTED = "proposal.rejected.v1"
-    
-    # Context events
-    CONTEXT_UPDATE = "context.update.v1"
-    CONTEXT_DELTA = "context.delta.v1"
-    CONTEXT_CHECKPOINT = "context.checkpoint.v1"
-    
-    # Spec events
-    SPEC_UPDATE = "spec.update.v1"
-    SPEC_VALIDATION = "spec.validation.v1"
-    SPEC_REQUEST = "spec.request.v1"
-    
-    # Strategy events
-    STRATEGY_INSIGHT = "strategy.insight.v1"
-    STRATEGY_OPTIONS = "strategy.options.v1"
-    STRATEGY_UPDATED = "strategy.updated.v1"
-    STRATEGY_ANALYZE = "strategy.analyze.v1"
-    
-    # Milestone events
-    MILESTONE_CREATE = "milestone.create.v1"
-    MILESTONE_COMPLETE = "milestone.complete.v1"
-    MILESTONE_SAVED = "milestone.saved.v1"
-    MILESTONE_ALERT = "milestone.alert.v1"
-    MILESTONE_BLOCKED = "milestone.blocked.v1"
-    
-    # Coach events
-    COACH_NUDGE = "coach.nudge.v1"
-    COACH_UNBLOCK = "coach.unblock.v1"
-    COACH_CHECKIN = "coach.checkin.v1"
-    COACH_SUGGEST_DOC = "coach.suggest.doc.v1"
-    
-    # Retrospective events
-    RETROSPECTIVE_TRIGGER = "retrospective.trigger.v1"
-    RETROSPECTIVE_ACTION_ITEM = "retrospective.action_item.v1"
-    
-    # Artifact events
-    ARTIFACT_CREATED = "artifact.created.v1"
-    ARTIFACT_UPDATED = "artifact.updated.v1"
-    
-    # Reward events
-    REWARDS_SPEC_COMMIT = "rewards.spec_commit.v1"
-
-
-# Topic constants
-class Topics:
-    """Pub/Sub topic names"""
-    
-    GIT_EVENTS = "git-events"
-    PROPOSAL_EVENTS = "proposal-events"
-    CONTEXT_EVENTS = "context-events"
-    SPEC_EVENTS = "spec-events"
-    STRATEGY_EVENTS = "strategy-events"
-    MILESTONE_EVENTS = "milestone-events"
-    COACH_EVENTS = "coach-events"
-    RETROSPECTIVE_EVENTS = "retrospective-events"
-    ARTIFACT_EVENTS = "artifact-events"
-    REWARD_EVENTS = "reward-events"
-
-
-# Helper function for event validation
-def validate_event_data(event_type: str, data: Dict) -> bool:
-    """
-    Validate event data structure.
-    
-    Args:
-        event_type: Event type to validate
-        data: Event data payload
-    
-    Returns:
-        True if valid, False otherwise
-    """
-    # Basic validation - ensure data is a dict
-    if not isinstance(data, dict):
-        logger.error(f"[EventBus] Invalid event data for {event_type}: not a dict")
-        return False
-    
-    # Event-specific validation can be added here
-    # For now, just check for required fields based on event type
-    
-    if event_type == EventTypes.PROPOSAL_CREATED:
-        required = ['proposal_id', 'workspace_id']
-        if not all(k in data for k in required):
-            logger.error(f"[EventBus] Missing required fields for {event_type}: {required}")
-            return False
-    
-    elif event_type == EventTypes.GIT_COMMIT:
-        required = ['commit_hash', 'workspace_id']
-        if not all(k in data for k in required):
-            logger.error(f"[EventBus] Missing required fields for {event_type}: {required}")
-            return False
-    
-    # Add more validation as needed
-    
-    return True
+# Global instance for easy access throughout the application.
+# Components can import `event_bus` and use it directly after it has been initialized
+# at the application's startup.
+event_bus = EventBus()

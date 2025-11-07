@@ -422,5 +422,37 @@ export class ContextPilotService {
       return [];
     }
   }
+
+  async getRetrospectiveStatus(workspaceId: string = 'default', since?: string): Promise<{
+    latest_retrospective: {
+      retrospective_id: string;
+      timestamp: string;
+      proposal_id?: string;
+      has_proposal: boolean;
+    } | null;
+    latest_proposal: {
+      proposal_id: string;
+      created_at: string;
+      status: string;
+      title: string;
+    } | null;
+    has_new_proposal: boolean;
+  }> {
+    try {
+      const params: any = { workspace_id: workspaceId };
+      if (since) {
+        params.since = since;
+      }
+      const response = await this.client.get('/agents/retrospective/status', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get retrospective status:', error);
+      return {
+        latest_retrospective: null,
+        latest_proposal: null,
+        has_new_proposal: false
+      };
+    }
+  }
 }
 

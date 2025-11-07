@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+from web3.middleware import ExtraDataToPOAMiddleware
 import json
 import os
 
@@ -68,7 +68,8 @@ class BlockchainRewardsAdapter(RewardsAdapter):
         self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
         
         # Add PoA middleware (required for some testnets)
-        self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        # In web3 7.x, geth_poa_middleware was replaced with ExtraDataToPOAMiddleware
+        self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         
         # Contract setup
         self.contract_address = contract_address or os.getenv("CPT_CONTRACT_ADDRESS")

@@ -153,6 +153,45 @@ Agent: ${proposal.agent_id}`;
       }
     );
     
+    // 8. Start polling for new proposal after retrospective
+    // After approving, agents may run a retrospective and create a new proposal
+    const workspaceId = 'contextpilot'; // Default workspace
+    const startTime = new Date().toISOString();
+    
+    // Poll for new proposals (agents may create proposals after retrospective)
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await service.getRetrospectiveStatus(workspaceId, startTime);
+        
+        if (status.has_new_proposal && status.latest_proposal) {
+          clearInterval(pollInterval);
+          
+          // Force refresh of proposals tree
+          if (proposalsProvider) {
+            proposalsProvider.refresh();
+          }
+          
+          // Show notification and reload window
+          const action = await vscode.window.showInformationMessage(
+            `🎉 Nova proposta criada após retrospectiva: ${status.latest_proposal.title}`,
+            'Recarregar Janela'
+          );
+          
+          if (action === 'Recarregar Janela') {
+            // Reload the window to show the new proposal
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
+          }
+        }
+      } catch (error) {
+        console.error('[approveProposal] Error polling retrospective status:', error);
+      }
+    }, 5000); // Poll every 5 seconds
+    
+    // Stop polling after 5 minutes (retrospectives usually complete within 2-5 minutes)
+    setTimeout(() => {
+      clearInterval(pollInterval);
+    }, 5 * 60 * 1000);
+    
   } catch (error: any) {
     console.error('[approveProposal] Error:', error);
     vscode.window.showErrorMessage(`Error approving proposal: ${error.message}`);
