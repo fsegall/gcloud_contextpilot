@@ -106,8 +106,10 @@ extension/*.vsix
 extension/out/
 
 # Python virtual environments
-back-end/.venv/
-back-end/venv/
+.venv/
+venv/
+env/
+ENV/
 
 # Archive/temp docs (keep in repo but note as archive)
 # docs/archive/ is intentionally tracked for history

@@ -159,6 +159,8 @@ class RetrospectiveAgent(BaseAgent):
         try:
             from app.agents.agent_orchestrator import AgentOrchestrator
 
+            logger.info(f"[RetrospectiveAgent] Collecting metrics from workspace: {self.workspace_id}, path: {self.workspace_path}")
+            
             orchestrator = AgentOrchestrator(
                 workspace_id=self.workspace_id, workspace_path=self.workspace_path
             )
@@ -170,7 +172,7 @@ class RetrospectiveAgent(BaseAgent):
             metrics = orchestrator.get_agent_metrics()
 
             logger.info(
-                f"[RetrospectiveAgent] Collected live metrics from {len(metrics)} agents"
+                f"[RetrospectiveAgent] Collected live metrics from {len(metrics)} agents: {metrics}"
             )
 
             # Shutdown agents
@@ -179,26 +181,30 @@ class RetrospectiveAgent(BaseAgent):
             if metrics:
                 return metrics
         except Exception as e:
-            logger.warning(f"[RetrospectiveAgent] Could not get live metrics: {e}")
+            logger.warning(f"[RetrospectiveAgent] Could not get live metrics: {e}", exc_info=True)
 
         # Fallback to reading state files
         state_dir = Path(self.workspace_path) / ".agent_state"
 
         if not state_dir.exists():
-            logger.warning("[RetrospectiveAgent] No agent state directory found")
+            logger.warning(f"[RetrospectiveAgent] No agent state directory found at {state_dir}")
             return metrics
 
+        logger.info(f"[RetrospectiveAgent] Reading metrics from state files in {state_dir}")
         for state_file in state_dir.glob("*_state.json"):
             agent_id = state_file.stem.replace("_state", "")
             try:
                 with open(state_file, "r") as f:
                     state = json.load(f)
-                    metrics[agent_id] = state.get("metrics", {})
+                    agent_metrics = state.get("metrics", {})
+                    metrics[agent_id] = agent_metrics
+                    logger.info(f"[RetrospectiveAgent] Loaded metrics for {agent_id}: {agent_metrics}")
             except Exception as e:
                 logger.error(
-                    f"[RetrospectiveAgent] Error reading {agent_id} state: {e}"
+                    f"[RetrospectiveAgent] Error reading {agent_id} state: {e}", exc_info=True
                 )
 
+        logger.info(f"[RetrospectiveAgent] Final collected metrics: {metrics}")
         return metrics
 
     def _collect_agent_learnings(self) -> Dict[str, Any]:

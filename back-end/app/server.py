@@ -85,6 +85,19 @@ async def rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/health":
         return await call_next(request)
 
+    # Skip abuse detection for Pub/Sub push notifications (/events endpoint)
+    # Pub/Sub uses internal IPs (169.254.x.x) and sends many identical requests
+    if request.url.path == "/events":
+        # Verify it's a Pub/Sub request (has Pub/Sub headers or internal IP)
+        pubsub_token = request.headers.get("x-verification-token")
+        user_agent = request.headers.get("user-agent", "")
+        is_internal_ip = client_ip.startswith("169.254.") or client_ip.startswith("10.")
+        
+        # Allow if it looks like Pub/Sub (has Pub/Sub headers or internal GCP IP)
+        if pubsub_token or "CloudPubSub" in user_agent or is_internal_ip:
+            logger.debug(f"✅ Allowing Pub/Sub request from {client_ip}")
+            return await call_next(request)
+
     # Check for abuse patterns
     abuse_check = abuse_detector.check_request(request)
     if abuse_check["should_block"]:
@@ -98,13 +111,30 @@ async def rate_limit_middleware(request: Request, call_next):
             f"⚠️ Suspicious request from {client_ip}: {abuse_check['reason']}"
         )
 
-    # Check rate limit (10000 req/hour per IP for development)
-    if not check_rate_limit(client_ip, max_requests=10000, window_seconds=3600):
-        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
-        abuse_detector.record_error(client_ip, 429)
-        raise HTTPException(
-            status_code=429, detail="Rate limit exceeded. Try again later."
-        )
+    # Skip rate limiting for Pub/Sub push notifications
+    if request.url.path == "/events":
+        pubsub_token = request.headers.get("x-verification-token")
+        user_agent = request.headers.get("user-agent", "")
+        is_internal_ip = client_ip.startswith("169.254.") or client_ip.startswith("10.")
+        if pubsub_token or "CloudPubSub" in user_agent or is_internal_ip:
+            # Skip rate limiting for Pub/Sub
+            pass
+        else:
+            # Apply rate limiting for non-Pub/Sub requests to /events
+            if not check_rate_limit(client_ip, max_requests=10000, window_seconds=3600):
+                logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+                abuse_detector.record_error(client_ip, 429)
+                raise HTTPException(
+                    status_code=429, detail="Rate limit exceeded. Try again later."
+                )
+    else:
+        # Check rate limit (10000 req/hour per IP for development)
+        if not check_rate_limit(client_ip, max_requests=10000, window_seconds=3600):
+            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+            abuse_detector.record_error(client_ip, 429)
+            raise HTTPException(
+                status_code=429, detail="Rate limit exceeded. Try again later."
+            )
 
     response = await call_next(request)
 
@@ -137,7 +167,9 @@ else:
     logger.info("📁 Using file-based proposals endpoints (LOCAL mode)")
     # Custom endpoints registered below
 
-# app.include_router(events.router)
+# Include events router for Pub/Sub push subscriptions
+from app.routers import events
+app.include_router(events.router)
 
 
 def get_manager(workspace_id: str = "default"):
@@ -1648,6 +1680,7 @@ async def trigger_agent_retrospective(
     )
 
     try:
+        import asyncio
         from app.agents.retrospective_agent import trigger_retrospective
 
         # Get Gemini API key if LLM synthesis requested
@@ -1658,15 +1691,27 @@ async def trigger_agent_retrospective(
                 logger.warning("[API] LLM synthesis requested but no API key found")
 
         logger.info("[API] Starting retrospective process...")
-        retrospective = await trigger_retrospective(
-            workspace_id=workspace_id,
-            trigger=trigger,
-            gemini_api_key=gemini_api_key,
-            trigger_topic=trigger_topic,
-        )
-        logger.info(f"[API] Retrospective completed: {retrospective.get('retrospective_id')}")
-
-        return {"status": "success", "retrospective": retrospective}
+        
+        # Set timeout to 840 seconds (14 minutes) to avoid Cloud Run timeout (900s)
+        try:
+            retrospective = await asyncio.wait_for(
+                trigger_retrospective(
+                    workspace_id=workspace_id,
+                    trigger=trigger,
+                    gemini_api_key=gemini_api_key,
+                    trigger_topic=trigger_topic,
+                ),
+                timeout=840.0  # 14 minutes
+            )
+            logger.info(f"[API] Retrospective completed: {retrospective.get('retrospective_id')}")
+            return {"status": "success", "retrospective": retrospective}
+        except asyncio.TimeoutError:
+            logger.warning("[API] Retrospective timeout after 14 minutes - process may continue in background")
+            # Even if timeout, the proposal might have been created
+            return {
+                "status": "timeout",
+                "message": "Retrospective is processing in background. Check proposals list for generated proposal.",
+            }
 
     except TimeoutError as e:
         logger.error(f"Retrospective timeout: {str(e)}")

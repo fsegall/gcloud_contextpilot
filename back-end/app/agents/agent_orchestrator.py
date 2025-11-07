@@ -171,6 +171,26 @@ class AgentOrchestrator:
                 "name": "Strategy Agent",
                 "expertise": "planning, architecture, and long-term vision",
             },
+            "development": {
+                "emoji": "💻",
+                "name": "Development Agent",
+                "expertise": "code implementation, debugging, and technical problem-solving",
+            },
+            "context": {
+                "emoji": "📚",
+                "name": "Context Agent",
+                "expertise": "codebase understanding, file indexing, and context management",
+            },
+            "coach": {
+                "emoji": "🎯",
+                "name": "Coach Agent",
+                "expertise": "code quality, best practices, and technical guidance",
+            },
+            "milestone": {
+                "emoji": "🏁",
+                "name": "Milestone Agent",
+                "expertise": "project tracking, progress monitoring, and goal management",
+            },
         }
 
         def get_single_perspective(agent_id, agent):
@@ -273,12 +293,15 @@ class AgentOrchestrator:
                 f"[Orchestrator] Agent context for {agent_id}: {agent_context[:100]}..."
             )
 
-            # Build prompt with agent's role - SIMPLIFIED for speed
-            prompt = f"""You are {role_info['name']} (expert in {role_info['expertise']}).
+            # Build prompt with agent's role and context
+            prompt = f"""You are {role_info['name']}, an expert in {role_info['expertise']}.
+
+Context about this agent:
+{agent_context}
 
 Topic: "{topic}"
 
-Give a brief (2 sentences max), specific perspective from your role. Be actionable."""
+Give a brief (2-3 sentences), specific, actionable perspective from your role. Focus on what you would do or recommend based on your expertise. Be concrete and avoid generic statements."""
 
             # Use latest Gemini 2.5 Flash Preview for best speed
             url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
@@ -401,6 +424,10 @@ Give a brief (2 sentences max), specific perspective from your role. Be actionab
             "spec": f"For '{topic}', we need clear specifications defining requirements and validation criteria for successful implementation.",
             "git": f"About '{topic}', I suggest implementing automated detection via git hooks and workflow automation to streamline the process.",
             "strategy": f"Strategically addressing '{topic}' requires a systematic approach with clear long-term planning and architectural consideration.",
+            "development": f"To address '{topic}', I would analyze the codebase, identify root causes, and implement targeted fixes with proper testing.",
+            "context": f"For '{topic}', I would review relevant code files, understand dependencies, and ensure proper context is maintained across the system.",
+            "coach": f"Regarding '{topic}', I recommend following best practices, ensuring code quality, and implementing proper error handling and testing.",
+            "milestone": f"To tackle '{topic}', I would break it down into measurable milestones, track progress, and ensure timely completion.",
         }
 
         return templates.get(

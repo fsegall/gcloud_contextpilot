@@ -655,7 +655,6 @@ This document describes {filename}.
 
             # Initialize Git Agent for context
             git_agent = GitAgent(
-                workspace_path=str(self.workspace_path),
                 workspace_id=self.workspace_id,
                 project_id=self.project_id,
             )

@@ -1,0 +1,6 @@
+# Unified requirements for the entire project
+# This file references the backend requirements
+
+-r back-end/requirements.txt
+
+

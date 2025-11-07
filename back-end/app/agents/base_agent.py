@@ -13,7 +13,7 @@ import json
 import logging
 import yaml
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 from pathlib import Path
 
@@ -50,6 +50,9 @@ class BaseAgent(ABC):
         
         # Get workspace path
         self.workspace_path = get_workspace_path(workspace_id)
+
+        # Track events this agent subscribes to (used for routing verification)
+        self.subscribed_events: Set[str] = set()
         
         # Initialize event bus with agent_id for Pub/Sub routing
         self.event_bus = get_event_bus(
@@ -166,9 +169,9 @@ class BaseAgent(ABC):
         try:
             with open(state_path, 'w') as f:
                 json.dump(self.state, f, indent=2)
-            logger.debug(f"[{self.agent_id}] Saved state to {state_path}")
+            logger.info(f"[{self.agent_id}] Saved state to {state_path} (metrics: {self.state.get('metrics', {})})")
         except Exception as e:
-            logger.error(f"[{self.agent_id}] Failed to save state: {e}")
+            logger.error(f"[{self.agent_id}] Failed to save state: {e}", exc_info=True)
     
     def remember(self, key: str, value: Any) -> None:
         """
@@ -247,6 +250,7 @@ class BaseAgent(ABC):
             event_type: Event type to subscribe to
         """
         self.event_bus.subscribe(event_type, self.handle_event)
+        self.subscribed_events.add(event_type)
         logger.info(f"[{self.agent_id}] Subscribed to {event_type}")
     
     @abstractmethod

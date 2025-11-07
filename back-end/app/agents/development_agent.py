@@ -112,7 +112,7 @@ class DevelopmentAgent(BaseAgent):
         )
 
         # Subscribe to events
-        self.subscribe_to_event(EventTypes.RETROSPECTIVE_TRIGGER)
+        self.subscribe_to_event("retrospective.summary.v1")
         self.subscribe_to_event("spec.requirement.created")
 
         logger.info(f"[DevelopmentAgent] Initialized for workspace: {workspace_id}")
@@ -142,16 +142,19 @@ class DevelopmentAgent(BaseAgent):
         """
         try:
             logger.info(f"[DevelopmentAgent] Received event: {event_type}")
+            logger.info(f"[DevelopmentAgent] Current metrics before processing: {self.get_metrics()}")
 
-            if event_type == EventTypes.RETROSPECTIVE_SUMMARY:
+            if event_type == "retrospective.summary.v1":
                 await self._handle_retrospective(data)
             elif event_type == "spec.requirement.created":
                 await self._handle_spec_requirement(data)
 
             self.increment_metric("events_processed")
+            logger.info(f"[DevelopmentAgent] Incremented events_processed. New metrics: {self.get_metrics()}")
         except Exception as e:
-            logger.error(f"[DevelopmentAgent] Error handling {event_type}: {e}")
+            logger.error(f"[DevelopmentAgent] Error handling {event_type}: {e}", exc_info=True)
             self.increment_metric("errors")
+            logger.info(f"[DevelopmentAgent] Incremented errors. New metrics: {self.get_metrics()}")
 
     async def _handle_retrospective(self, data: Dict) -> None:
         """
@@ -160,15 +163,137 @@ class DevelopmentAgent(BaseAgent):
         Args:
             data: Retrospective event data
         """
+        retrospective_id = data.get('retrospective_id')
         logger.info(
-            f"[DevelopmentAgent] Processing retrospective: {data.get('retrospective_id')}"
+            f"[DevelopmentAgent] Processing retrospective: {retrospective_id}"
         )
 
-        # For now, just log - actual implementation will be triggered manually
-        # to avoid auto-generating code without user review
-        logger.info(
-            "[DevelopmentAgent] Retrospective received - awaiting manual implementation request"
-        )
+        try:
+            # Load full retrospective summary from workspace
+            retrospective = self._load_retrospective_summary(retrospective_id)
+            if not retrospective:
+                logger.warning(
+                    f"[DevelopmentAgent] Could not load retrospective summary: {retrospective_id}"
+                )
+                return
+
+            # Identify code action items
+            action_items = retrospective.get("action_items", [])
+            if not action_items:
+                logger.info(
+                    "[DevelopmentAgent] No action items in retrospective, skipping"
+                )
+                return
+
+            code_action_items = self._identify_code_actions(action_items)
+            if not code_action_items:
+                logger.info(
+                    "[DevelopmentAgent] No code action items found in retrospective"
+                )
+                return
+
+            logger.info(
+                f"[DevelopmentAgent] Found {len(code_action_items)} code action items to implement"
+            )
+
+            # Process each code action item
+            for action_item in code_action_items:
+                action = action_item.get("action", "")
+                priority = action_item.get("priority", "medium")
+
+                # Build comprehensive description with retrospective context
+                description = f"""From Retrospective: {retrospective_id}
+Priority: {priority.upper()}
+
+Action Item: {action}
+
+Context from Retrospective:
+"""
+                # Add relevant insights
+                for insight in retrospective.get("insights", [])[:3]:
+                    if any(keyword in insight.lower() for keyword in action.lower().split()):
+                        description += f"- {insight}\n"
+
+                description += f"\n**Implementation Goal:**\n{action}"
+
+                # Generate implementation
+                logger.info(
+                    f"[DevelopmentAgent] Generating implementation for: {action[:80]}"
+                )
+                proposal_id = await self.implement_feature(
+                    description=description,
+                    context={
+                        "retrospective_id": retrospective_id,
+                        "priority": priority,
+                        "topic": retrospective.get("topic"),
+                        "trigger": "retrospective_event",
+                    },
+                )
+
+                if proposal_id:
+                    logger.info(
+                        f"[DevelopmentAgent] ✅ Created code proposal: {proposal_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"[DevelopmentAgent] ⚠️ Could not generate proposal for: {action[:80]}"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"[DevelopmentAgent] Error processing retrospective: {e}",
+                exc_info=True,
+            )
+
+    def _load_retrospective_summary(self, retrospective_id: str) -> Optional[Dict]:
+        """Load retrospective summary from workspace."""
+        try:
+            retro_path = self.workspace_path / "retrospectives" / f"{retrospective_id}.json"
+            if not retro_path.exists():
+                logger.warning(
+                    f"[DevelopmentAgent] Retrospective file not found: {retro_path}"
+                )
+                return None
+
+            with open(retro_path, "r") as f:
+                retrospective = json.load(f)
+
+            logger.info(
+                f"[DevelopmentAgent] Loaded retrospective summary: {retrospective_id}"
+            )
+            return retrospective
+
+        except Exception as e:
+            logger.error(
+                f"[DevelopmentAgent] Error loading retrospective summary: {e}"
+            )
+            return None
+
+    def _identify_code_actions(self, action_items: List[Dict]) -> List[Dict]:
+        """
+        Identify action items that require code implementation.
+        
+        Args:
+            action_items: List of action items from retrospective
+            
+        Returns:
+            List of action items that need code implementation
+        """
+        code_keywords = [
+            "implement", "code", "fix", "add", "create", "update", "refactor",
+            "improve", "enhance", "build", "develop", "write", "modify",
+            "test", "unit test", "integration test", "error handling",
+            "agent", "event", "subscription", "handler", "endpoint", "api",
+            "function", "class", "method", "bug", "issue", "feature"
+        ]
+
+        code_actions = []
+        for item in action_items:
+            action = item.get("action", "").lower()
+            if any(keyword in action for keyword in code_keywords):
+                code_actions.append(item)
+
+        return code_actions
 
     async def _handle_spec_requirement(self, data: Dict) -> None:
         """
