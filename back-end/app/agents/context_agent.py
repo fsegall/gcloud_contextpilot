@@ -1,293 +1,220 @@
-# back-end/app/agents/context_agent.py
-
 import os
-import json
 import logging
+import json
 from concurrent.futures import TimeoutError
+import datetime
 
 from google.cloud import pubsub_v1
 from google.cloud import firestore
 
-# Configure logging for the agent
+# --- Configuration ---
+# These should ideally come from environment variables or a centralized config service
+PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+if not PROJECT_ID:
+    raise ValueError("GCP_PROJECT_ID environment variable not set. Please set it to your Google Cloud Project ID.")
+
+# Pub/Sub topics and subscriptions
+# Agents request context on CONTEXT_REQUEST_TOPIC_ID
+CONTEXT_REQUEST_TOPIC_ID = "contextpilot.request.context"
+# ContextAgent publishes responses on CONTEXT_RESPONSE_TOPIC_ID
+CONTEXT_RESPONSE_TOPIC_ID = "contextpilot.response.context"
+# The subscription for ContextAgent to listen for context requests
+CONTEXT_AGENT_SUBSCRIPTION_ID = "context_agent_request_sub"
+
+# Firestore collection for storing project artifacts (e.g., README.md content)
+PROJECT_ARTIFACTS_COLLECTION = "project_artifacts"
+
+# --- Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Environment variables for Google Cloud Project ID and Pub/Sub topics
-# In a Cloud Run environment, GCP_PROJECT_ID is automatically available.
-# For local development, ensure this environment variable is set.
-PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-if not PROJECT_ID:
-    logger.warning("GCP_PROJECT_ID environment variable not set. Using 'your-gcp-project-id' as placeholder.")
-    # This placeholder is primarily for local testing setup; in production, it must be set.
-    PROJECT_ID = "your-gcp-project-id"
-
-# Define Pub/Sub topic and subscription names
-CONTEXT_REQUESTS_TOPIC_NAME = "contextpilot-context-requests"
-CONTEXT_RESPONSES_TOPIC_NAME = "contextpilot-context-updates"
-CONTEXT_SUBSCRIPTION_ID = "contextpilot-context-agent-subscription"
-
-# Full Pub/Sub topic and subscription paths
-CONTEXT_REQUESTS_TOPIC_PATH = f"projects/{PROJECT_ID}/topics/{CONTEXT_REQUESTS_TOPIC_NAME}"
-CONTEXT_RESPONSES_TOPIC_PATH = f"projects/{PROJECT_ID}/topics/{CONTEXT_RESPONSES_TOPIC_NAME}"
-
-
 class ContextAgent:
     """
-    The ContextAgent is a core component of the ContextPilot multi-agent system.
-    It is responsible for managing, retrieving, and providing relevant context
-    to other agents. It listens for context requests via Pub/Sub, aggregates
-    information from various sources (e.g., Firestore, project artifacts),
-    and publishes the requested context back to the system.
+    The ContextAgent is responsible for providing project-specific context and
+    current development state to other agents in the ContextPilot system.
+    It listens for context requests via Google Cloud Pub/Sub and retrieves
+    information from Firestore.
     """
+    def __init__(self, project_id: str):
+        self.project_id = project_id
+        self.pubsub_publisher = pubsub_v1.PublisherClient()
+        self.pubsub_subscriber = pubsub_v1.SubscriberClient()
+        self.firestore_db = firestore.Client(project=project_id)
 
-    def __init__(self):
-        """
-        Initializes the ContextAgent with Pub/Sub subscriber and publisher clients,
-        and a Firestore client. It also ensures that necessary Pub/Sub resources
-        (topics and subscription) exist.
-        """
-        self.subscriber = pubsub_v1.SubscriberClient()
-        self.publisher = pubsub_v1.PublisherClient()
-        self.firestore_db = firestore.Client()
-        self.subscription_path = self.subscriber.subscription_path(
-            PROJECT_ID, CONTEXT_SUBSCRIPTION_ID
-        )
-        logger.info(f"ContextAgent initialized for project: {PROJECT_ID}")
+        # Construct full Pub/Sub topic and subscription paths
+        self.context_request_topic_path = self.pubsub_publisher.topic_path(project_id, CONTEXT_REQUEST_TOPIC_ID)
+        self.context_response_topic_path = self.pubsub_publisher.topic_path(project_id, CONTEXT_RESPONSE_TOPIC_ID)
+        self.context_agent_subscription_path = self.pubsub_subscriber.subscription_path(project_id, CONTEXT_AGENT_SUBSCRIPTION_ID)
 
-        # Ensure Pub/Sub topics and subscription exist upon initialization
-        self._ensure_pubsub_resources()
+        logger.info(f"ContextAgent initialized for project: {self.project_id}")
+        logger.info(f"Listening for context requests on subscription: {self.context_agent_subscription_path}")
+        logger.info(f"Publishing context responses to topic: {self.context_response_topic_path}")
 
-    def _ensure_pubsub_resources(self):
+    def _get_project_artifact(self, artifact_name: str) -> str | None:
         """
-        Ensures that the necessary Pub/Sub topics and the agent's subscription
-        exist. This makes the agent more robust to initial deployments or
-        resource deletions.
+        Retrieves the content of a specific project artifact (e.g., 'README.md')
+        from the Firestore 'project_artifacts' collection.
         """
-        # Ensure CONTEXT_REQUESTS_TOPIC exists
         try:
-            self.publisher.get_topic(request={"topic": CONTEXT_REQUESTS_TOPIC_PATH})
-            logger.info(f"Pub/Sub Topic '{CONTEXT_REQUESTS_TOPIC_NAME}' already exists.")
-        except Exception:
-            self.publisher.create_topic(request={"name": CONTEXT_REQUESTS_TOPIC_PATH})
-            logger.info(f"Pub/Sub Topic '{CONTEXT_REQUESTS_TOPIC_NAME}' created.")
-
-        # Ensure CONTEXT_RESPONSES_TOPIC exists
-        try:
-            self.publisher.get_topic(request={"topic": CONTEXT_RESPONSES_TOPIC_PATH})
-            logger.info(f"Pub/Sub Topic '{CONTEXT_RESPONSES_TOPIC_NAME}' already exists.")
-        except Exception:
-            self.publisher.create_topic(request={"name": CONTEXT_RESPONSES_TOPIC_PATH})
-            logger.info(f"Pub/Sub Topic '{CONTEXT_RESPONSES_TOPIC_NAME}' created.")
-
-        # Ensure the ContextAgent's subscription exists for CONTEXT_REQUESTS_TOPIC
-        try:
-            self.subscriber.get_subscription(request={"subscription": self.subscription_path})
-            logger.info(f"Pub/Sub Subscription '{CONTEXT_SUBSCRIPTION_ID}' already exists.")
-        except Exception:
-            self.subscriber.create_subscription(
-                request={"name": self.subscription_path, "topic": CONTEXT_REQUESTS_TOPIC_PATH}
-            )
-            logger.info(f"Pub/Sub Subscription '{CONTEXT_SUBSCRIPTION_ID}' created for topic '{CONTEXT_REQUESTS_TOPIC_NAME}'.")
-
-    def start_listening(self):
-        """
-        Starts listening for messages on the dedicated context requests subscription.
-        This method is blocking and will keep the agent running to process incoming
-        context requests.
-        """
-        streaming_pull_future = self.subscriber.subscribe(
-            self.subscription_path, callback=self._callback
-        )
-        logger.info(f"ContextAgent is listening for messages on {self.subscription_path}...")
-
-        try:
-            # Keep the main thread alive to allow the callback to run in a separate thread.
-            streaming_pull_future.result()
-        except TimeoutError:
-            streaming_pull_future.cancel()  # Trigger the shutdown.
-            streaming_pull_future.result()  # Block until the shutdown is complete.
+            doc_ref = self.firestore_db.collection(PROJECT_ARTIFACTS_COLLECTION).document(artifact_name)
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict().get("content")
+            else:
+                logger.warning(f"Project artifact '{artifact_name}' not found in Firestore.")
+                return None
         except Exception as e:
-            logger.error(f"ContextAgent encountered an error while listening: {e}", exc_info=True)
-            streaming_pull_future.cancel()
-            streaming_pull_future.result()
-        finally:
-            self.subscriber.close()
-            logger.info("ContextAgent subscriber closed.")
+            logger.error(f"Error retrieving artifact '{artifact_name}' from Firestore: {e}", exc_info=True)
+            return None
 
-    def _callback(self, message: pubsub_v1.subscriber.message.Message):
+    def _get_all_project_artifacts(self) -> dict:
+        """
+        Retrieves the content of all predefined project markdown artifacts
+        from Firestore and returns them in a dictionary.
+        """
+        artifacts = {}
+        # List of key project markdown files to fetch
+        artifact_names = [
+            "README.md", "project_scope.md", "ARCHITECTURE.md",
+            "project_checklist.md", "daily_checklist.md"
+        ]
+        for name in artifact_names:
+            content = self._get_project_artifact(name)
+            if content:
+                # Store content with a key like 'readme_content'
+                artifacts[name.replace(".md", "_content")] = content
+        return artifacts
+
+    def _get_dynamic_current_context(self) -> dict:
+        """
+        Constructs or fetches the dynamic 'Current Context' information.
+        This information reflects the immediate state of the project or agent system.
+        In a more advanced system, this might involve querying a state manager
+        or listening to various system events.
+        """
+        # For this implementation, we'll provide a snapshot based on the project context.
+        # The 'proposal_type' and 'agent' fields might be dynamic based on the active task
+        # or the agent requesting context.
+        return {
+            "proposal_type": "development", # Example: could be 'bugfix', 'feature', etc.
+            "agent": "Context Agent",       # The agent providing this context
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() # Current UTC timestamp
+        }
+
+    def _handle_context_request(self, message: pubsub_v1.subscriber.message.Message):
         """
         Callback function executed when a new message is received on the
-        context requests subscription. It decodes the message, processes
-        the context request, and publishes a response.
+        ContextAgent's subscription. It processes the request and publishes a response.
         """
-        logger.info(f"Received message ID: {message.message_id}")
+        logger.info(f"Received message {message.message_id} on subscription {self.context_agent_subscription_path}")
         try:
-            # Decode message data from bytes to JSON
             data = json.loads(message.data.decode("utf-8"))
-            logger.debug(f"Decoded message data: {data}")
+            request_type = data.get("type")
+            request_payload = data.get("payload", {})
+            # The 'agent_id' attribute helps identify which agent made the request
+            requester_agent_id = message.attributes.get("agent_id", "unknown_agent")
 
-            # Extract metadata from message attributes
-            request_id = message.attributes.get("request_id", "no-request-id")
-            agent_id = message.attributes.get("agent_id", "unknown-agent")
-            context_type = data.get("context_type", "general")
-            query = data.get("query", {})
+            logger.info(f"Processing request from agent '{requester_agent_id}': Type='{request_type}', Payload={request_payload}")
 
-            logger.info(
-                f"Processing context request from agent '{agent_id}' "
-                f"(request_id: {request_id}) for type '{context_type}' with query: {query}"
-            )
+            response_payload = {}
+            response_type = "error_response" # Default to error
 
-            # Fetch the requested context
-            context_data = self.get_context(context_type, query)
+            if request_type == "get_project_context":
+                # Request to get all general project context (artifacts + dynamic context)
+                response_payload = self._get_all_project_artifacts()
+                response_payload["current_context"] = self._get_dynamic_current_context()
+                response_type = "project_context_response"
+                logger.info(f"Prepared full project context response for agent '{requester_agent_id}'.")
 
-            # Publish the context response back to the system
-            self.publish_context(agent_id, request_id, context_data)
+            elif request_type == "get_artifact_content":
+                # Request to get content of a specific artifact
+                artifact_name = request_payload.get("artifact_name")
+                if artifact_name:
+                    content = self._get_project_artifact(artifact_name)
+                    if content:
+                        response_payload = {"artifact_name": artifact_name, "content": content}
+                        response_type = "artifact_content_response"
+                        logger.info(f"Prepared artifact content response for '{artifact_name}' for agent '{requester_agent_id}'.")
+                    else:
+                        response_payload = {"error": f"Artifact '{artifact_name}' not found."}
+                        response_type = "artifact_not_found"
+                        logger.warning(f"Artifact '{artifact_name}' not found for agent '{requester_agent_id}'.")
+                else:
+                    response_payload = {"error": "Missing 'artifact_name' in request payload."}
+                    response_type = "invalid_request"
+                    logger.warning(f"Missing 'artifact_name' in request payload from agent '{requester_agent_id}'.")
+            else:
+                response_payload = {"error": f"Unknown request type: {request_type}"}
+                response_type = "unknown_request_type"
+                logger.warning(f"Unknown request type '{request_type}' from agent '{requester_agent_id}'.")
 
-            # Acknowledge the message to remove it from the subscription
-            message.ack()
-            logger.info(f"Message {message.message_id} acknowledged.")
+            # Publish the response back to the system
+            self._publish_response(requester_agent_id, response_type, response_payload, message.message_id)
+            message.ack() # Acknowledge the message to remove it from the subscription
 
-        except json.JSONDecodeError:
-            logger.error(f"Failed to decode message data as JSON: {message.data}", exc_info=True)
-            message.nack()  # Negative acknowledge to retry if it's a transient issue
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode JSON from message {message.message_id}: {e}", exc_info=True)
+            message.nack() # Negatively acknowledge the message for redelivery
         except Exception as e:
             logger.error(f"Error processing message {message.message_id}: {e}", exc_info=True)
-            message.nack()  # Negative acknowledge
+            message.nack() # Negatively acknowledge the message for redelivery
 
-    def get_context(self, context_type: str, query: dict) -> dict:
+    def _publish_response(self, target_agent_id: str, response_type: str, payload: dict, correlation_id: str = None):
         """
-        Retrieves context based on the specified `context_type` and `query`.
-        This method is the core logic for context aggregation and retrieval,
-        which can involve querying Firestore, reading project files, or
-        interacting with other services (e.g., Gemini for synthesis).
-
-        Args:
-            context_type: A string indicating the type of context requested (e.g., "project_scope", "agent_status").
-            query: A dictionary containing specific parameters for the context request.
-
-        Returns:
-            A dictionary containing the retrieved context and status.
+        Publishes a response message to the designated response topic.
+        Includes attributes for routing and correlation.
         """
-        logger.info(f"Attempting to fetch context for type: '{context_type}' with query: {query}")
-        retrieved_context = {"status": "success", "context": {}, "message": "Context retrieved successfully."}
+        message_data = json.dumps({
+            "type": response_type,
+            "payload": payload
+        }).encode("utf-8")
 
-        if context_type == "project_scope":
-            # Example: Fetch project scope from Firestore
+        attributes = {
+            "target_agent_id": target_agent_id, # Allows other agents to filter responses
+            "source_agent_id": "context_agent", # Identifies the sender
+        }
+        if correlation_id:
+            attributes["correlation_id"] = correlation_id # Links response to original request
+
+        future = self.pubsub_publisher.publish(self.context_response_topic_path, message_data, **attributes)
+        future.add_done_callback(lambda f: logger.info(f"Published response with message ID: {f.result()} "
+                                                        f"for target '{target_agent_id}' (correlation: {correlation_id})"))
+
+    def run(self):
+        """
+        Starts the Pub/Sub subscriber to continuously listen for incoming messages
+        on its designated subscription. This method blocks indefinitely.
+        """
+        logger.info(f"ContextAgent starting to listen for messages on {self.context_agent_subscription_path}...")
+        streaming_pull_future = self.pubsub_subscriber.subscribe(
+            self.context_agent_subscription_path, callback=self._handle_context_request
+        )
+        with self.pubsub_subscriber:
             try:
-                doc_ref = self.firestore_db.collection("project_artifacts").document("project_scope")
-                doc = doc_ref.get()
-                if doc.exists:
-                    retrieved_context["context"] = doc.to_dict()
-                    logger.info(f"Retrieved project scope from Firestore.")
-                else:
-                    retrieved_context["status"] = "not_found"
-                    retrieved_context["message"] = "Project scope document not found in Firestore."
-                    logger.warning(retrieved_context["message"])
+                # Keep the main thread alive, so the callback can be executed.
+                # This will block until the subscription is cancelled or an error occurs.
+                streaming_pull_future.result()
+            except TimeoutError:
+                streaming_pull_future.cancel()  # Trigger the shutdown.
+                streaming_pull_future.result()  # Block until the shutdown is complete.
+            except KeyboardInterrupt:
+                logger.info("ContextAgent received shutdown signal (KeyboardInterrupt).")
+                streaming_pull_future.cancel()
+                streaming_pull_future.result()
             except Exception as e:
-                retrieved_context["status"] = "error"
-                retrieved_context["message"] = f"Error fetching project scope from Firestore: {e}"
-                logger.error(retrieved_context["message"], exc_info=True)
+                logger.error(f"ContextAgent encountered an unexpected error: {e}", exc_info=True)
+                streaming_pull_future.cancel()
+                streaming_pull_future.result()
 
-        elif context_type == "agent_status":
-            # This would typically involve querying a 'agent_status' collection in Firestore
-            # or subscribing to an 'agent-status-updates' topic.
-            # For now, providing a simulated response.
-            target_agent_id = query.get("agent_id")
-            if target_agent_id:
-                # In a real system, query Firestore for agent status or a dedicated service
-                # For demonstration, simulate a response
-                simulated_status = {
-                    "agent_id": target_agent_id,
-                    "status": "active" if target_agent_id not in ["spec", "development", "context", "coach", "milestone"] else "idle",
-                    "last_seen": "2025-11-07T17:30:00Z", # Placeholder
-                    "current_task": "None" if target_agent_id in ["spec", "development", "context", "coach", "milestone"] else "Processing request"
-                }
-                retrieved_context["context"] = simulated_status
-                logger.info(f"Simulated agent status for '{target_agent_id}': {simulated_status['status']}")
-            else:
-                retrieved_context["status"] = "bad_request"
-                retrieved_context["message"] = "Agent ID required for 'agent_status' context type."
-                logger.warning(retrieved_context["message"])
+        logger.info("ContextAgent stopped.")
 
-        elif context_type == "project_overview":
-            # Example of combining multiple sources or providing general project info
-            retrieved_context["context"] = {
-                "project_name": "ContextPilot",
-                "phase": "Hackathon + Product Launch",
-                "goal": "AI-powered context management with multi-agent system",
-                "stack": "Cloud Run + Firestore + Pub/Sub + Gemini + VSCode Extension",
-                "general_notes": "This context is aggregated from various project artifacts."
-            }
-            logger.info("Provided general project overview context.")
-
-        else:
-            # Default response for unhandled context types
-            retrieved_context["status"] = "unsupported_type"
-            retrieved_context["message"] = f"Unsupported context type requested: '{context_type}'."
-            retrieved_context["context"] = {
-                "requested_type": context_type,
-                "requested_query": query,
-                "available_types": ["project_scope", "agent_status", "project_overview"]
-            }
-            logger.warning(retrieved_context["message"])
-
-        return retrieved_context
-
-    def publish_context(self, target_agent_id: str, request_id: str, context_data: dict):
-        """
-        Publishes the retrieved context as a response to the system.
-        Other agents can subscribe to the CONTEXT_RESPONSES_TOPIC to receive
-        these updates.
-
-        Args:
-            target_agent_id: The ID of the agent that originally requested the context.
-            request_id: The unique ID of the original context request.
-            context_data: A dictionary containing the context to be published.
-        """
-        try:
-            message_data = json.dumps(context_data).encode("utf-8")
-            future = self.publisher.publish(
-                CONTEXT_RESPONSES_TOPIC_PATH,
-                message_data,
-                agent_id=target_agent_id,
-                request_id=request_id,
-                context_source="ContextAgent",
-                context_type=context_data.get("context", {}).get("requested_type", "unknown")
-            )
-            message_id = future.result()
-            logger.info(
-                f"Published context response (ID: {message_id}) for request '{request_id}' "
-                f"to agent '{target_agent_id}' on topic '{CONTEXT_RESPONSES_TOPIC_NAME}'."
-            )
-        except Exception as e:
-            logger.error(f"Failed to publish context for request '{request_id}': {e}", exc_info=True)
-
-
-# Entry point for running the ContextAgent
+# --- Main execution ---
 if __name__ == "__main__":
-    # This block is for local testing and demonstration purposes.
-    # In a Cloud Run environment, the agent would typically be started by the
-    # application server (e.g., Flask/FastAPI) that hosts this agent.
+    # Ensure GCP_PROJECT_ID environment variable is set for local execution
+    # or when deployed to Google Cloud environments like Cloud Run.
+    if not PROJECT_ID:
+        logger.error("GCP_PROJECT_ID environment variable not set. Please set it before running the agent.")
+        exit(1)
 
-    # --- Local Firestore Setup (for testing convenience) ---
-    # This ensures a 'project_scope' document exists for testing the get_context method.
-    try:
-        db_client = firestore.Client()
-        project_scope_doc_ref = db_client.collection("project_artifacts").document("project_scope")
-        if not project_scope_doc_ref.get().exists:
-            project_scope_doc_ref.set({
-                "title": "ContextPilot Project Scope",
-                "content": """The ContextPilot project aims to revolutionize developer productivity by providing an AI-powered context management system. It leverages a multi-agent architecture to understand, maintain, and provide relevant context across various development tasks. Key features include intelligent context retrieval, proactive context suggestions, and seamless integration with developer tools like VSCode. The project is currently in the hackathon and product launch phase, focusing on core functionality and fine-tuning.
-                The system relies on Cloud Run for scalable execution, Firestore for state persistence, Pub/Sub for inter-agent communication, and Gemini for advanced AI capabilities. The VSCode Extension serves as the primary user interface.""",
-                "last_updated": firestore.SERVER_TIMESTAMP
-            })
-            logger.info("Dummy 'project_scope' document created in Firestore for local testing.")
-        else:
-            logger.info("Firestore 'project_scope' document already exists.")
-    except Exception as e:
-        logger.error(f"Could not initialize or create dummy Firestore document: {e}")
-        # If Firestore setup fails, the agent might still run but context retrieval will be limited.
-
-    # --- Start the ContextAgent ---
-    context_agent = ContextAgent()
-    context_agent.start_listening()
+    agent = ContextAgent(PROJECT_ID)
+    agent.run()
