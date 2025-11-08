@@ -400,7 +400,8 @@ export class ContextPilotService {
         trigger_topic: topic,  // The discussion topic for agents
         use_llm: true  // Enable AI-powered insights
       }, {
-        params: { workspace_id: workspaceId }
+        params: { workspace_id: workspaceId },
+        timeout: 900000 // Allow up to 15 minutes to match backend timeout
       });
       
       console.log('[ContextPilot] Retrospective triggered:', response.data);

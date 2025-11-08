@@ -35,18 +35,25 @@ db = firestore.AsyncClient()
 proposals_col = db.collection("proposals")  # Unified collection name - v2
 
 
-async def trigger_github_action(proposal_id: str):
+async def trigger_github_action(proposal_id: str) -> dict:
     """
     Trigger GitHub Action via repository_dispatch webhook.
 
     Requires GITHUB_TOKEN and GITHUB_REPO environment variables.
+    
+    Returns:
+        dict with status and message
     """
     github_token = os.getenv("GITHUB_TOKEN")
     github_repo = os.getenv("GITHUB_REPO", "fsegall/gcloud_contextpilot")
 
     if not github_token:
-        logger.warning("⚠️ GITHUB_TOKEN not set, skipping GitHub Action trigger")
-        return
+        logger.warning(f"⚠️ GITHUB_TOKEN not set, skipping GitHub Action trigger for proposal: {proposal_id}")
+        return {
+            "status": "skipped",
+            "reason": "GITHUB_TOKEN not configured",
+            "message": "GitHub Actions will not be triggered. Set GITHUB_TOKEN environment variable."
+        }
 
     url = f"https://api.github.com/repos/{github_repo}/dispatches"
     headers = {
@@ -59,6 +66,8 @@ async def trigger_github_action(proposal_id: str):
         "client_payload": {"proposal_id": proposal_id},
     }
 
+    logger.info(f"🚀 Triggering GitHub Action for proposal: {proposal_id}, repo: {github_repo}")
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -66,13 +75,37 @@ async def trigger_github_action(proposal_id: str):
             )
 
             if response.status_code == 204:
-                logger.info(f"✅ GitHub Action triggered for proposal: {proposal_id}")
+                logger.info(f"✅ GitHub Action triggered successfully for proposal: {proposal_id}")
+                return {
+                    "status": "success",
+                    "message": f"GitHub Action triggered for proposal {proposal_id}",
+                    "repo": github_repo
+                }
             else:
+                error_text = response.text
                 logger.error(
-                    f"❌ GitHub Action trigger failed: {response.status_code} - {response.text}"
+                    f"❌ GitHub Action trigger failed: {response.status_code} - {error_text}"
                 )
+                return {
+                    "status": "error",
+                    "status_code": response.status_code,
+                    "message": f"Failed to trigger GitHub Action: {error_text}",
+                    "repo": github_repo
+                }
+    except (httpx.TimeoutException, httpx.ReadTimeout) as e:
+        logger.error(f"❌ GitHub Action trigger timeout: {e}")
+        return {
+            "status": "error",
+            "message": f"Timeout while triggering GitHub Action: {str(e)}",
+            "repo": github_repo
+        }
     except Exception as e:
-        logger.error(f"❌ Error triggering GitHub Action: {e}")
+        logger.error(f"❌ Error triggering GitHub Action: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error triggering GitHub Action: {str(e)}",
+            "repo": github_repo
+        }
 
 
 async def _get_proposal_doc_and_data_by_id(proposal_id: str):
@@ -122,7 +155,7 @@ async def create_proposal(proposal: ChangeProposal = Body(...)):
 
         # Publish event
         event_bus = get_event_bus()
-        event_bus.publish(
+        await event_bus.publish(
             topic="proposals-events",
             event_type="proposal.created.v1",
             source=proposal.agent_id,
@@ -161,6 +194,16 @@ async def list_proposals(
     """
     logger.info(f"Listing proposals for workspace: {workspace_id}, user: {user_id}")
 
+    normalized_user = (user_id or "").strip().lower()
+    global_view_users = {"system", "admin", "all"}
+    allow_global_view = normalized_user in global_view_users
+
+    if allow_global_view:
+        logger.info(
+            "Global view enabled for user_id=%s (bypassing explicit user filter)",
+            user_id,
+        )
+
     try:
         # Build query - NO ORDER BY to avoid composite index requirement
         # We'll sort client-side instead
@@ -182,12 +225,17 @@ async def list_proposals(
                 f"Processing doc {total_docs}: id={data.get('id')}, user_id={data.get('user_id')}, workspace_id={data.get('workspace_id')}"
             )
 
-            # Client-side filtering - user_id is now required
-            if data.get("user_id") != user_id:
+            doc_user = (data.get("user_id") or "").strip()
+
+            if not allow_global_view and doc_user != user_id:
                 logger.info(
-                    f"  Skipping doc {total_docs}: user_id mismatch ({data.get('user_id')} != {user_id})"
+                    f"  Skipping doc {total_docs}: user_id mismatch ({doc_user} != {user_id})"
                 )
                 continue
+            elif allow_global_view and not doc_user:
+                logger.info(
+                    f"  Including doc {total_docs}: no user_id stored (global view)"
+                )
             if status and data.get("status") != status:
                 logger.info(
                     f"  Skipping doc {total_docs}: status mismatch ({data.get('status')} != {status})"
@@ -334,7 +382,7 @@ async def approve_proposal(
 
         # Publish event for Git Agent
         event_bus = get_event_bus()
-        event_bus.publish(
+        await event_bus.publish(
             topic="proposals-events",
             event_type="proposal.approved.v1",
             source="proposals-api",
@@ -371,13 +419,24 @@ async def approve_proposal(
             # Don't fail the approval if rewards fail
 
         # Trigger GitHub Action via repository_dispatch webhook
-        await trigger_github_action(proposal_id)
+        github_action_result = await trigger_github_action(proposal_id)
 
-        return {
+        response_data = {
             "status": "approved",
             "proposal_id": proposal_id,
             "message": "Proposal approved. Git Agent will apply changes.",
+            "github_action": github_action_result
         }
+
+        # Log the result
+        if github_action_result.get("status") == "success":
+            logger.info(f"✅ Proposal {proposal_id} approved and GitHub Action triggered")
+        elif github_action_result.get("status") == "skipped":
+            logger.warning(f"⚠️ Proposal {proposal_id} approved but GitHub Action skipped: {github_action_result.get('reason')}")
+        else:
+            logger.error(f"❌ Proposal {proposal_id} approved but GitHub Action failed: {github_action_result.get('message')}")
+
+        return response_data
 
     except HTTPException:
         raise
@@ -425,7 +484,7 @@ async def reject_proposal(
 
         # Publish event (agents can learn from this)
         event_bus = get_event_bus()
-        event_bus.publish(
+        await event_bus.publish(
             topic="proposals-events",
             event_type="proposal.rejected.v1",
             source="proposals-api",

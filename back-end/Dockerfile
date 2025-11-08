@@ -30,9 +30,9 @@ ENV PORT=8080
 # Expose port for Cloud Run
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+# Health check - increased start period for slow startup
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# Run the application
-CMD exec uvicorn app.server:app --host 0.0.0.0 --port ${PORT} --workers 1
+# Run the application with explicit logging
+CMD exec python -m uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info

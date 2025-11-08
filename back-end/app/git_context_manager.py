@@ -29,12 +29,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import httpx
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("git_context_manager.log"), logging.StreamHandler()],
-)
+# Use existing logger configuration (don't reconfigure)
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")

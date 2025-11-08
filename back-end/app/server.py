@@ -28,17 +28,35 @@ import json
 from pathlib import Path
 
 # Configure logging
+# In Cloud Run, only use StreamHandler (stdout/stderr are captured automatically)
+# FileHandler can fail if directory doesn't exist or lacks permissions
+import sys
+handlers = [logging.StreamHandler(sys.stdout)]
+if os.getenv("ENVIRONMENT") != "production":
+    # Only add file handler in non-production environments
+    try:
+        handlers.append(logging.FileHandler("server.log", mode="w"))
+    except Exception as e:
+        # If file handler fails, continue with just stdout
+        pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("server.log", mode="w"), logging.StreamHandler()],
+    handlers=handlers,
     force=True,
 )
 logger = logging.getLogger(__name__)
 
+# Log startup
+logger.info("=" * 50)
+logger.info("ContextPilot Server Starting...")
+logger.info("=" * 50)
+
 CONTEXT_PILOT_URL = "http://localhost:8000"
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
+logger.info("Environment variables loaded")
 
 app = FastAPI(
     title="ContextPilot API",
@@ -47,6 +65,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+logger.info("FastAPI app created")
 
 # Simple in-memory rate limiter
 rate_limit_store = defaultdict(list)
@@ -159,17 +178,39 @@ app.include_router(rewards.router)
 
 # Proposals router: Only use in CLOUD mode
 # In LOCAL mode, we use custom endpoints below with file storage
-config = get_config()
-if config.is_cloud_storage:
-    logger.info("📊 Using Firestore proposals router (CLOUD mode)")
+try:
+    config = get_config()
+    if config.is_cloud_storage:
+        logger.info("📊 Using Firestore proposals router (CLOUD mode)")
+        app.include_router(proposals.router)
+    else:
+        logger.info("📁 Using file-based proposals endpoints (LOCAL mode)")
+        # Custom endpoints registered below
+except Exception as e:
+    logger.error(f"Error loading config: {e}", exc_info=True)
+    # Default to cloud storage if config fails
+    logger.warning("Falling back to cloud storage mode")
     app.include_router(proposals.router)
-else:
-    logger.info("📁 Using file-based proposals endpoints (LOCAL mode)")
-    # Custom endpoints registered below
 
 # Include events router for Pub/Sub push subscriptions
-from app.routers import events
-app.include_router(events.router)
+try:
+    from app.routers import events
+    app.include_router(events.router)
+    logger.info("Events router loaded")
+except Exception as e:
+    logger.error(f"Error loading events router: {e}", exc_info=True)
+    # Continue without events router if it fails
+
+logger.info("All routers loaded successfully")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Log server startup"""
+    import socket
+    port = int(os.getenv("PORT", "8080"))
+    logger.info(f"🚀 Server starting on port {port}")
+    logger.info("✅ Server startup complete - ready to accept requests")
 
 
 def get_manager(workspace_id: str = "default"):
@@ -698,27 +739,50 @@ def close_cycle(workspace_id: str = Query("default")):
 def health_check():
     """Health check for extension connectivity"""
     logger.info("Health check called")
-    config = get_config()
-
-    return {
-        "status": "ok",
-        "version": "2.1.0",
-        "config": {
-            "environment": config.environment,
-            "storage_mode": config.storage_mode.value,
-            "rewards_mode": config.rewards_mode.value,
-            "event_bus_mode": config.event_bus_mode.value,
-        },
-        "agents": [
-            "spec",
-            "git",
-            "development",
-            "context",
-            "coach",  # Strategy Coach Agent (unified)
-            "milestone",
-            "retrospective",
-        ],
-    }
+    try:
+        config = get_config()
+        
+        # Safely get event_bus_mode value with fallback
+        try:
+            event_bus_mode_value = config.event_bus_mode.value
+        except (AttributeError, ValueError) as e:
+            logger.error(f"Error getting event_bus_mode value: {e}")
+            event_bus_mode_value = "in_memory"  # Safe fallback
+        
+        return {
+            "status": "ok",
+            "version": "2.1.0",
+            "config": {
+                "environment": config.environment,
+                "storage_mode": config.storage_mode.value,
+                "rewards_mode": config.rewards_mode.value,
+                "event_bus_mode": event_bus_mode_value,
+            },
+            "agents": [
+                "spec",
+                "git",
+                "development",
+                "context",
+                "coach",  # Strategy Coach Agent (unified)
+                "milestone",
+                "retrospective",
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Error in health check: {e}", exc_info=True)
+        # Return minimal health response on error
+        return {
+            "status": "error",
+            "version": "2.1.0",
+            "config": {
+                "environment": "unknown",
+                "storage_mode": "unknown",
+                "rewards_mode": "unknown",
+                "event_bus_mode": "unknown",
+            },
+            "agents": [],
+            "error": str(e)
+        }
 
 
 @app.post("/admin/clear-blacklist")

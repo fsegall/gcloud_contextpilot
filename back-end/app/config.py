@@ -51,7 +51,15 @@ class AppConfig:
         self.rewards_mode = self._get_rewards_mode()
 
         # === Event Bus Configuration ===
-        self.event_bus_mode = self._get_event_bus_mode()
+        try:
+            self.event_bus_mode = self._get_event_bus_mode()
+            # Verify it's a valid EventBusMode
+            if not isinstance(self.event_bus_mode, EventBusMode):
+                logger.error(f"Invalid event_bus_mode type: {type(self.event_bus_mode)}, defaulting to IN_MEMORY")
+                self.event_bus_mode = EventBusMode.IN_MEMORY
+        except Exception as e:
+            logger.error(f"Error initializing event_bus_mode: {e}, defaulting to IN_MEMORY")
+            self.event_bus_mode = EventBusMode.IN_MEMORY
 
         # === API Keys ===
         self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -105,23 +113,31 @@ class AppConfig:
 
     def _get_event_bus_mode(self) -> EventBusMode:
         """Determine event bus mode from environment."""
-        # Check explicit EVENT_BUS_MODE first
-        mode_str = os.getenv("EVENT_BUS_MODE", "").lower()
-        if mode_str == "pubsub" and self.gcp_project_id:
-            return EventBusMode.PUBSUB
-        elif mode_str == "in_memory":
+        try:
+            # Check explicit EVENT_BUS_MODE first
+            mode_str = os.getenv("EVENT_BUS_MODE", "").lower().strip()
+            if mode_str == "pubsub" and self.gcp_project_id:
+                logger.info(f"Event Bus Mode: PUBSUB (explicit, GCP project: {self.gcp_project_id})")
+                return EventBusMode.PUBSUB
+            elif mode_str == "in_memory":
+                logger.info("Event Bus Mode: IN_MEMORY (explicit)")
+                return EventBusMode.IN_MEMORY
+
+            # Legacy: check USE_PUBSUB
+            use_pubsub = os.getenv("USE_PUBSUB", "").lower() == "true"
+            if use_pubsub and self.gcp_project_id:
+                logger.warning(
+                    "Using deprecated USE_PUBSUB. "
+                    "Please set EVENT_BUS_MODE=pubsub explicitly."
+                )
+                return EventBusMode.PUBSUB
+
+            # Default to IN_MEMORY
+            logger.info("Event Bus Mode: IN_MEMORY (default)")
             return EventBusMode.IN_MEMORY
-
-        # Legacy: check USE_PUBSUB
-        use_pubsub = os.getenv("USE_PUBSUB", "").lower() == "true"
-        if use_pubsub and self.gcp_project_id:
-            logger.warning(
-                "Using deprecated USE_PUBSUB. "
-                "Please set EVENT_BUS_MODE=pubsub explicitly."
-            )
-            return EventBusMode.PUBSUB
-
-        return EventBusMode.IN_MEMORY
+        except Exception as e:
+            logger.error(f"Error determining event bus mode: {e}, defaulting to IN_MEMORY")
+            return EventBusMode.IN_MEMORY
 
     def _log_config(self):
         """Log current configuration (without sensitive data)."""

@@ -8,7 +8,18 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 from web3 import Web3
-from web3.middleware import ExtraDataToPOAMiddleware
+# Attempt to import PoA middleware compatible with web3 7.x and 6.x
+try:
+    # web3 >= 7.0.0
+    from web3.middleware.proof_of_authority import ExtraDataToPOAMiddleware  # type: ignore
+except ImportError:  # pragma: no cover
+    ExtraDataToPOAMiddleware = None  # type: ignore
+
+try:
+    # web3 < 7.0.0
+    from web3.middleware import geth_poa_middleware  # type: ignore
+except ImportError:  # pragma: no cover
+    geth_poa_middleware = None  # type: ignore
 import json
 import os
 
@@ -68,8 +79,12 @@ class BlockchainRewardsAdapter(RewardsAdapter):
         self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
         
         # Add PoA middleware (required for some testnets)
-        # In web3 7.x, geth_poa_middleware was replaced with ExtraDataToPOAMiddleware
-        self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        if ExtraDataToPOAMiddleware:
+            self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        elif geth_poa_middleware:
+            self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        else:
+            logger.warning("PoA middleware not available in current web3 version")
         
         # Contract setup
         self.contract_address = contract_address or os.getenv("CPT_CONTRACT_ADDRESS")

@@ -1,173 +1,222 @@
-import os
+import asyncio
+import difflib
+import json
 import logging
-from typing import Dict, Any
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
-# Assuming these base classes and services exist in the project structure
-from back_end.app.agents.base_agent import Agent
-from back_end.app.services.pubsub_service import PubSubService
-from back_end.app.services.firestore_service import FirestoreService
-from back_end.app.services.gemini_service import GeminiService
+from app.agents.base_agent import BaseAgent
+from app.utils.workspace_manager import get_workspace_path
 
 logger = logging.getLogger(__name__)
 
-class SpecAgent(Agent):
-    """
-    The SpecAgent is responsible for generating detailed specifications,
-    requirements, and validation criteria for tasks and features within
-    the ContextPilot project. It listens for requests that require clear
-    definitions and leverages the Gemini AI model to assist in generating
-    comprehensive and actionable specifications.
 
-    This agent addresses the retrospective feedback regarding idle agents
-    and the need for clear specifications for development tasks.
+class SpecAgent(BaseAgent):
+    """Documentation quality agent.
+
+    This agent inspects required documentation artifacts in the workspace,
+    highlights missing or stale files, and produces lightweight proposals
+    with suggested content to keep the docs aligned with the project state.
     """
 
-    AGENT_ID = "spec"
-    # Pub/Sub topics for incoming specification requests and outgoing responses
-    SPEC_REQUEST_TOPIC = os.getenv("PUBSUB_TOPIC_SPEC_REQUEST", "contextpilot.agent.spec.request")
-    SPEC_RESPONSE_TOPIC = os.getenv("PUBSUB_TOPIC_SPEC_RESPONSE", "contextpilot.agent.spec.response")
+    agent_display_name = "Specification Agent"
 
-    def __init__(self, pubsub_service: PubSubService, firestore_service: FirestoreService, gemini_service: GeminiService):
-        """
-        Initializes the SpecAgent with necessary service clients.
+    def __init__(
+        self,
+        workspace_path: Optional[str] = None,
+        workspace_id: str = "default",
+        project_id: Optional[str] = None,
+    ) -> None:
+        # Determine workspace path before calling BaseAgent (so ensure_workspace_exists runs)
+        resolved_workspace_path = (
+            Path(workspace_path).resolve()
+            if workspace_path
+            else Path(get_workspace_path(workspace_id)).resolve()
+        )
 
-        Args:
-            pubsub_service: An instance of PubSubService for message brokering.
-            firestore_service: An instance of FirestoreService for data persistence.
-            gemini_service: An instance of GeminiService for AI content generation.
-        """
-        super().__init__(self.AGENT_ID, pubsub_service, firestore_service)
-        self.gemini_service = gemini_service
-        logger.info(f"SpecAgent initialized with ID: {self.AGENT_ID}")
+        self._explicit_workspace_path = str(resolved_workspace_path)
+        super().__init__(workspace_id=workspace_id, agent_id="spec", project_id=project_id)
 
-    def _subscribe_to_events(self):
-        """
-        Subscribes the SpecAgent to relevant Pub/Sub topics.
-        This method is called by the base Agent's `start()` method.
-        """
-        logger.info(f"SpecAgent subscribing to topic: {self.SPEC_REQUEST_TOPIC}")
-        # The PubSubService.subscribe method is expected to handle async callbacks
-        self.pubsub_service.subscribe(self.SPEC_REQUEST_TOPIC, self.handle_spec_request)
+        # Override workspace_path with explicit value when provided
+        self.workspace_path = str(resolved_workspace_path)
+        self.workspace_dir = Path(self.workspace_path)
+        self.proposals_dir = self.workspace_dir / "proposals"
+        self.proposals_dir.mkdir(parents=True, exist_ok=True)
 
-    async def handle_spec_request(self, message_data: Dict[str, Any]):
-        """
-        Handles incoming messages on the SPEC_REQUEST_TOPIC.
-        Processes the request, generates specifications using the Gemini model,
-        persists the specification in Firestore, and publishes the result.
-
-        Args:
-            message_data: A dictionary containing the message payload.
-                          Expected keys:
-                            - 'task_id': Unique identifier for the task requiring specs.
-                            - 'description': A natural language description of the task/feature.
-                            - 'context': Optional, additional context (e.g., code snippets, error logs).
-                            - 'requester_agent_id': The ID of the agent that initiated the request.
-        """
-        task_id = message_data.get("task_id")
-        description = message_data.get("description")
-        context = message_data.get("context", {})
-        requester_agent_id = message_data.get("requester_agent_id", "unknown")
-
-        if not task_id or not description:
-            logger.error(f"Invalid spec request received: Missing 'task_id' or 'description'. Data: {message_data}")
-            # Optionally publish an error response for malformed requests
-            await self._publish_error_response(task_id, "Missing task_id or description", requester_agent_id)
-            return
-
-        logger.info(f"SpecAgent received spec request for task_id: {task_id} from {requester_agent_id}")
-
-        try:
-            # Construct a detailed prompt for the Gemini model
-            prompt = self._construct_gemini_prompt(description, context)
-            
-            # Generate specifications using Gemini
-            gemini_response = await self.gemini_service.generate_content(prompt)
-            
-            # Extract the generated specification text. Assuming Gemini returns a structured object.
-            spec_details = gemini_response.text if gemini_response and gemini_response.text else "No detailed specifications could be generated by AI."
-
-            # Store the generated specification in Firestore for persistence and traceability
-            await self.firestore_service.add_document(
-                collection_name="specifications",
-                document_id=task_id, # Use task_id as document ID for easy lookup
-                data={
-                    "task_id": task_id,
-                    "description": description,
-                    "context": context,
-                    "spec_details": spec_details,
-                    "generated_at": self.firestore_service.get_timestamp(),
-                    "status": "generated",
-                    "requester_agent_id": requester_agent_id,
-                    "agent_id": self.AGENT_ID,
-                }
-            )
-
-            # Publish the generated specification back to a response topic
-            response_payload = {
-                "task_id": task_id,
-                "status": "success",
-                "spec_details": spec_details,
-                "requester_agent_id": requester_agent_id,
-                "agent_id": self.AGENT_ID,
-                "timestamp": self.firestore_service.get_timestamp(),
-            }
-            await self.pubsub_service.publish(self.SPEC_RESPONSE_TOPIC, response_payload)
-            logger.info(f"SpecAgent successfully generated and published spec for task_id: {task_id}")
-
-        except Exception as e:
-            logger.error(f"Error processing spec request for task_id {task_id}: {e}", exc_info=True)
-            await self._publish_error_response(task_id, str(e), requester_agent_id)
-
-    async def _publish_error_response(self, task_id: str, error_message: str, requester_agent_id: str):
-        """
-        Helper method to publish an error response to the SPEC_RESPONSE_TOPIC.
-        """
-        error_payload = {
-            "task_id": task_id,
-            "status": "error",
-            "error_message": error_message,
-            "requester_agent_id": requester_agent_id,
-            "agent_id": self.AGENT_ID,
-            "timestamp": self.firestore_service.get_timestamp(),
+        # Define documentation templates
+        self.required_documents: Dict[str, str] = {
+            "PROJECT.md": (
+                "# Project Overview\n\n"
+                "## Vision\nDescribe the long-term vision for the project.\n\n"
+                "## Goals\n- [ ] Short-term goal\n- [ ] Mid-term goal\n- [ ] Long-term goal\n\n"
+                "## Current Focus\nSummarize what the team is working on this week.\n"
+            ),
+            "STATUS.md": (
+                "# Weekly Status\n\n"
+                "## Highlights\n- Achievement 1\n- Achievement 2\n\n"
+                "## Risks\n- Risk 1\n- Risk 2\n\n"
+                "## Next Steps\n- Action 1\n- Action 2\n"
+            ),
+            ".contextpilot/workspace.yaml": (
+                "# ContextPilot Workspace Metadata\n"
+                "name: {workspace_id}\n"
+                "description: Update this file with workspace metadata.\n"
+            ),
         }
-        await self.pubsub_service.publish(self.SPEC_RESPONSE_TOPIC, error_payload)
 
-    def _construct_gemini_prompt(self, description: str, context: Dict[str, Any]) -> str:
-        """
-        Constructs a detailed prompt for the Gemini model to generate a technical specification.
-        The prompt guides the AI to produce structured and actionable output.
+    # ------------------------------------------------------------------
+    # Documentation analysis
+    # ------------------------------------------------------------------
+    async def validate_docs(self) -> List[Dict[str, Any]]:
+        """Detect missing or stale documentation files."""
 
-        Args:
-            description: The primary description of the task or feature.
-            context: Additional contextual information relevant to the task.
+        self.increment_metric("events_processed")
+        issues = await asyncio.to_thread(self._collect_doc_issues)
+        logger.info("[SpecAgent] Found %d documentation issues", len(issues))
+        return issues
 
-        Returns:
-            A string representing the prompt for the Gemini model.
-        """
-        prompt_parts = [
-            "You are an expert software architect and technical writer for the ContextPilot project.",
-            "Your task is to generate a detailed technical specification for the following development task.",
-            "Provide clear, concise, and actionable requirements, acceptance criteria, and potential implementation considerations.",
-            "Focus on clarity for a development team.",
-            f"\n--- Task Description ---\n{description}\n",
-        ]
+    def _collect_doc_issues(self) -> List[Dict[str, Any]]:
+        issues: List[Dict[str, Any]] = []
 
-        if context:
-            prompt_parts.append("\n--- Additional Context ---\n")
-            for key, value in context.items():
-                prompt_parts.append(f"- {key}: {value}")
-            prompt_parts.append("\n")
+        for relative_path, template in self.required_documents.items():
+            expected_path = self.workspace_dir / relative_path
+            context_template = template.format(workspace_id=self.workspace_id)
 
-        prompt_parts.append("\n--- Specification Structure ---\n")
-        prompt_parts.append("Please structure your response with the following sections, using Markdown formatting:")
-        prompt_parts.append("1.  **Feature/Task Name:** [A short, descriptive name for the task/feature]")
-        prompt_parts.append("2.  **Overview:** [A brief summary of the task/feature, its purpose, and value]")
-        prompt_parts.append("3.  **Requirements:**")
-        prompt_parts.append("    *   **Functional Requirements:** [List what the system *must do* to achieve the task. Use bullet points.]")
-        prompt_parts.append("    *   **Non-Functional Requirements:** [e.g., performance, security, scalability, usability, maintainability. Use bullet points.]")
-        prompt_parts.append("4.  **Acceptance Criteria:** [Specific, measurable, achievable, relevant, time-bound (SMART) conditions that must be met for the task to be considered complete and successful. Use bullet points, e.g., 'GIVEN X WHEN Y THEN Z'.]")
-        prompt_parts.append("5.  **Technical Considerations:** [Outline potential architectural impacts, API changes, database schema modifications, external dependencies, specific technologies, or known challenges. Use bullet points.]")
-        prompt_parts.append("6.  **Validation/Testing Strategy:** [Suggest approaches or specific tests to verify the correct implementation of the specification. Use bullet points.]")
-        prompt_parts.append("\nEnsure the specification is comprehensive, unambiguous, and directly actionable for a Python development team working on Cloud Run, Firestore, and Pub/Sub.")
+            if not expected_path.exists():
+                issues.append(
+                    {
+                        "file": relative_path,
+                        "type": "missing_file",
+                        "severity": "high",
+                        "message": f"Required documentation file '{relative_path}' is missing.",
+                        "suggested_content": context_template,
+                    }
+                )
+                continue
 
-        return "\n".join(prompt_parts)
+            try:
+                content = expected_path.read_text(encoding="utf-8")
+            except Exception as exc:  # pragma: no cover - unlikely but defensive
+                issues.append(
+                    {
+                        "file": relative_path,
+                        "type": "read_error",
+                        "severity": "high",
+                        "message": f"Failed to read '{relative_path}': {exc}",
+                        "suggested_content": context_template,
+                    }
+                )
+                continue
+
+            if not content.strip():
+                issues.append(
+                    {
+                        "file": relative_path,
+                        "type": "empty_file",
+                        "severity": "medium",
+                        "message": f"'{relative_path}' is empty. Fill in the template content.",
+                        "suggested_content": context_template,
+                    }
+                )
+                continue
+
+            # Simple freshness heuristic: ensure key headings exist
+            required_headings = [h for h in ["## Vision", "## Goals", "## Highlights"] if h in context_template]
+            missing_headings = [heading for heading in required_headings if heading not in content]
+            if missing_headings:
+                issues.append(
+                    {
+                        "file": relative_path,
+                        "type": "missing_sections",
+                        "severity": "medium",
+                        "message": f"'{relative_path}' is missing sections: {', '.join(missing_headings)}.",
+                        "suggested_content": context_template,
+                    }
+                )
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Proposal creation helpers
+    # ------------------------------------------------------------------
+    async def _create_proposal_for_issue(self, issue: Dict[str, Any]) -> str:
+        """Generate a proposal artifact for the provided issue."""
+
+        proposal_id = f"spec-{uuid4().hex[:8]}"
+        target_file = issue.get("file", "docs/UNKNOWN.md")
+        absolute_path = self.workspace_dir / target_file
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing_text = ""
+        if absolute_path.exists():
+            try:
+                existing_text = absolute_path.read_text(encoding="utf-8")
+            except Exception as exc:  # pragma: no cover
+                logger.warning("[SpecAgent] Could not read %s for diff generation: %s", absolute_path, exc)
+
+        suggested_text = issue.get("suggested_content", existing_text)
+        diff = self._generate_diff(target_file, existing_text, suggested_text)
+
+        proposal_payload = {
+            "id": proposal_id,
+            "agent_id": "spec",
+            "title": f"Update {target_file}",
+            "status": "pending",
+            "issue": issue,
+            "proposed_changes": [
+                {
+                    "file_path": target_file,
+                    "change_type": "update" if absolute_path.exists() else "create",
+                    "description": issue.get("message", "Documentation improvement"),
+                }
+            ],
+            "diff": {
+                "format": "unified",
+                "content": diff,
+            },
+        }
+
+        # Write JSON artifact
+        json_path = self.proposals_dir / f"{proposal_id}.json"
+        json_path.write_text(json.dumps(proposal_payload, indent=2), encoding="utf-8")
+
+        # Write human-friendly markdown summary
+        markdown_path = self.proposals_dir / f"{proposal_id}.md"
+        markdown_path.write_text(
+            self._format_markdown_summary(proposal_payload, suggested_text),
+            encoding="utf-8",
+        )
+
+        logger.info("[SpecAgent] Created proposal %s for %s", proposal_id, target_file)
+        self.increment_metric("events_published")
+        return proposal_id
+
+    def _generate_diff(self, file_path: str, current: str, proposed: str) -> str:
+        current_lines = current.splitlines()
+        proposed_lines = proposed.splitlines()
+        diff_lines = difflib.unified_diff(
+            current_lines,
+            proposed_lines,
+            fromfile=f"a/{file_path}",
+            tofile=f"b/{file_path}",
+            lineterm="",
+        )
+        return "\n".join(diff_lines)
+
+    def _format_markdown_summary(self, proposal: Dict[str, Any], suggested_text: str) -> str:
+        issue = proposal.get("issue", {})
+        diff_block = proposal.get("diff", {}).get("content", "")
+        return (
+            f"# Proposal {proposal['id']}\n\n"
+            f"**Agent:** Spec\n\n"
+            f"**Target file:** `{issue.get('file', 'unknown')}`\n\n"
+            f"**Issue:** {issue.get('message', 'Documentation update')}\n\n"
+            f"## Suggested Content\n\n"
+            f"```markdown\n{suggested_text}\n```\n\n"
+            f"## Diff\n\n"
+            f"```diff\n{diff_block}\n```\n"
+        )
+
+
+__all__ = ["SpecAgent"]

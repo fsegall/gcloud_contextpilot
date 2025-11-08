@@ -10,19 +10,44 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Determine base directory based on environment
-if os.getcwd().endswith('/back-end'):
-    # Running in Cloud Run - use /app
-    BASE_DIR = os.path.join("/app", ".contextpilot", "workspaces")
-else:
-    # Running locally - use current directory
-    BASE_DIR = os.path.join(os.getcwd(), ".contextpilot", "workspaces")
-logger.info(f"Base directory for workspaces: {BASE_DIR}")
-os.makedirs(BASE_DIR, exist_ok=True)
-logger.info(f"Base directory created/verified: {BASE_DIR}")
+def _get_base_dir():
+    """Get base directory for workspaces, creating it if needed"""
+    if os.getcwd().endswith('/back-end') or os.path.exists('/app'):
+        # Running in Cloud Run - use /app
+        base_dir = os.path.join("/app", ".contextpilot", "workspaces")
+    else:
+        # Running locally - use current directory
+        base_dir = os.path.join(os.getcwd(), ".contextpilot", "workspaces")
+    
+    # Create directory lazily (not during import)
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+        logger.debug(f"Base directory created/verified: {base_dir}")
+    except (PermissionError, OSError) as e:
+        logger.warning(f"Could not create base directory {base_dir}: {e}")
+        # Fallback to /tmp if /app fails
+        if base_dir.startswith("/app"):
+            base_dir = os.path.join("/tmp", ".contextpilot", "workspaces")
+            os.makedirs(base_dir, exist_ok=True)
+            logger.info(f"Using fallback directory: {base_dir}")
+    
+    return base_dir
+
+# Initialize BASE_DIR lazily
+BASE_DIR = None
+
+def _ensure_base_dir():
+    """Ensure BASE_DIR is initialized"""
+    global BASE_DIR
+    if BASE_DIR is None:
+        BASE_DIR = _get_base_dir()
+        logger.info(f"Base directory for workspaces: {BASE_DIR}")
+    return BASE_DIR
 
 def create_workspace(workspace_id: str, name: str) -> str:
     """Cria um novo workspace com ID específico e nome."""
-    path = os.path.join(BASE_DIR, workspace_id)
+    base_dir = _ensure_base_dir()
+    path = os.path.join(base_dir, workspace_id)
     os.makedirs(path, exist_ok=True)
 
     metadata = {
@@ -54,7 +79,8 @@ def create_workspace(workspace_id: str, name: str) -> str:
 def ensure_workspace_exists(workspace_id: str):
     """Cria estrutura padrão se workspace não existir."""
     logger.info(f"Ensuring workspace exists: {workspace_id}")
-    path = os.path.join(BASE_DIR, workspace_id)
+    base_dir = _ensure_base_dir()
+    path = os.path.join(base_dir, workspace_id)
     logger.info(f"Workspace path: {path}")
     
     if not os.path.exists(path):
@@ -97,8 +123,9 @@ def ensure_workspace_exists(workspace_id: str):
 def list_workspaces() -> list:
     """Lista todos os workspaces existentes com seus metadados."""
     workspaces = []
-    for entry in os.listdir(BASE_DIR):
-        meta_path = os.path.join(BASE_DIR, entry, "meta.json")
+    base_dir = _ensure_base_dir()
+    for entry in os.listdir(base_dir):
+        meta_path = os.path.join(base_dir, entry, "meta.json")
         if os.path.isfile(meta_path):
             with open(meta_path) as f:
                 workspaces.append(json.load(f))
@@ -107,7 +134,8 @@ def list_workspaces() -> list:
 def get_workspace_path(workspace_id: str) -> str:
     """Retorna o caminho completo de um workspace existente."""
     logger.info(f"Getting workspace path for: {workspace_id}")
-    path = os.path.join(BASE_DIR, workspace_id)
+    base_dir = _ensure_base_dir()
+    path = os.path.join(base_dir, workspace_id)
     logger.info(f"Calculated path: {path}")
     
     if os.path.exists(path):
@@ -119,7 +147,8 @@ def get_workspace_path(workspace_id: str) -> str:
 
 def get_workspace_meta(workspace_id: str) -> dict:
     """Retorna os metadados de um workspace específico."""
-    meta_path = os.path.join(BASE_DIR, workspace_id, "meta.json")
+    base_dir = _ensure_base_dir()
+    meta_path = os.path.join(base_dir, workspace_id, "meta.json")
     if os.path.exists(meta_path):
         with open(meta_path) as f:
             return json.load(f)
