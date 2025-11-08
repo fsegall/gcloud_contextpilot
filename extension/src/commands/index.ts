@@ -1,9 +1,56 @@
 import * as vscode from 'vscode';
-import { ContextPilotService, ChangeProposal } from '../services/contextpilot';
+import { ContextPilotService, ChangeProposal, ProposedChange } from '../services/contextpilot';
 import { CoachProvider } from '../views/coach';
 import * as path from 'path';
 import * as fs from 'fs';
 import simpleGit from 'simple-git';
+
+function inferLanguageId(filePath: string): string {
+  const ext = path.extname(filePath || '').toLowerCase();
+  switch (ext) {
+    case '.ts':
+    case '.tsx':
+      return 'typescript';
+    case '.js':
+    case '.mjs':
+      return 'javascript';
+    case '.jsx':
+      return 'javascriptreact';
+    case '.py':
+      return 'python';
+    case '.json':
+      return 'json';
+    case '.md':
+      return 'markdown';
+    case '.yml':
+    case '.yaml':
+      return 'yaml';
+    case '.sh':
+    case '.bash':
+      return 'shellscript';
+    case '.rb':
+      return 'ruby';
+    case '.go':
+      return 'go';
+    case '.java':
+      return 'java';
+    case '.cs':
+      return 'csharp';
+    case '.cpp':
+    case '.cxx':
+      return 'cpp';
+    case '.c':
+      return 'c';
+    case '.swift':
+      return 'swift';
+    case '.rs':
+      return 'rust';
+    case '.kt':
+      return 'kotlin';
+    default:
+      return 'plaintext';
+  }
+}
 
 export async function connect(service: ContextPilotService): Promise<void> {
   try {
@@ -403,7 +450,7 @@ export async function viewProposalDiff(
         if (change.diff) {
           content += `\`\`\`diff\n${change.diff}\n\`\`\`\n\n`;
         } else if (change.after) {
-          content += `**New Content:**\n\`\`\`\n${change.after}\n\`\`\`\n\n`;
+          content += `**New Content:**\n\`\`\`\n${change.after}\`\`\`\n\n`;
         }
       }
     }
@@ -477,6 +524,101 @@ export async function viewProposalDiff(
   }
 }
 
+export async function viewProposalChange(
+  service: ContextPilotService,
+  proposalId: string,
+  change: ProposedChange
+): Promise<void> {
+  try {
+    const proposal = await service.getProposal(proposalId);
+    const targetChange =
+      proposal?.proposed_changes.find(
+        (c) => c.file_path === change.file_path && c.change_type === change.change_type
+      ) || change;
+
+    if (!targetChange) {
+      vscode.window.showWarningMessage('Change details not available for this proposal.');
+      return;
+    }
+
+    const languageId = inferLanguageId(targetChange.file_path);
+
+    if (targetChange.diff) {
+      const doc = await vscode.workspace.openTextDocument({
+        content: targetChange.diff,
+        language: 'diff'
+      });
+      await vscode.window.showTextDocument(doc, { preview: false });
+      return;
+    }
+
+    const hasBefore = typeof targetChange.before === 'string' && targetChange.before.length > 0;
+    const hasAfter = typeof targetChange.after === 'string' && targetChange.after.length > 0;
+
+    if (hasBefore && hasAfter) {
+      const beforeDoc = await vscode.workspace.openTextDocument({
+        content: targetChange.before || '',
+        language: languageId
+      });
+      const afterDoc = await vscode.workspace.openTextDocument({
+        content: targetChange.after || '',
+        language: languageId
+      });
+
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        beforeDoc.uri,
+        afterDoc.uri,
+        `${targetChange.file_path} (${targetChange.change_type})`
+      );
+      return;
+    }
+
+    if (hasAfter) {
+      const doc = await vscode.workspace.openTextDocument({
+        content: targetChange.after || '',
+        language: languageId
+      });
+      await vscode.window.showTextDocument(doc, { preview: false });
+      return;
+    }
+
+    if (hasBefore) {
+      const doc = await vscode.workspace.openTextDocument({
+        content: targetChange.before || '',
+        language: languageId
+      });
+      await vscode.window.showTextDocument(doc, { preview: false });
+      return;
+    }
+
+    vscode.window.showInformationMessage('No diff content available for this change yet.');
+  } catch (error) {
+    console.error('Error viewing proposal change:', error);
+    vscode.window.showErrorMessage('Failed to open proposal change diff');
+  }
+}
+
+export async function askClaudeReviewCommand(
+  service: ContextPilotService,
+  proposalId: string
+): Promise<void> {
+  try {
+    console.log(`[askClaudeReviewCommand] Triggered for proposalId=${proposalId}`);
+    const proposal = await service.getProposal(proposalId);
+    console.log('[askClaudeReviewCommand] Loaded proposal:', proposal?.id, proposal?.title);
+    if (!proposal) {
+      vscode.window.showErrorMessage('Proposal not found');
+      return;
+    }
+
+    await askClaudeToReview(proposal);
+  } catch (error) {
+    console.error('Error triggering Claude review:', error);
+    vscode.window.showErrorMessage('Failed to request Claude review');
+  }
+}
+
 // Global review panel for maintaining context
 let reviewPanel: any = null;
 
@@ -488,6 +630,7 @@ export function setReviewPanel(panel: any): void {
 let contextPilotChatSessionId: string | undefined;
 
 async function askClaudeToReview(proposal: ChangeProposal): Promise<void> {
+  console.log('[askClaudeToReview] Preparing review for proposal:', proposal.id);
   // If review panel is available, use it
   if (reviewPanel) {
     await reviewPanel.showReview(proposal);
@@ -499,6 +642,17 @@ async function askClaudeToReview(proposal: ChangeProposal): Promise<void> {
   const filesAffected = proposal.proposed_changes
     .map(c => `- **${c.file_path}** (${c.change_type}): ${c.description}`)
     .join('\n');
+
+  const fallbackDiff = proposal.proposed_changes
+    .map((c) => {
+      if (c.diff) { return c.diff; }
+      if (c.after) { return `+++ ${c.file_path}\n${c.after}`; }
+      if (c.before) { return `--- ${c.file_path}\n${c.before}`; }
+      return `# ${c.change_type.toUpperCase()} ${c.file_path}`;
+    })
+    .join('\n\n');
+
+  const diffContent = proposal.diff?.content || fallbackDiff || '(no diff available)';
   
   const context = `# Review Change Proposal #${proposal.id}
 
@@ -509,25 +663,12 @@ async function askClaudeToReview(proposal: ChangeProposal): Promise<void> {
 ## Proposed Changes
 
 \`\`\`diff
-${proposal.diff.content}
+${diffContent}
 \`\`\`
 
 ## Files Affected
 ${filesAffected}
 
-## Review Request
-
-Please analyze these proposed changes and tell me:
-1. Are they appropriate for this project?
-2. Any potential issues or concerns?
-3. Should I approve or reject?
-
-Consider:
-- Code quality and best practices
-- Project conventions and style
-- Potential side effects
-- Documentation completeness
-- Security implications
 `;
   
   try {

@@ -112,6 +112,16 @@
         "icon": "$(diff)"
       },
       {
+        "command": "contextpilot.viewProposalChange",
+        "title": "ContextPilot: View Proposal File Diff",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "contextpilot.askClaudeReview",
+        "title": "ContextPilot: Ask Claude to Review",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "contextpilot.resetChatSession",
         "title": "ContextPilot: Reset Chat Session",
         "icon": "$(clear-all)"
@@ -222,6 +232,9 @@
         {
           "command": "contextpilot.disconnect",
           "when": "contextpilot.connected"
+        },
+        {
+          "command": "contextpilot.askClaudeReview"
         }
       ],
       "view/title": [
@@ -261,6 +274,16 @@
           "command": "contextpilot.viewProposalDiff",
           "when": "view == contextpilot.proposals && viewItem == proposal",
           "group": "navigation@1"
+        },
+        {
+          "command": "contextpilot.viewProposalChange",
+          "when": "view == contextpilot.proposals && viewItem == proposalChange",
+          "group": "inline"
+        },
+        {
+          "command": "contextpilot.askClaudeReview",
+          "when": "view == contextpilot.proposals && viewItem == proposal",
+          "group": "inline@1"
         },
         {
           "command": "contextpilot.viewRelatedFiles",

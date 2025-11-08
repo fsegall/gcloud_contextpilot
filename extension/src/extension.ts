@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ContextPilotService } from './services/contextpilot';
+import { ContextPilotService, ProposedChange } from './services/contextpilot';
 import { ProposalsProvider } from './views/proposals';
 import { RewardsProvider } from './views/rewards';
 import { AgentsProvider } from './views/agents';
@@ -251,6 +251,19 @@ export function activate(context: vscode.ExtensionContext) {
     // Proposal diff commands
     vscode.commands.registerCommand('contextpilot.viewProposalDiff', async (proposalId: string) => {
       await commands.viewProposalDiff(contextPilotService, proposalId);
+    }),
+
+    vscode.commands.registerCommand('contextpilot.viewProposalChange', async (proposalId: string, change: ProposedChange) => {
+      await commands.viewProposalChange(contextPilotService, proposalId, change);
+    }),
+
+    vscode.commands.registerCommand('contextpilot.askClaudeReview', async (item: any) => {
+      const proposalId = typeof item === 'string' ? item : item?.proposal?.id;
+      if (!proposalId) {
+        vscode.window.showErrorMessage('No proposal ID provided');
+        return;
+      }
+      await commands.askClaudeReviewCommand(contextPilotService, proposalId);
     }),
 
     vscode.commands.registerCommand('contextpilot.viewContextDetail', async (item: any) => {

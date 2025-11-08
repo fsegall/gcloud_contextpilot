@@ -13,6 +13,46 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}🚀 ContextPilot - Cloud Run Deployment${NC}"
 echo "========================================"
 
+# Load environment variables from consolidated .env (if present)
+ENV_FILE="$(dirname "$0")/../../.env"
+if [ -f "$ENV_FILE" ]; then
+    echo -e "${BLUE}📦 Loading environment from ${ENV_FILE}${NC}"
+    # shellcheck disable=SC2046
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+else
+    echo -e "${YELLOW}⚠️  .env not found at ${ENV_FILE}. Make sure required variables are set manually.${NC}"
+fi
+
+# Helper to ensure secrets exist and contain latest values
+ensure_secret() {
+    local secret_name=$1
+    local secret_value=$2
+
+    if [ -z "$secret_value" ]; then
+        echo -e "${YELLOW}⚠️  Skipping secret ${secret_name}: value not set in environment.${NC}"
+        return
+    fi
+
+    if ! gcloud secrets describe "$secret_name" --project "$PROJECT_ID" >/dev/null 2>&1; then
+        echo -e "${BLUE}🔐 Creating secret ${secret_name}${NC}"
+        gcloud secrets create "$secret_name" \
+            --project "$PROJECT_ID" \
+            --replication-policy="automatic" >/dev/null
+    fi
+
+    echo -e "${BLUE}📥 Updating secret ${secret_name}${NC}"
+    echo -n "$secret_value" | gcloud secrets versions add "$secret_name" \
+        --project "$PROJECT_ID" \
+        --data-file=- >/dev/null
+
+    # Grant accessor role to Cloud Run compute service account
+    local sa="${PROJECT_ID}-compute@developer.gserviceaccount.com"
+    gcloud secrets add-iam-policy-binding "$secret_name" \
+        --project "$PROJECT_ID" \
+        --member "serviceAccount:${sa}" \
+        --role roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
+}
+
 # Check if gcloud is installed
 if ! command -v gcloud &> /dev/null; then
     echo -e "${RED}❌ gcloud CLI not found. Please install it first.${NC}"
@@ -50,6 +90,14 @@ gcloud services enable \
     --project=$PROJECT_ID
 
 echo -e "${GREEN}✓${NC} APIs enabled"
+
+# Sync secrets from environment before deploy
+ensure_secret "GOOGLE_API_KEY" "$GOOGLE_API_KEY"
+ensure_secret "GEMINI_API_KEY" "$GEMINI_API_KEY"
+ensure_secret "SANDBOX_REPO_URL" "$SANDBOX_REPO_URL"
+ensure_secret "GITHUB_TOKEN" "$GITHUB_TOKEN"
+ensure_secret "PERSONAL_GITHUB_TOKEN" "$PERSONAL_GITHUB_TOKEN"
+ensure_secret "CODESPACES_REPO" "$CODESPACES_REPO"
 
 # Step 2: Build Docker image
 echo ""
@@ -91,8 +139,8 @@ gcloud run deploy $SERVICE_NAME \
     --max-instances 10 \
     --min-instances 0 \
     --timeout 300 \
-    --set-env-vars "USE_PUBSUB=true,FIRESTORE_ENABLED=false,ENVIRONMENT=production" \
-    --set-secrets "GOOGLE_API_KEY=GOOGLE_API_KEY:latest" \
+    --set-env-vars "ENVIRONMENT=production,STORAGE_MODE=cloud,EVENT_BUS_MODE=pubsub,USE_PUBSUB=true,GCP_PROJECT_ID=$PROJECT_ID,SANDBOX_ENABLED=true,CODESPACES_ENABLED=true" \
+    --set-secrets "GOOGLE_API_KEY=GOOGLE_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SANDBOX_REPO_URL=SANDBOX_REPO_URL:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest,CODESPACES_REPO=CODESPACES_REPO:latest,PERSONAL_GITHUB_TOKEN=PERSONAL_GITHUB_TOKEN:latest" \
     --project=$PROJECT_ID
 
 echo -e "${GREEN}✓${NC} Deployment complete!"

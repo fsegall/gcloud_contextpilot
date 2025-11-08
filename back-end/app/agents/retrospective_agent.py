@@ -143,6 +143,13 @@ class RetrospectiveAgent(BaseAgent):
                 "insights_count": len(insights),
                 "action_items_count": len(action_items),
                 "proposal_id": proposal_id,
+                "code_actions_dispatched": retrospective.get(
+                    "code_actions_dispatched", False
+                ),
+                "code_action_buckets": retrospective.get(
+                    "code_action_buckets", {}
+                ),
+                "code_proposals": retrospective.get("code_proposals", []),
             },
         )
 
@@ -386,7 +393,7 @@ class RetrospectiveAgent(BaseAgent):
     def _llm_agent_discussion(self, topic: str) -> List[str]:
         """Generate agent perspectives using LLM - single call for all agents"""
         # Get API key
-        gemini_api_key = os.getenv("GOOGLE_API_KEY")
+        gemini_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not gemini_api_key:
             logger.warning(
                 "[RetrospectiveAgent] No GOOGLE_API_KEY for agent discussion"
@@ -736,17 +743,55 @@ Keep the tone encouraging and constructive. Maximum 200 words.
         
         # Check if any action items need code implementation
         code_action_items = self._identify_code_actions(action_items)
-        code_proposals_created = []
+        code_proposals_created: List[str] = []
+        grouped_code_actions: Dict[str, List[Dict]] = {}
         if code_action_items:
             logger.info(
                 f"[RetrospectiveAgent] Found {len(code_action_items)} action items requiring code implementation"
             )
-            # Trigger Development Agent for code generation (creates Codespaces/Sandbox proposals)
-            code_proposals_created = await self._trigger_development_agent(retrospective, code_action_items)
-            if code_proposals_created:
+
+            for item in code_action_items:
+                priority = item.get("priority", "medium")
+                priority = priority.lower() if isinstance(priority, str) else "medium"
+                if priority not in {"low", "medium", "high"}:
+                    priority = "medium"
+                grouped_code_actions.setdefault(priority, []).append(item)
+
+            logger.info(
+                "[RetrospectiveAgent] Grouped code action items by priority: %s",
+                {key: len(value) for key, value in grouped_code_actions.items()},
+            )
+
+            for priority_level in ("high", "medium", "low"):
+                bucket_items = grouped_code_actions.get(priority_level)
+                if not bucket_items:
+                    continue
+
                 logger.info(
-                    f"[RetrospectiveAgent] DevelopmentAgent created {len(code_proposals_created)} code proposals"
+                    "[RetrospectiveAgent] Triggering DevelopmentAgent for %d '%s' priority code action items",
+                    len(bucket_items),
+                    priority_level,
                 )
+
+                proposals_for_bucket = await self._trigger_development_agent(
+                    retrospective,
+                    bucket_items,
+                    priority_level=priority_level,
+                )
+
+                if proposals_for_bucket:
+                    logger.info(
+                        "[RetrospectiveAgent] DevelopmentAgent created %d proposal(s) for priority '%s'",
+                        len(proposals_for_bucket),
+                        priority_level,
+                    )
+                    code_proposals_created.extend(proposals_for_bucket)
+
+        retrospective["code_proposals"] = code_proposals_created
+        retrospective["code_action_buckets"] = {
+            priority: len(items) for priority, items in grouped_code_actions.items()
+        }
+        retrospective["code_actions_dispatched"] = bool(code_proposals_created)
 
         # Filter out code action items from the recommendations proposal
         # Only create "Recommendations" proposal for non-code actions
@@ -1009,7 +1054,12 @@ Implementing these changes will:
         
         return code_actions
 
-    async def _trigger_development_agent(self, retrospective: Dict, code_actions: List[Dict]) -> None:
+    async def _trigger_development_agent(
+        self,
+        retrospective: Dict,
+        code_actions: List[Dict],
+        priority_level: str = "medium",
+    ) -> List[str]:
         """
         Trigger Development Agent to generate code implementations.
         
@@ -1019,12 +1069,18 @@ Implementing these changes will:
         Args:
             retrospective: Full retrospective data for context
             code_actions: Action items that need code implementation
+            priority_level: Priority bucket being processed
         """
+        if not code_actions:
+            return []
+
+        created_proposals: List[str] = []
+
         try:
             from app.agents.development_agent import DevelopmentAgent
             
             logger.info(
-                f"[RetrospectiveAgent] Triggering DevelopmentAgent for {len(code_actions)} code actions"
+                f"[RetrospectiveAgent] Triggering DevelopmentAgent for {len(code_actions)} code actions (priority={priority_level})"
             )
             
             # Initialize Development Agent
@@ -1034,52 +1090,64 @@ Implementing these changes will:
                 project_id=self.project_id,
             )
             
-            # Process each code action
-            for action_item in code_actions:
-                action = action_item.get("action", "")
-                priority = action_item.get("priority", "medium")
-                
-                # Build comprehensive description
-                description = f"""From Retrospective: {retrospective['retrospective_id']}
-Priority: {priority.upper()}
+            action_lines = []
+            for idx, action_item in enumerate(code_actions, start=1):
+                action_text = action_item.get("action", "Unnamed action")
+                assigned_to = action_item.get("assigned_to", "developer")
+                action_lines.append(f"{idx}. {action_text} (Assigned to: {assigned_to})")
 
-Action Item: {action}
+            insights = retrospective.get("insights", [])[:5]
+            insights_text = (
+                "\n".join(f"- {insight}" for insight in insights)
+                if insights
+                else "- No additional insights recorded."
+            )
 
-Context from Retrospective:
+            description = f"""From Retrospective: {retrospective['retrospective_id']}
+Priority Bucket: {priority_level.upper()}
+
+Action Items ({len(code_actions)}):
+{chr(10).join(action_lines)}
+
+Retrospective Insights:
+{insights_text}
+
+**Implementation Goals:**
+- Address all action items above in a cohesive update
+- Ensure agent coordination reflects the priority level
+- Provide production-ready code changes
 """
-                # Add relevant insights
-                for insight in retrospective.get("insights", [])[:3]:
-                    if any(keyword in insight.lower() for keyword in action.lower().split()):
-                        description += f"- {insight}\n"
-                
-                description += f"\n**Implementation Goal:**\n{action}"
-                
-                # Call Development Agent to generate code
-                logger.info(f"[RetrospectiveAgent] Requesting implementation: {action[:80]}")
-                proposal_id = await dev_agent.implement_feature(
-                    description=description,
-                    context={
-                        "retrospective_id": retrospective["retrospective_id"],
-                        "priority": priority,
-                        "topic": retrospective.get("topic"),
-                        "trigger": "retrospective_analysis",
-                    },
+
+            proposal_id = await dev_agent.implement_feature(
+                description=description,
+                context={
+                    "retrospective_id": retrospective["retrospective_id"],
+                    "priority_bucket": priority_level,
+                    "topic": retrospective.get("topic"),
+                    "trigger": "retrospective_analysis",
+                    "action_items": code_actions,
+                    "proposal_title": f"💻 {priority_level.upper()} Priority Actions ({len(code_actions)} item{'s' if len(code_actions) != 1 else ''})",
+                },
+            )
+
+            if proposal_id:
+                logger.info(
+                    f"[RetrospectiveAgent] ✅ DevelopmentAgent created code proposal: {proposal_id}"
                 )
-                
-                if proposal_id:
-                    logger.info(
-                        f"[RetrospectiveAgent] ✅ DevelopmentAgent created code proposal: {proposal_id}"
-                    )
-                else:
-                    logger.warning(
-                        f"[RetrospectiveAgent] ⚠️ DevelopmentAgent could not generate proposal for: {action[:80]}"
-                    )
+                created_proposals.append(proposal_id)
+            else:
+                logger.warning(
+                    "[RetrospectiveAgent] ⚠️ DevelopmentAgent did not return a proposal for priority '%s'",
+                    priority_level,
+                )
                     
         except Exception as e:
             logger.error(
                 f"[RetrospectiveAgent] Error triggering DevelopmentAgent: {e}",
                 exc_info=True,
             )
+
+        return created_proposals
 
 
 # Standalone helper function for API endpoint

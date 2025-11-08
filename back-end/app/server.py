@@ -55,8 +55,21 @@ logger.info("=" * 50)
 
 CONTEXT_PILOT_URL = "http://localhost:8000"
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
-logger.info("Environment variables loaded")
+env_candidates = [
+    Path(__file__).resolve().parent.parent / ".env",   # back-end/.env (legacy)
+    Path(__file__).resolve().parents[2] / ".env",      # repository root .env
+]
+
+loaded_envs = []
+for env_path in env_candidates:
+    if env_path.exists():
+        load_dotenv(dotenv_path=str(env_path), override=False)
+        loaded_envs.append(str(env_path))
+
+if loaded_envs:
+    logger.info("Environment variables loaded from: %s", ", ".join(loaded_envs))
+else:
+    logger.warning("No .env file found in expected locations; relying on existing environment variables")
 
 app = FastAPI(
     title="ContextPilot API",

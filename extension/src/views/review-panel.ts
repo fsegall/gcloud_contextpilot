@@ -80,12 +80,15 @@ Are these changes appropriate? Should I approve?`;
   }
 
   private getWebviewContent(): string {
-    const conversationHtml = this.conversationHistory
+    const messages = [...this.conversationHistory].reverse();
+    const conversationHtml = messages
       .map((msg, idx) => {
         const isUser = msg.role === 'user';
         const bgColor = isUser ? 'var(--vscode-editor-background)' : 'var(--vscode-input-background)';
         const icon = isUser ? '👤' : '🤖';
-        
+        const positionLabel = isUser ? 'You' : 'Claude';
+        const proposalLabel = msg.proposalId ? `Proposal: ${msg.proposalId}` : 'System';
+
         return `
           <div style="
             background: ${bgColor};
@@ -94,8 +97,13 @@ Are these changes appropriate? Should I approve?`;
             border-radius: 8px;
             border-left: 3px solid ${isUser ? 'var(--vscode-charts-blue)' : 'var(--vscode-charts-green)'};
           ">
-            <div style="font-weight: bold; margin-bottom: 10px;">
-              ${icon} ${isUser ? 'You' : 'Claude'} ${msg.proposalId ? `(Proposal: ${msg.proposalId})` : ''}
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="font-weight: bold; margin-bottom: 10px;">
+                ${icon} ${positionLabel}
+              </div>
+              <div style="opacity: 0.7; font-size: 0.85em;">
+                ${proposalLabel}
+              </div>
             </div>
             <div style="white-space: pre-wrap; font-family: var(--vscode-editor-font-family);">
               ${this.escapeHtml(msg.content)}
@@ -146,7 +154,7 @@ Are these changes appropriate? Should I approve?`;
 <body>
     <div class="header">
         <h2>🤖 ContextPilot AI Review Session</h2>
-        <p>This panel maintains conversation context across multiple proposal reviews.</p>
+        <p>This panel keeps all your Claude review requests together. Newest on top.</p>
     </div>
 
     <div class="conversation">
@@ -165,6 +173,13 @@ Are these changes appropriate? Should I approve?`;
         </ol>
         <p><strong>Tip:</strong> Use <code>ContextPilot: Reset Chat Session</code> to start fresh.</p>
     </div>
+
+    <script>
+      const firstCard = document.querySelector('.conversation > div');
+      if (firstCard) {
+        firstCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    </script>
 </body>
 </html>`;
   }

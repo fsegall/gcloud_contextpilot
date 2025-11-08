@@ -168,6 +168,16 @@ class DevelopmentAgent(BaseAgent):
             f"[DevelopmentAgent] Processing retrospective: {retrospective_id}"
         )
 
+        dispatched_by_retrospective_agent = data.get("code_actions_dispatched", False)
+        existing_code_proposals = data.get("code_proposals") or []
+        if dispatched_by_retrospective_agent and existing_code_proposals:
+            logger.info(
+                "[DevelopmentAgent] Code actions already dispatched by RetrospectiveAgent; "
+                "skipping duplicate proposal generation. Existing proposals: %s",
+                existing_code_proposals,
+            )
+            return
+
         try:
             # Load full retrospective summary from workspace
             retrospective = self._load_retrospective_summary(retrospective_id)
@@ -445,8 +455,16 @@ Context from Retrospective:
                 target_files = await self._infer_target_files(description, context)
 
             if not target_files:
-                logger.warning("[DevelopmentAgent] Could not determine target files")
-                return None
+                fallback_files = self._fallback_target_files(description, context)
+                if fallback_files:
+                    logger.info(
+                        "[DevelopmentAgent] Using fallback target files based on heuristics: %s",
+                        fallback_files,
+                    )
+                    target_files = fallback_files
+                else:
+                    logger.warning("[DevelopmentAgent] Could not determine target files")
+                    return None
 
             logger.info(f"[DevelopmentAgent] Target files: {target_files}")
 
@@ -475,6 +493,7 @@ Context from Retrospective:
                 description=description,
                 implementations=implementations,
                 file_contents=file_contents,
+                context=context,
             )
 
             if proposal_id:
@@ -489,6 +508,8 @@ Context from Retrospective:
                         "agent_id": "development",
                         "workspace_id": self.workspace_id,
                         "files_modified": len(implementations),
+                        "priority_bucket": context.get("priority_bucket"),
+                        "retrospective_id": context.get("retrospective_id"),
                     },
                 )
 
@@ -571,6 +592,53 @@ Consider:
         except Exception as e:
             logger.error(f"[DevelopmentAgent] Error inferring files: {e}")
             return []
+
+    def _fallback_target_files(
+        self, description: str, context: Optional[Dict]
+    ) -> List[str]:
+        """
+        Provide deterministic target files when AI inference cannot determine them.
+
+        This keeps the DevelopmentAgent useful for high-priority retrospective
+        actions even if Gemini cannot infer file paths (rate limiting, quota, etc.).
+        """
+        description_lower = description.lower()
+        action_items = context.get("action_items") if isinstance(context, dict) else None
+        action_text = " ".join(item.get("action", "") for item in action_items or [])
+        combined_text = f"{description_lower} {action_text.lower() if action_text else ''}"
+
+        fallback_map = [
+            (
+                {"error handling", "error logs"},
+                [
+                    "back-end/app/agents/base_agent.py",
+                    "back-end/app/services/event_bus.py",
+                    "back-end/app/agents/retrospective_agent.py",
+                ],
+            ),
+            (
+                {"idle agents", "subscriptions", "event bus"},
+                [
+                    "back-end/app/agents/development_agent.py",
+                    "back-end/app/services/event_bus.py",
+                    "back-end/app/agents/base_agent.py",
+                ],
+            ),
+            (
+                {"retrospective", "proposal"},
+                [
+                    "back-end/app/agents/retrospective_agent.py",
+                    "back-end/app/agents/development_agent.py",
+                ],
+            ),
+        ]
+
+        for keywords, files in fallback_map:
+            if all(keyword in combined_text for keyword in keywords):
+                return files
+
+        # Default fallback to the development agent itself so the proposal at least surfaces
+        return ["back-end/app/agents/development_agent.py"]
 
     def _get_workspace_structure(self) -> Dict:
         """Get a simplified workspace structure for AI context."""
@@ -1916,6 +1984,7 @@ The implementation was done in a **GitHub Codespace** with:
         description: str,
         implementations: Dict[str, str],
         file_contents: Dict[str, Optional[str]],
+        context: Optional[Dict] = None,
     ) -> Optional[str]:
         """
         Create a proposal with implementation diffs.
@@ -1930,7 +1999,14 @@ The implementation was done in a **GitHub Codespace** with:
         """
         from app.models.proposal import ChangeProposal, ProposedChange
 
-        proposal_id = f"dev-{int(datetime.now(timezone.utc).timestamp())}"
+        context = context or {}
+        priority_bucket = context.get("priority_bucket")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        if priority_bucket:
+            sanitized_priority = str(priority_bucket).lower()
+            proposal_id = f"dev-{sanitized_priority}-{timestamp}"
+        else:
+            proposal_id = f"dev-{timestamp}"
 
         # Build proposed changes with diffs
         proposed_changes = []
@@ -1961,17 +2037,34 @@ The implementation was done in a **GitHub Codespace** with:
         overall_diff = self._generate_overall_diff(proposed_changes)
 
         # Create proposal
+        title_override = context.get("proposal_title")
+        if title_override:
+            proposal_title = title_override
+        else:
+            proposal_title = (
+                f"💻 {description[:80]}"
+                if len(description) > 80
+                else f"💻 {description}"
+            )
+
+        metadata = {
+            "implementation_approach": "ai_generated",
+            "model": "gemini-2.5-flash",
+        }
+        if priority_bucket:
+            metadata["priority_bucket"] = priority_bucket
+        if context.get("retrospective_id"):
+            metadata["retrospective_id"] = context["retrospective_id"]
+        if context.get("action_items"):
+            metadata["action_items"] = context["action_items"]
+
         proposal = ChangeProposal(
             id=proposal_id,
             workspace_id=self.workspace_id,
             user_id="system",
             agent_id="development",
             is_system_proposal=True,
-            title=(
-                f"💻 {description[:80]}"
-                if len(description) > 80
-                else f"💻 {description}"
-            ),
+            title=proposal_title,
             diff=overall_diff,
             description=f"""# Implementation Proposal
 
@@ -1997,10 +2090,7 @@ This proposal implements the requested feature with the following changes:
             status="pending",
             proposed_changes=proposed_changes,
             created_at=datetime.now(timezone.utc),
-            agent_metadata={
-                "implementation_approach": "ai_generated",
-                "model": "gemini-2.5-flash",
-            },
+            agent_metadata=metadata,
         )
 
         # Persist proposal according to storage mode

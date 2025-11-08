@@ -218,5 +218,28 @@ class SpecAgent(BaseAgent):
             f"```diff\n{diff_block}\n```\n"
         )
 
+    # ------------------------------------------------------------------
+    # BaseAgent abstract method implementations
+    # ------------------------------------------------------------------
+
+    async def handle_event(self, event_type: str, event_data: Dict[str, Any]) -> None:
+        """
+        SpecAgent currently runs on-demand through explicit API calls. We keep
+        the method to satisfy BaseAgent's contract and log anything that might
+        arrive through the event bus.
+        """
+        logger.debug(
+            "[SpecAgent] handle_event called for '%s' (no reactive behaviour implemented)",
+            event_type,
+        )
+
+    async def start(self) -> None:
+        """No background work needed for SpecAgent."""
+        logger.debug("[SpecAgent] start() called - no-op.")
+
+    async def stop(self) -> None:
+        """No teardown required for SpecAgent."""
+        logger.debug("[SpecAgent] stop() called - no-op.")
+
 
 __all__ = ["SpecAgent"]

@@ -77,10 +77,16 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
         .filter(p => p.status === 'pending')
         .map(p => new ProposalItem(p, vscode.TreeItemCollapsibleState.Collapsed));
     } else if (element instanceof ProposalItem && element.proposal) {
-      // Show proposal changes
-      return element.proposal.proposed_changes.map(
-        change => new ProposalChangeItem(change)
-      );
+      // Lazy-load full proposal details if changes are missing
+      if (!element.hasLoadedChanges()) {
+        const fullProposal = await this.contextPilotService.getProposal(element.proposal.id);
+        if (fullProposal) {
+          element.updateProposal(fullProposal);
+        }
+      }
+
+      const changes = element.proposal.proposed_changes || [];
+      return changes.map(change => new ProposalChangeItem(element.proposal!.id, change));
     }
     
     return [];
@@ -89,6 +95,7 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
 
 class ProposalItem extends vscode.TreeItem {
   public readonly proposal?: ChangeProposal;
+  private changesLoaded = false;
 
   constructor(
     proposalOrTitle: ChangeProposal | string,
@@ -114,6 +121,9 @@ class ProposalItem extends vscode.TreeItem {
     // Debug: Log proposal ID (only for actual proposals)
     if (this.proposal) {
       console.log(`[ProposalItem] Creating item with ID: ${this.proposal.id}, Title: ${this.proposal.title}`);
+      if (this.proposal.proposed_changes && this.proposal.proposed_changes.length > 0) {
+        this.changesLoaded = true;
+      }
     }
     
     // Only set command if this is NOT an expandable proposal with changes
@@ -130,10 +140,27 @@ class ProposalItem extends vscode.TreeItem {
       };
     }
   }
+
+  hasLoadedChanges(): boolean {
+    return this.changesLoaded;
+  }
+
+  updateProposal(proposal: ChangeProposal) {
+    if (!this.proposal) {
+      return;
+    }
+
+    this.proposal.proposed_changes = proposal.proposed_changes || [];
+    this.proposal.diff = proposal.diff;
+    this.proposal.description = proposal.description;
+    this.proposal.status = proposal.status;
+    this.changesLoaded = true;
+  }
 }
 
 class ProposalChangeItem extends vscode.TreeItem {
   constructor(
+    public readonly proposalId: string,
     public readonly change: {
       file_path: string;
       change_type: string;
@@ -150,10 +177,12 @@ class ProposalChangeItem extends vscode.TreeItem {
       'trash'
     );
     this.contextValue = 'proposalChange';
-    
-    // Don't set command - files might not exist yet
-    // User can view the full diff by clicking the proposal itself
-    // or use right-click context menu actions
+
+    this.command = {
+      command: 'contextpilot.viewProposalChange',
+      title: 'View Proposal Change Diff',
+      arguments: [this.proposalId, this.change]
+    };
   }
 }
 
