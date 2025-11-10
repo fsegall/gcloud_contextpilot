@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
 from time import time
 import copy
+from pathlib import Path
 
 # Import routers
 from app.routers import rewards, proposals
@@ -71,6 +72,31 @@ if loaded_envs:
     logger.info("Environment variables loaded from: %s", ", ".join(loaded_envs))
 else:
     logger.warning("No .env file found in expected locations; relying on existing environment variables")
+
+
+def configure_firestore_credentials():
+    """
+    If FIRESTORE_CREDENTIALS_JSON is provided via environment/Secret Manager,
+    write it to a temporary file and point GOOGLE_APPLICATION_CREDENTIALS to it.
+    """
+    credentials_json = os.getenv("FIRESTORE_CREDENTIALS_JSON")
+    if not credentials_json:
+        return
+
+    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        logger.info("GOOGLE_APPLICATION_CREDENTIALS already set; skipping Firestore secret configuration.")
+        return
+
+    try:
+        credentials_path = Path("/tmp/firestore-service-account.json")
+        credentials_path.write_text(credentials_json)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path)
+        logger.info("Configured Firestore credentials from FIRESTORE_CREDENTIALS_JSON secret.")
+    except Exception as exc:
+        logger.error(f"Failed to configure Firestore credentials from secret: {exc}", exc_info=True)
+
+
+configure_firestore_credentials()
 
 app = FastAPI(
     title="ContextPilot API",

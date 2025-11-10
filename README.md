@@ -67,6 +67,7 @@ The detailed breakdown lives in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - **IDE integration**: The extension’s Context view and “Ask Claude to Review” pull directly from `.contextpilot/workspaces/...` so AI reviews and chat prompts always include the current project brief, scope, milestones, and checklists.
 - **Replayable history**: Retrospectives, proposals, and task history land under the same workspace folder, giving developers a time machine for decisions and enabling agents to reason about trends over weeks—not just a single request.
 - **Docs for operators**: See the “Context Engineering & Workspace Artifacts” section inside [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full file map and the lifecycle rules each agent follows.
+- **Rewards & Firestore**: When `REWARDS_MODE=firestore`, the backend expects Firestore credentials via `FIRESTORE_CREDENTIALS_JSON` (synced from Secret Manager). The deploy script writes this secret to `/tmp/firestore-service-account.json` and exports `GOOGLE_APPLICATION_CREDENTIALS`, so the Rewards adapter can reach Cloud Firestore both locally and in Cloud Run.
 
 Keeping this workspace alive is the backbone of ContextPilot’s context engineering approach: agents stay aligned, reviewers get richer prompts, and developers never lose track of project intent.
 
