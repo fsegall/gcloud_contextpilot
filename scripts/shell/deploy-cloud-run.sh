@@ -41,9 +41,17 @@ ensure_secret() {
     fi
 
     echo -e "${BLUE}📥 Updating secret ${secret_name}${NC}"
-    echo -n "$secret_value" | gcloud secrets versions add "$secret_name" \
-        --project "$PROJECT_ID" \
-        --data-file=- >/dev/null
+    if [ -f "$secret_value" ]; then
+        echo -e "${BLUE}📥 Updating secret ${secret_name} from file ${secret_value}${NC}"
+        gcloud secrets versions add "$secret_name" \
+            --project "$PROJECT_ID" \
+            --data-file="$secret_value" >/dev/null
+    else
+        echo -e "${BLUE}📥 Updating secret ${secret_name} from environment variable${NC}"
+        echo -n "$secret_value" | gcloud secrets versions add "$secret_name" \
+            --project "$PROJECT_ID" \
+            --data-file=- >/dev/null
+    fi
 
     # Grant accessor role to Cloud Run compute service account
     local sa="${PROJECT_ID}-compute@developer.gserviceaccount.com"
