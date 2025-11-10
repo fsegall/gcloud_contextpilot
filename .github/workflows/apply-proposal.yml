@@ -196,90 +196,87 @@ jobs:
               const raw = fs.readFileSync('proposal.json', 'utf8');
               proposal = JSON.parse(raw);
             } catch (e) {
-              core.warning(`Could not load proposal.json for review request: ${e.message}`);
+              core.warning('Could not load proposal.json for review request: ' + e.message);
               proposal = {};
             }
 
             const filesAffected = Array.isArray(proposal.proposed_changes)
-              ? proposal.proposed_changes.map(c => `- **${c.file_path}** (${c.change_type})`).join('\n')
+              ? proposal.proposed_changes.map(c => '- **' + c.file_path + '** (' + c.change_type + ')').join('\n')
               : 'No file details available';
 
-            const diffContent = proposal?.diff?.content ? `\n\n\`\`\`diff\n${proposal.diff.content}\n\`\`\`` : '';
+            const diffContent = proposal?.diff?.content ? '\n\n```diff\n' + proposal.diff.content + '\n```' : '';
 
             const reviewRequest = [
-              `## Review Request`,
+              '## Review Request',
               '',
-              `Please review the following proposed changes and advise whether to approve or reject.`,
+              'Please review the following proposed changes and advise whether to approve or reject.',
               '',
-              `**Proposal ID:** ${proposal.id || proposalId}`,
-              `**Title:** ${proposal.title || '(no title)'} `,
-              `**Agent:** ${proposal.agent_id || '(unknown)'}`,
+              '**Proposal ID:** ' + (proposal.id || proposalId),
+              '**Title:** ' + (proposal.title || '(no title)') + ' ',
+              '**Agent:** ' + (proposal.agent_id || '(unknown)'),
               '',
-              `### Files Affected`,
+              '### Files Affected',
               filesAffected,
               '',
-              `### Diff`,
+              '### Diff',
               diffContent || '_Diff not available in proposal payload_',
             ].join('\n');
 
-            core.info(`🔍 Checking sandbox repo: ${sandboxOwner}/${sandboxRepoName}, branch: ${sandboxBranch}`);
+            core.info('🔍 Checking sandbox repo: ' + sandboxOwner + '/' + sandboxRepoName + ', branch: ' + sandboxBranch);
 
             // Check if PR already exists in sandbox repo
             const { data: prs } = await github.rest.pulls.list({
               owner: sandboxOwner,
               repo: sandboxRepoName,
-              head: `${sandboxOwner}:${sandboxBranch}`,
+              head: sandboxOwner + ':' + sandboxBranch,
               state: 'open'
             });
 
             let sandboxPRNumber = null;
             if (prs.length > 0) {
               sandboxPRNumber = prs[0].number;
-              core.info(`✅ PR already exists in sandbox: #${sandboxPRNumber} - ${prs[0].html_url}`);
+              core.info('✅ PR already exists in sandbox: #' + sandboxPRNumber + ' - ' + prs[0].html_url);
             } else {
               // Try to create PR in sandbox repo
               try {
                 const { data: pr } = await github.rest.pulls.create({
                   owner: sandboxOwner,
                   repo: sandboxRepoName,
-                  title: `Apply proposal ${proposalId}`,
+                  title: 'Apply proposal ' + proposalId,
                   head: sandboxBranch,
                   base: 'main',
-                  body: `This PR was created automatically by ContextPilot.\n\n${reviewRequest}`
+                  body: 'This PR was created automatically by ContextPilot.\n\n' + reviewRequest
                 });
                 sandboxPRNumber = pr.number;
-                core.info(`✅ Created PR in sandbox repo: #${sandboxPRNumber} - ${pr.html_url}`);
+                core.info('✅ Created PR in sandbox repo: #' + sandboxPRNumber + ' - ' + pr.html_url);
               } catch (error) {
-                core.warning(`⚠️ Could not create PR in sandbox repo: ${error.message}`);
-                core.info(`ℹ️ Changes may already be in branch ${sandboxBranch}. Please create PR manually if needed.`);
+                core.warning('⚠️ Could not create PR in sandbox repo: ' + error.message);
+                core.info('ℹ️ Changes may already be in branch ' + sandboxBranch + '. Please create PR manually if needed.');
               }
             }
 
             // Create PR from sandbox to main repository
             try {
               const mainRepo = context.repo; // Current repo (main)
-              const title = `🤖 Dev Agent: ${sandboxBranch.replace('dev-agent/', '')}`;
-              const sandboxPRUrl = sandboxPRNumber ? `https://github.com/${sandboxOwner}/${sandboxRepoName}/pull/${sandboxPRNumber}` : `https://github.com/${sandboxOwner}/${sandboxRepoName}/tree/${sandboxBranch}`;
-              const body = `## Automated PR from Development Agent
-
-**Branch:** \`${sandboxBranch}\`
-**Agent:** Development Agent (Codespaces Mode)
-**Sandbox PR:** ${sandboxPRUrl}
-**Generated:** ${new Date().toISOString()}
-
-### Proposal
-Proposal ID: ${proposalId}
-
-### Changes
-This PR contains automated changes generated by the Development Agent based on retrospective insights.
-
-${reviewRequest}
-
----
-*This PR was automatically created by the ContextPilot Development Agent.*`;
+              const title = '🤖 Dev Agent: ' + sandboxBranch.replace('dev-agent/', '');
+              const sandboxPRUrl = sandboxPRNumber 
+                ? 'https://github.com/' + sandboxOwner + '/' + sandboxRepoName + '/pull/' + sandboxPRNumber
+                : 'https://github.com/' + sandboxOwner + '/' + sandboxRepoName + '/tree/' + sandboxBranch;
+              const body = '## Automated PR from Development Agent\n\n' +
+                '**Branch:** `' + sandboxBranch + '`\n' +
+                '**Agent:** Development Agent (Sandbox Mode)\n' +
+                '**Sandbox PR:** ' + sandboxPRUrl + '\n' +
+                '**Generated:** ' + new Date().toISOString() + '\n\n' +
+                '### Proposal\n' +
+                'Proposal ID: ' + proposalId + '\n\n' +
+                '### Changes\n' +
+                'This PR contains automated changes generated by the Development Agent based on retrospective insights.\n\n' +
+                reviewRequest + '\n\n' +
+                '---\n' +
+                '*This PR was automatically created by the ContextPilot Development Agent.*';
 
               // Create cross-repo PR: head is sandbox branch, base is main repo
-              const head = `${sandboxOwner}:${sandboxBranch}`;
+              const head = sandboxOwner + ':' + sandboxBranch;
               
               // Create a separate GitHub client for the main repo using the main repo token
               const { Octokit } = require('@octokit/rest');
@@ -295,7 +292,7 @@ ${reviewRequest}
               });
 
               if (existingPRs.length > 0) {
-                core.info(`✅ PR already exists to main repo: #${existingPRs[0].number} - ${existingPRs[0].html_url}`);
+                core.info('✅ PR already exists to main repo: #' + existingPRs[0].number + ' - ' + existingPRs[0].html_url);
               } else {
                 try {
                   const { data: mainPR } = await mainRepoClient.rest.pulls.create({
@@ -306,19 +303,19 @@ ${reviewRequest}
                     base: 'main',
                     body: body
                   });
-                  core.info(`✅ Created PR to main repo: #${mainPR.number} - ${mainPR.html_url}`);
+                  core.info('✅ Created PR to main repo: #' + mainPR.number + ' - ' + mainPR.html_url);
                 } catch (error) {
                   if (error.status === 403) {
-                    core.warning(`⚠️ Permission denied creating PR. Please ensure:
-1. Repository setting "Allow GitHub Actions to create and approve pull requests" is enabled, OR
-2. Set PERSONAL_GITHUB_TOKEN secret with a Personal Access Token that has 'repo' and 'workflow' scopes`);
+                    core.warning('⚠️ Permission denied creating PR. Please ensure:\n' +
+                      '1. Repository setting "Allow GitHub Actions to create and approve pull requests" is enabled, OR\n' +
+                      '2. Set PERSONAL_GITHUB_TOKEN secret with a Personal Access Token that has \'repo\' and \'workflow\' scopes');
                   }
                   throw error;
                 }
               }
             } catch (error) {
-              core.warning(`⚠️ Could not create PR to main repo: ${error.message}`);
-              core.info(`ℹ️ Sandbox PR exists. You may need to manually create PR from ${sandboxBranch} to main repo.`);
+              core.warning('⚠️ Could not create PR to main repo: ' + error.message);
+              core.info('ℹ️ Sandbox PR exists. You may need to manually create PR from ' + sandboxBranch + ' to main repo.');
             }
 
       - name: Commit and push changes to feature branch
@@ -370,11 +367,11 @@ ${reviewRequest}
           script: |
             const branch = process.env.BRANCH_NAME;
             const base = 'main';
-            const title = `Apply proposal ${branch.replace('cp/proposal-','')}`;
+            const title = 'Apply proposal ' + branch.replace('cp/proposal-','');
             const body = [
               'This PR was created automatically by ContextPilot.',
               '',
-              `Proposal ID: ${branch.replace('cp/proposal-','')}`,
+              'Proposal ID: ' + branch.replace('cp/proposal-',''),
               'Please review the applied changes.'
             ].join('\n');
 
@@ -382,11 +379,11 @@ ${reviewRequest}
             const { data: prs } = await github.rest.pulls.list({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              head: `${context.repo.owner}:${branch}`,
+              head: context.repo.owner + ':' + branch,
               state: 'open'
             });
             if (prs.length > 0) {
-              core.info(`PR already exists: #${prs[0].number}`);
+              core.info('PR already exists: #' + prs[0].number);
               return;
             }
 
@@ -399,12 +396,12 @@ ${reviewRequest}
                 base,
                 body
               });
-              core.info(`Opened PR #${pr.number}`);
+              core.info('Opened PR #' + pr.number);
             } catch (error) {
               if (error.status === 403) {
-                core.warning(`⚠️ Permission denied creating PR. Please ensure:
-1. Repository setting "Allow GitHub Actions to create and approve pull requests" is enabled, OR
-2. Set GITHUB_TOKEN_PAT secret with a Personal Access Token that has 'repo' and 'workflow' scopes`);
+                core.warning('⚠️ Permission denied creating PR. Please ensure:\n' +
+                  '1. Repository setting "Allow GitHub Actions to create and approve pull requests" is enabled, OR\n' +
+                  '2. Set GITHUB_TOKEN_PAT secret with a Personal Access Token that has \'repo\' and \'workflow\' scopes');
               }
               throw error;
             }
