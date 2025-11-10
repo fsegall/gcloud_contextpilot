@@ -411,30 +411,48 @@ async def approve_proposal(
         
         # Ensure Git Agent is initialized and subscribed before publishing
         # This is critical: if agent isn't initialized, event will be lost
+        git_agent = None
         try:
             from app.agents.git_agent import GitAgent
             git_agent = GitAgent(workspace_id=proposal.workspace_id)
-            logger.info(f"[approve_proposal] Git Agent initialized for workspace: {proposal.workspace_id}")
+            logger.info(f"[approve_proposal] ✅ Git Agent initialized for workspace: {proposal.workspace_id}")
+            logger.info(f"[approve_proposal] Git Agent Cloud Run mode: {git_agent.is_cloud_run}")
+            logger.info(f"[approve_proposal] Git Agent subscribed events: {git_agent.subscribed_events}")
         except Exception as e:
-            logger.warning(f"[approve_proposal] Failed to initialize Git Agent: {e} - event will still be published")
+            logger.error(f"[approve_proposal] ❌ Failed to initialize Git Agent: {e}", exc_info=True)
         
-        await event_bus.publish(
+        event_data = {
+            "proposal_id": proposal_id,
+            "workspace_id": proposal.workspace_id,  # IMPORTANT: Include workspace_id
+            "user_id": request.user_id,
+            "changes": [
+                c.model_dump()
+                for c in (request.edited_changes or proposal.proposed_changes)
+            ],
+            "comment": request.comment,
+        }
+        
+        logger.info(f"[approve_proposal] 📤 Publishing event 'proposal.approved.v1' with data: {list(event_data.keys())}")
+        
+        event_id = await event_bus.publish(
             topic="proposals-events",
             event_type="proposal.approved.v1",
             source="proposals-api",
-            data={
-                "proposal_id": proposal_id,
-                "workspace_id": proposal.workspace_id,  # IMPORTANT: Include workspace_id
-                "user_id": request.user_id,
-                "changes": [
-                    c.model_dump()
-                    for c in (request.edited_changes or proposal.proposed_changes)
-                ],
-                "comment": request.comment,
-            },
+            data=event_data,
         )
 
-        logger.info(f"✅ Proposal approved: {proposal_id} - event published to Git Agent")
+        logger.info(f"[approve_proposal] ✅ Event published with ID: {event_id}")
+        logger.info(f"[approve_proposal] ✅ Proposal approved: {proposal_id} - waiting for Git Agent to process...")
+        
+        # If Git Agent was initialized, try to call handle_event directly as fallback
+        # This ensures the event is processed even if event bus routing fails
+        if git_agent:
+            try:
+                logger.info(f"[approve_proposal] 🔄 Calling Git Agent handle_event directly as fallback...")
+                await git_agent.handle_event("proposal.approved.v1", event_data)
+                logger.info(f"[approve_proposal] ✅ Git Agent handle_event completed")
+            except Exception as e:
+                logger.error(f"[approve_proposal] ❌ Error calling Git Agent directly: {e}", exc_info=True)
 
         # Award CPTs for approving a proposal
         try:

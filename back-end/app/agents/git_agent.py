@@ -676,12 +676,15 @@ Generate ONLY the commit message, nothing else."""
         Returns:
             dict with status and message, or None if not configured
         """
+        logger.info("[GitAgent] 🔍 Checking GitHub configuration for Action trigger...")
+        
         github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
         if github_token:
             github_token = github_token.strip()
-        if not github_token:
-            logger.warning(
-                "[GitAgent] GITHUB_TOKEN or PERSONAL_GITHUB_TOKEN not configured - skipping GitHub Action trigger"
+            logger.info(f"[GitAgent] ✅ Found GitHub token (length: {len(github_token)}, starts with: {github_token[:4]}...)")
+        else:
+            logger.error(
+                "[GitAgent] ❌ GITHUB_TOKEN or PERSONAL_GITHUB_TOKEN not configured - skipping GitHub Action trigger"
             )
             return {
                 "status": "error",
@@ -692,9 +695,10 @@ Generate ONLY the commit message, nothing else."""
         github_repo = os.getenv("GITHUB_REPO") or os.getenv("GITHUB_REPOSITORY")
         if github_repo:
             github_repo = github_repo.strip()
-        if not github_repo:
-            logger.warning(
-                "[GitAgent] GITHUB_REPO not configured - skipping GitHub Action trigger"
+            logger.info(f"[GitAgent] ✅ Found GITHUB_REPO: {github_repo}")
+        else:
+            logger.error(
+                "[GitAgent] ❌ GITHUB_REPO not configured - skipping GitHub Action trigger"
             )
             return {
                 "status": "error",
