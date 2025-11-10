@@ -91,8 +91,9 @@ See [`HACKATHON-SUBMISSION.md`](HACKATHON-SUBMISSION.md) for how these services 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): Cloud orchestration, ADK integration, security posture.
 - [`GIT_ARCHITECTURE.md`](GIT_ARCHITECTURE.md): Two-layer git workflow (local vs GitHub Actions).
 - [`ROADMAP.md`](ROADMAP.md): Product phases and Web3 milestones.
-- [`DEVPOST_STORY.md`](DEVPOST_STORY.md): Narrative for the Cloud Run Hackathon submission.
+- [`STATUS.md`](STATUS.md): Current health, active work, and next steps.
 - [`HACKATHON-SUBMISSION.md`](HACKATHON-SUBMISSION.md): Judge-facing summary and deliverables.
+- Full catalog (architecture deep dives, guides, retrospectives, tests): [`docs/INDEX.md`](docs/INDEX.md).
 
 ---
 

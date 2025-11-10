@@ -45,7 +45,14 @@ async def trigger_github_action(proposal_id: str) -> dict:
         dict with status and message
     """
     github_token = os.getenv("GITHUB_TOKEN")
-    github_repo = os.getenv("GITHUB_REPO", "fsegall/gcloud_contextpilot")
+    github_repo = os.getenv("GITHUB_REPO") or os.getenv("GITHUB_REPOSITORY")
+    if not github_repo:
+        github_repo = "fsegall/gcloud_contextpilot"
+        logger.warning(
+            "GITHUB_REPO not set; defaulting to %s. "
+            "Set GITHUB_REPO env var to target a different repository.",
+            github_repo,
+        )
 
     if not github_token:
         logger.warning(f"⚠️ GITHUB_TOKEN not set, skipping GitHub Action trigger for proposal: {proposal_id}")
@@ -226,12 +233,18 @@ async def list_proposals(
             )
 
             doc_user = (data.get("user_id") or "").strip()
+            agent_id = (data.get("agent_id") or "").strip()
 
-            if not allow_global_view and doc_user != user_id:
-                logger.info(
-                    f"  Skipping doc {total_docs}: user_id mismatch ({doc_user} != {user_id})"
-                )
-                continue
+            if not allow_global_view:
+                if agent_id:
+                    logger.info(
+                        f"  Including doc {total_docs}: agent-generated proposal (agent_id={agent_id})"
+                    )
+                elif doc_user != user_id:
+                    logger.info(
+                        f"  Skipping doc {total_docs}: user_id mismatch ({doc_user} != {user_id})"
+                    )
+                    continue
             elif allow_global_view and not doc_user:
                 logger.info(
                     f"  Including doc {total_docs}: no user_id stored (global view)"

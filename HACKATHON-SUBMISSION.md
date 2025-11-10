@@ -23,6 +23,7 @@
 - **Retrospective pipeline**: Cloud Run triggers ADK agents that generate insights, group action items, and persist reports in Firestore/GCS.
 - **Development automation**: Development Agent converts high-priority buckets into executable proposals; Git Agent coordinates approvals with GitHub Actions.
 - **Gamified feedback**: Rewards service and metrics overlays keep developers engaged while tracking progress.
+- **ADK-friendly architecture**: `BaseAgent` mirrors Google ADK lifecycle contracts so future deployments can hand off orchestration to a fully managed ADK runtime without rework.
 
 ---
 
@@ -58,6 +59,7 @@ GitHub Actions + Local Git automation
 - Agents follow the ADK lifecycle (`start`, `handle_event`, `stop`) via the `BaseAgent` abstraction.
 - Retrospective outcomes are packaged as ADK-ready payloads so downstream runtimes (Cloud Run or managed ADK) stay in sync.
 - Configuration flag `USE_ADK_RUNTIME` allows experimentation with external ADK orchestration while preserving current in-process execution.
+- `USE_PUBSUB=true` + `USE_ADK_RUNTIME=true` will route events through Google Pub/Sub and an external ADK runtime once production hardening completes, honoring the hackathon's “build with Google ADK” requirement.
 
 ---
 
@@ -71,24 +73,3 @@ GitHub Actions + Local Git automation
 
 ---
 
-## Deliverables Checklist
-- [x] **Public repository** with MIT license.
-- [x] **Architecture overview** (`ARCHITECTURE.md`) detailing Cloud Run and ADK orchestration.
-- [x] **Try-it-now instructions** (`README.md`) for extension and backend.
-- [x] **Testing guidance**: Judges are instructed to validate through the Dashboard view inside the extension.
-- [x] **Live endpoint**: https://contextpilot-backend-581368740395.us-central1.run.app
-- [ ] **Demo video** (recording in progress; outline finalized).
-- [ ] **Devpost listing** (draft prepared, pending video upload).
-
----
-
-## Judges’ Takeaways
-1. **IDE-first usability**: The experience is anchored where developers work, with zero context switching.
-2. **Cloud Run excellence**: Stateless service, infra-as-code deploy script, observability guardrails.
-3. **ADK-ready agents**: Our agent runtime already mirrors Google ADK contracts, ensuring future compatibility.
-4. **Scalable foundation**: Event-driven architecture tolerates bursts, with retries and durable state backing.
-5. **Clear roadmap**: Roadmap highlights BYOK keys, dashboard, blockchain rewards, and managed ADK adoption.
-
----
-
-*Contact:* hackathon@livre.solutions | [GitHub](https://github.com/fsegall/gcloud_contextpilot)

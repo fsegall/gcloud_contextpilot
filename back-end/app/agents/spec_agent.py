@@ -219,6 +219,60 @@ class SpecAgent(BaseAgent):
         )
 
     # ------------------------------------------------------------------
+    # Context generation helpers (used by other agents)
+    # ------------------------------------------------------------------
+
+    def generate_context_summary(self, proposal_type: str = "development") -> str:
+        """
+        Provide a lightweight textual summary of the current documentation state.
+
+        Other agents (e.g. DevelopmentAgent) call this as part of their context
+        gathering so they don't fall back to a generic summary.
+        """
+
+        sections: List[str] = []
+
+        def _read_file(path: Path, label: str, limit: int = 1200) -> None:
+            if not path.exists():
+                sections.append(f"## {label}\nStatus: missing\n")
+                return
+
+            try:
+                content = path.read_text(encoding="utf-8").strip()
+                if len(content) > limit:
+                    content = content[:limit] + "\n...[truncated]..."
+                sections.append(f"## {label}\n{content}\n")
+            except Exception as exc:  # pragma: no cover - defensive
+                sections.append(f"## {label}\nError reading file: {exc}\n")
+
+        # Core documents
+        _read_file(self.workspace_dir / "README.md", "README")
+        _read_file(self.workspace_dir / "ARCHITECTURE.md", "Architecture")
+        _read_file(self.workspace_dir / "STATUS.md", "Status")
+        _read_file(self.workspace_dir / "ROADMAP.md", "Roadmap")
+
+        # Workspace metadata
+        _read_file(self.workspace_dir / ".contextpilot" / "workspace.yaml", "Workspace Metadata")
+
+        # Outstanding documentation issues
+        try:
+            issues = self._collect_doc_issues()
+            if issues:
+                issue_lines = [
+                    f"- [{issue.get('severity','unknown')}] {issue.get('file','?')}: {issue.get('message','')}"
+                    for issue in issues[:10]
+                ]
+                sections.append("## Documentation Issues\n" + "\n".join(issue_lines) + "\n")
+        except Exception as exc:  # pragma: no cover
+            sections.append(f"## Documentation Issues\nUnable to compute issues: {exc}\n")
+
+        sections.append(
+            f"## Context Metadata\nProposal type: {proposal_type}\nWorkspace: {self.workspace_id}\n"
+        )
+
+        return "\n".join(sections)
+
+    # ------------------------------------------------------------------
     # BaseAgent abstract method implementations
     # ------------------------------------------------------------------
 

@@ -51,13 +51,15 @@ These usability targets drive every architectural choice described below.
 |---------|----------------------|-------|
 | **Cloud Run** | Hosts the FastAPI backend that translates IDE actions to agent workloads. | Stateless container, autoscaling 0→N; `scripts/shell/deploy-cloud-run.sh` publishes new revisions with correct env vars. |
 | **Google Agent Development Kit (ADK)** | Provides agent blueprints and runtime contracts. | Each agent inherits from `BaseAgent`, implementing the ADK-compatible lifecycle (`start`, `handle_event`, `stop`). The orchestrator can hand off tasks to an external ADK runtime when available. |
-| **Cloud Pub/Sub** | Event bus for agent coordination and async callbacks. | Topics: `agent-events`, `retrospective-events`, `proposal-events`; toggled off locally via `USE_PUBSUB=false` for deterministic dev runs. |
+| **Event Fabric (in-memory / Pub/Sub-ready)** | Pluggable bus that routes agent events. | Default runtime uses `InMemoryEventBus` (`app/services/event_bus.py`); a `USE_PUBSUB=true` toggle will re-enable Google Pub/Sub once production hardening finishes (topics align with `Topics` enum). |
 | **Cloud Firestore** | Durable system of record for retrospectives, proposals, and agent state. | Used in production; local mode writes JSON mirrors under `.contextpilot/`. |
 | **Secret Manager** | Stores API keys and repository credentials. | Deploy script syncs `.env` values into secrets (Gemini key, GitHub tokens, sandbox URLs). |
 | **Cloud Build** | CI/CD for container builds and migrations. | Triggered by tagged releases; outputs versioned images to Artifact Registry. |
 | **Artifact Registry** | Container image registry. | Cloud Run pulls signed images; retains previous revisions for rollback. |
 | **Cloud Logging & Monitoring** | Observability for all services. | Log router filters agent traces; dashboards watch latency, error rate, message backlog. |
 | **Identity & Access Management** | Principle-of-least-privilege enforcement. | Dedicated service account `contextpilot-backend` holds `run.invoker`, `pubsub.publisher`, `datastore.user`, `secretmanager.secretAccessor`. |
+
+> Detailed subsystem docs live under `docs/architecture/` (diagrams, ADRs, and agent-specific notes).
 
 ---
 
@@ -76,13 +78,14 @@ These usability targets drive every architectural choice described below.
 - Each request is traced with contextual metadata (workspace, proposal ID, agent).
 - The container is memory-tuned for ADK workloads (default 1 vCPU, 2 GB RAM) and supports up to 10 concurrent instances.
 - Startup loads environment configuration from Secret Manager backed variables; credentials are injected at deploy time to avoid storing secrets inside the image.
+- The runtime wires up the shared `InMemoryEventBus`; once the Pub/Sub toggle returns, the same interface will forward events to Google Cloud Pub/Sub with no agent-side changes.
 
 ### 3. Intelligence Layer (Google ADK-Compatible Agents)
-- `BaseAgent` implements the Google ADK lifecycle: `start`, `handle_event`, `stop`, state persistence, and artifact ingestion.
-- Specialized agents (Retrospective, Development, Spec, Git, Coach, Milestone, Strategy) extend `BaseAgent` and therefore conform to ADK semantics.
+- `BaseAgent` implements the Google ADK lifecycle plus shared infrastructure: JSON-backed state persistence, artifact ingestion, workspace analysis, and event bus helpers (`publish_event`, `subscribe_to_event`).
+- Specialized agents (Retrospective, Development, Spec, Git, Coach, Milestone, Strategy) extend `BaseAgent`, so they inherit unified logging/metrics and the new `ProjectStructureAnalyzer` summaries.
 - The `AgentOrchestrator` composes ADK agents and dispatches tasks based on retrospectives, proposals, or direct extension requests.
 - Retrospective Agent groups action items by priority and emits ADK-compatible payloads into the event bus so the Development Agent can create at most one proposal per bucket.
-- Development Agent injects ADK context (workspace metadata, retrospective ID, priority bucket) before synthesizing changes, enabling reproducible conversations if we swap to a fully managed ADK runtime.
+- Development Agent injects ADK context (workspace metadata, retrospective ID, priority bucket) before synthesizing changes; current builds run on the in-memory bus while sandbox/Codespaces PR workflows are stabilized.
 
 ### 4. Knowledge & Persistence Layer
 - Firestore collections
@@ -102,7 +105,7 @@ IDE command → Cloud Run `/agents/retrospective/trigger`
     → Agent Orchestrator boots Retrospective Agent (ADK lifecycle)
         → Agents exchange perspectives via ADK conversations
         → Retrospective Agent records findings in Firestore & GCS
-        → High/Medium/Low action buckets published to Pub/Sub
+        → High/Medium/Low action buckets published to the event bus (in-memory today, Pub/Sub when enabled)
     → Development Agent consumes events, generates code proposals
     → Firestore stores proposal; extension receives push update
 ```
@@ -138,14 +141,14 @@ User selects proposal in extension tree
 - **Logging**: Structured logs with `agent`, `workspace`, `proposal_id` fields. `gcloud run services logs read contextpilot-backend --log-filter="severity>=ERROR"` is part of runbooks.
 - **Metrics**: Cloud Monitoring dashboard tracks
   - Cloud Run latency & concurrency
-  - Pub/Sub backlog and ack times
+  - Event bus health (Pub/Sub backlog once the remote bus is re-enabled)
   - Firestore read/write quota
   - Agent error rate (custom metric exported via Cloud Logging filter)
 - **Alerting**: Paging alerts configured for
   - 5xx rate > 2% for 10 minutes
-  - Pub/Sub backlog > 100 messages
+  - Event backlog (Pub/Sub) > 100 messages (future toggle)
   - Secret access denied (indicates missing IAM)
-- **Resilience**: Pub/Sub retries ensure Development Agent eventually processes proposals; Cloud Run revision pinning allows instant rollback.
+- **Resilience**: The event bus interface is idempotent; once Pub/Sub is reintroduced its retries will ensure Development Agent eventually processes proposals, while Cloud Run revision pinning allows instant rollback today.
 
 ---
 

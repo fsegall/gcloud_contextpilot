@@ -17,6 +17,8 @@ ContextPilot uses a **hybrid git architecture** that combines local git operatio
 7. [Configuration](#configuration)
 8. [Monitoring & Debugging](#monitoring--debugging)
 
+> Full documentation catalog (architecture deep dives, deployment guides, retrospectives) now lives in `docs/INDEX.md`.
+
 ---
 
 ## Architecture Overview
@@ -335,20 +337,20 @@ Developer → Extension → Cloud Run → Proposals Router
                    ↓
         ┌──────────┴──────────┐
         ↓                     ↓
-┌────────────────┐   ┌────────────────────────────────────────┐
-│ 2a. EVENT BUS  │   │ 2b. GITHUB API                         │
-│  (Pub/Sub)     │   │  POST /repos/{owner}/{repo}/dispatches│
-│                │   │  {                                      │
-│ Git Agent      │   │    "event_type": "proposal-approved",  │
-│ receives:      │   │    "client_payload": {                 │
-│ - proposal_id  │   │      "proposal_id": "..."              │
-│ - changes      │   │    }                                    │
-│                │   │  }                                      │
-│ Does:          │   └──────────────┬─────────────────────────┘
-│ • Log history  │                  ↓
-│ • Update MDs   │   ┌─────────────────────────────────────────┐
-│ • Track CPT    │   │ 3. GITHUB ACTIONS                       │
-│ • No commit!   │   │   (.github/workflows/apply-proposal.yml)│
+┌────────────────────────────┐  ┌────────────────────────────────────────┐
+│ 2a. EVENT BUS              │  │ 2b. GITHUB API                         │
+│  (In-memory / Pub/Sub-ready)│ │  POST /repos/{owner}/{repo}/dispatches│
+│                            │ │  {                                      │
+│ Git Agent receives:        │ │    "event_type": "proposal-approved",  │
+│ - proposal_id              │ │    "client_payload": {                 │
+│ - changes                  │ │      "proposal_id": "..."              │
+│                            │ │    }                                    │
+│ Does:                      │ │  }                                      │
+│ • Log history              │ └──────────────┬─────────────────────────┘
+│ • Update MDs               │                ↓
+│ • Track CPT (async)        │  ┌─────────────────────────────────────────┐
+│ • No commit!               │  │ 3. GITHUB ACTIONS                       │
+└────────────────────────────┘  │   (.github/workflows/apply-proposal.yml)│
 └────────────────┘   │                                          │
                      │   1. Checkout repository                 │
                      │   2. GET /proposals/{id}                 │
@@ -448,7 +450,7 @@ Developer → Extension → Cloud Run → Proposals Router
 | Aspect | Cloud Mode | Local Mode |
 |--------|-----------|-----------|
 | **Storage** | Firestore | JSON files |
-| **Event Bus** | Pub/Sub | In-Memory |
+| **Event Bus** | Pub/Sub (planned toggle) | In-Memory (default in current build) |
 | **Git Commits** | GitHub Actions | Direct (Git Agent) |
 | **Speed** | ~30s delay | Instant |
 | **Multi-user** | ✅ Safe | ❌ Conflicts possible |
@@ -673,8 +675,8 @@ GITHUB_REPO=owner/repo-name           # Target repository
 # Firestore
 FIRESTORE_ENABLED=true                # Enable Firestore storage
 
-# Pub/Sub
-USE_PUBSUB=true                       # Use Pub/Sub event bus
+# Pub/Sub (planned)
+USE_PUBSUB=true                       # Route event bus through Pub/Sub (toggle returns after hardening)
 ```
 
 #### Optional Features
@@ -1010,16 +1012,15 @@ ps aux | grep git_agent
 ### 3. Event Bus Usage
 
 ✅ **Do:**
-- Use Pub/Sub in production (Cloud Mode)
-- Use in-memory for development (Local Mode)
-- Subscribe to specific event types
-- Handle events asynchronously
+- Default to the in-memory event bus while Pub/Sub hardening is underway.
+- Flip `USE_PUBSUB=true` only after validating the managed bus in staging.
+- Subscribe to specific event types and keep handlers asynchronous.
+- Treat event handlers as idempotent (replays will happen once Pub/Sub returns).
 
 ❌ **Don't:**
-- Use in-memory in production
-- Subscribe to all events
-- Block on event processing
-- Ignore event processing errors
+- Assume Pub/Sub is active in current builds.
+- Subscribe to all events or block inside event handlers.
+- Ignore event processing errors—surface them in agent metrics for tracing.
 
 ### 4. Markdown Documentation
 
@@ -1050,13 +1051,15 @@ ps aux | grep git_agent
 
 1. **Configure GitHub Actions**
    ```bash
-   # Create workflow file
+   # Create workflow file (paste the snippet from "GitHub Actions Workflow Setup")
    mkdir -p .github/workflows
-   cp docs/examples/apply-proposal.yml .github/workflows/
-   
+   cat <<'YAML' > .github/workflows/apply-proposal.yml
+   # Paste minimal workflow from the documentation here
+   YAML
+
    # Commit and push
    git add .github/workflows/apply-proposal.yml
-   git commit -m "chore: Add ContextPilot workflow"
+   git commit -m "chore: add ContextPilot workflow"
    git push
    ```
 

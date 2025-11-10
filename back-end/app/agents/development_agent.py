@@ -74,7 +74,9 @@ class DevelopmentAgent(BaseAgent):
         # Sandbox mode configuration
         self.sandbox_enabled = os.getenv("SANDBOX_ENABLED", "false").lower() == "true"
         self.sandbox_repo_url = os.getenv("SANDBOX_REPO_URL", "")
-        self.github_token = os.getenv("GITHUB_TOKEN")
+        self.github_token = os.getenv("GITHUB_TOKEN") or os.getenv(
+            "PERSONAL_GITHUB_TOKEN"
+        )
         if self.github_token:
             self.github_token = self.github_token.strip()  # Remove whitespace and newlines
 
@@ -597,48 +599,16 @@ Consider:
         self, description: str, context: Optional[Dict]
     ) -> List[str]:
         """
-        Provide deterministic target files when AI inference cannot determine them.
+        Fallback intentionally disabled: inference must provide real targets.
 
-        This keeps the DevelopmentAgent useful for high-priority retrospective
-        actions even if Gemini cannot infer file paths (rate limiting, quota, etc.).
+        Returning an empty list forces the caller to detect the failure and surface
+        actionable errors instead of hiding issues behind deterministic diffs.
         """
-        description_lower = description.lower()
-        action_items = context.get("action_items") if isinstance(context, dict) else None
-        action_text = " ".join(item.get("action", "") for item in action_items or [])
-        combined_text = f"{description_lower} {action_text.lower() if action_text else ''}"
-
-        fallback_map = [
-            (
-                {"error handling", "error logs"},
-                [
-                    "back-end/app/agents/base_agent.py",
-                    "back-end/app/services/event_bus.py",
-                    "back-end/app/agents/retrospective_agent.py",
-                ],
-            ),
-            (
-                {"idle agents", "subscriptions", "event bus"},
-                [
-                    "back-end/app/agents/development_agent.py",
-                    "back-end/app/services/event_bus.py",
-                    "back-end/app/agents/base_agent.py",
-                ],
-            ),
-            (
-                {"retrospective", "proposal"},
-                [
-                    "back-end/app/agents/retrospective_agent.py",
-                    "back-end/app/agents/development_agent.py",
-                ],
-            ),
-        ]
-
-        for keywords, files in fallback_map:
-            if all(keyword in combined_text for keyword in keywords):
-                return files
-
-        # Default fallback to the development agent itself so the proposal at least surfaces
-        return ["back-end/app/agents/development_agent.py"]
+        logger.warning(
+            "[DevelopmentAgent] Target file inference failed and fallback is disabled. "
+            "Stopping implementation so the root cause can be investigated."
+        )
+        return []
 
     def _get_workspace_structure(self) -> Dict:
         """Get a simplified workspace structure for AI context."""
@@ -714,7 +684,7 @@ Consider:
                 return None
 
             # Step 2: Create branch
-            await self._create_branch(sandbox_path, branch_name)
+            await self._create_local_branch(sandbox_path, branch_name)
 
             # Step 3: Analyze and implement changes
             target_files = await self._infer_target_files_from_sandbox(
@@ -787,7 +757,7 @@ Consider:
             logger.error(f"[DevelopmentAgent] Error cloning sandbox: {e}")
             return None
 
-    async def _create_branch(self, sandbox_path: Path, branch_name: str) -> bool:
+    async def _create_local_branch(self, sandbox_path: Path, branch_name: str) -> bool:
         """Create new branch in sandbox."""
         try:
             import subprocess
@@ -1437,7 +1407,7 @@ Examples:
             )
             
             # Create branch first
-            branch_created = await self._create_branch(branch_name)
+            branch_created = await self._create_remote_branch(branch_name)
             if not branch_created:
                 logger.error(f"[DevelopmentAgent] Failed to create branch: {branch_name}")
                 return None
@@ -1474,7 +1444,7 @@ Examples:
             )
             return None
 
-    async def _create_branch(self, branch_name: str) -> bool:
+    async def _create_remote_branch(self, branch_name: str) -> bool:
         """Create a new branch from main."""
         try:
             github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
@@ -2013,7 +1983,7 @@ The implementation was done in a **GitHub Codespace** with:
         for file_path, new_content in implementations.items():
             old_content = file_contents.get(file_path)
 
-            change_type = "create" if old_content is None else "modify"
+            change_type = "create" if old_content is None else "update"
 
             # Generate diff
             diff = generate_unified_diff(
@@ -2026,7 +1996,7 @@ The implementation was done in a **GitHub Codespace** with:
                 ProposedChange(
                     file_path=file_path,
                     change_type=change_type,
-                    description=f"{'Create' if change_type == 'create' else 'Modify'} {file_path}",
+                    description=f"{'Create' if change_type == 'create' else 'Update'} {file_path}",
                     before=old_content or "",
                     after=new_content,
                     diff=diff,
@@ -2035,6 +2005,58 @@ The implementation was done in a **GitHub Codespace** with:
 
         # Generate overall diff
         overall_diff = self._generate_overall_diff(proposed_changes)
+
+        # Deduplicate by checking existing pending proposals with identical diffs
+        duplicate_id: Optional[str] = None
+        try:
+            repo = get_proposal_repository()
+            existing_pending = repo.list(
+                workspace_id=self.workspace_id, status="pending", limit=100
+            )
+
+            new_diff_content = (overall_diff.content or "").strip()
+            new_files = sorted(change.file_path for change in proposed_changes)
+
+            for existing in existing_pending:
+                if existing.get("agent_id") != "development":
+                    continue
+
+                existing_diff = existing.get("diff")
+                if isinstance(existing_diff, dict):
+                    existing_diff_content = (existing_diff.get("content") or "").strip()
+                elif isinstance(existing_diff, str):
+                    existing_diff_content = existing_diff.strip()
+                else:
+                    existing_diff_content = ""
+
+                existing_changes = existing.get("proposed_changes") or []
+                existing_files = sorted(
+                    change.get("file_path")
+                    for change in existing_changes
+                    if isinstance(change, dict) and change.get("file_path")
+                )
+
+                if (
+                    new_diff_content
+                    and existing_diff_content
+                    and new_diff_content == existing_diff_content
+                    and new_files == existing_files
+                ):
+                    duplicate_id = existing.get("id")
+                    logger.info(
+                        "[DevelopmentAgent] Duplicate proposal detected (id=%s); "
+                        "skipping new proposal creation.",
+                        duplicate_id,
+                    )
+                    break
+        except Exception as e:  # pragma: no cover - defensive logging
+            logger.warning(
+                "[DevelopmentAgent] Unable to perform duplicate proposal check: %s", e
+            )
+            repo = None
+
+        if duplicate_id:
+            return duplicate_id
 
         # Create proposal
         title_override = context.get("proposal_title")
