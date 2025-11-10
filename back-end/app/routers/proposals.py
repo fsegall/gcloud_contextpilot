@@ -35,32 +35,33 @@ db = firestore.AsyncClient()
 proposals_col = db.collection("proposals")  # Unified collection name - v2
 
 
-async def trigger_github_action(proposal_id: str) -> dict:
+async def trigger_github_action(proposal: ChangeProposal) -> dict:
     """
     Trigger GitHub Action via repository_dispatch webhook.
 
-    Requires GITHUB_TOKEN and GITHUB_REPO environment variables.
-    
+    Requires GITHUB_TOKEN or PERSONAL_GITHUB_TOKEN and GITHUB_REPO environment variables.
+
+    Args:
+        proposal: The fully populated proposal record that was approved.
+
     Returns:
         dict with status and message
     """
-    github_token = os.getenv("GITHUB_TOKEN")
-    github_repo = os.getenv("GITHUB_REPO") or os.getenv("GITHUB_REPOSITORY")
-    if not github_repo:
-        github_repo = "fsegall/gcloud_contextpilot"
-        logger.warning(
-            "GITHUB_REPO not set; defaulting to %s. "
-            "Set GITHUB_REPO env var to target a different repository.",
-            github_repo,
+    github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+    if github_token:
+        github_token = github_token.strip()
+    if not github_token:
+        raise RuntimeError(
+            "GITHUB_TOKEN or PERSONAL_GITHUB_TOKEN must be configured to trigger GitHub Actions"
         )
 
-    if not github_token:
-        logger.warning(f"⚠️ GITHUB_TOKEN not set, skipping GitHub Action trigger for proposal: {proposal_id}")
-        return {
-            "status": "skipped",
-            "reason": "GITHUB_TOKEN not configured",
-            "message": "GitHub Actions will not be triggered. Set GITHUB_TOKEN environment variable."
-        }
+    github_repo = os.getenv("GITHUB_REPO") or os.getenv("GITHUB_REPOSITORY")
+    if github_repo:
+        github_repo = github_repo.strip()
+    if not github_repo:
+        raise RuntimeError(
+            "GITHUB_REPO (owner/repo) must be set to trigger GitHub Actions"
+        )
 
     url = f"https://api.github.com/repos/{github_repo}/dispatches"
     headers = {
@@ -70,10 +71,20 @@ async def trigger_github_action(proposal_id: str) -> dict:
     }
     payload = {
         "event_type": "proposal-approved",
-        "client_payload": {"proposal_id": proposal_id},
+        "client_payload": {
+            "proposal_id": proposal.id,
+            "workspace_id": proposal.workspace_id,
+            "agent_id": proposal.agent_id,
+            "title": proposal.title,
+        },
     }
 
-    logger.info(f"🚀 Triggering GitHub Action for proposal: {proposal_id}, repo: {github_repo}")
+    logger.info(
+        "🚀 Triggering GitHub Action for proposal=%s (workspace=%s, repo=%s)",
+        proposal.id,
+        proposal.workspace_id,
+        github_repo,
+    )
 
     try:
         async with httpx.AsyncClient() as client:
@@ -82,11 +93,13 @@ async def trigger_github_action(proposal_id: str) -> dict:
             )
 
             if response.status_code == 204:
-                logger.info(f"✅ GitHub Action triggered successfully for proposal: {proposal_id}")
+                logger.info(
+                    "✅ GitHub Action triggered successfully for proposal: %s", proposal.id
+                )
                 return {
                     "status": "success",
-                    "message": f"GitHub Action triggered for proposal {proposal_id}",
-                    "repo": github_repo
+                    "message": f"GitHub Action triggered for proposal {proposal.id}",
+                    "repo": github_repo,
                 }
             else:
                 error_text = response.text
@@ -97,14 +110,14 @@ async def trigger_github_action(proposal_id: str) -> dict:
                     "status": "error",
                     "status_code": response.status_code,
                     "message": f"Failed to trigger GitHub Action: {error_text}",
-                    "repo": github_repo
+                    "repo": github_repo,
                 }
     except (httpx.TimeoutException, httpx.ReadTimeout) as e:
         logger.error(f"❌ GitHub Action trigger timeout: {e}")
         return {
             "status": "error",
             "message": f"Timeout while triggering GitHub Action: {str(e)}",
-            "repo": github_repo
+            "repo": github_repo,
         }
     except Exception as e:
         logger.error(f"❌ Error triggering GitHub Action: {e}", exc_info=True)
@@ -432,7 +445,18 @@ async def approve_proposal(
             # Don't fail the approval if rewards fail
 
         # Trigger GitHub Action via repository_dispatch webhook
-        github_action_result = await trigger_github_action(proposal_id)
+        try:
+            github_action_result = await trigger_github_action(proposal)
+        except Exception as github_error:
+            logger.error(
+                "❌ Failed to trigger GitHub Action for proposal %s: %s",
+                proposal_id,
+                github_error,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to trigger GitHub Action: {github_error}",
+            )
 
         response_data = {
             "status": "approved",

@@ -9,6 +9,10 @@ on:
         description: "Proposal ID to apply"
         required: true
         type: string
+      workspace_id:
+        description: "Workspace ID that owns the proposal"
+        required: false
+        type: string
 
 jobs:
   apply-proposal:
@@ -34,20 +38,26 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             echo "proposal_id=${{ github.event.client_payload.proposal_id }}" >> $GITHUB_OUTPUT
+            echo "workspace_id=${{ github.event.client_payload.workspace_id || 'contextpilot' }}" >> $GITHUB_OUTPUT
           else
             echo "proposal_id=${{ github.event.inputs.proposal_id }}" >> $GITHUB_OUTPUT
+            echo "workspace_id=${{ github.event.inputs.workspace_id || 'contextpilot' }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Fetch proposal from Firestore
         id: fetch
         run: |
           PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
+          WORKSPACE_ID="${{ steps.proposal.outputs.workspace_id }}"
+          if [ -z "$WORKSPACE_ID" ] || [ "$WORKSPACE_ID" = "null" ]; then
+            WORKSPACE_ID="contextpilot"
+          fi
           API_URL="https://contextpilot-backend-581368740395.us-central1.run.app"
 
           echo "Fetching proposal: $PROPOSAL_ID"
 
           # Get proposal from API
-          curl -s "${API_URL}/proposals/${PROPOSAL_ID}?workspace_id=contextpilot" \
+          curl -s "${API_URL}/proposals/${PROPOSAL_ID}?workspace_id=${WORKSPACE_ID}" \
             -o proposal.json
 
           # Check if proposal exists
@@ -95,6 +105,7 @@ jobs:
             echo "EOF"
           } >> $GITHUB_OUTPUT
           echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "workspace_id=$WORKSPACE_ID" >> $GITHUB_OUTPUT
           echo "is_sandbox=$IS_SANDBOX" >> $GITHUB_OUTPUT
           echo "sandbox_branch=$SANDBOX_BRANCH" >> $GITHUB_OUTPUT
           echo "sandbox_repo=$SANDBOX_REPO" >> $GITHUB_OUTPUT
