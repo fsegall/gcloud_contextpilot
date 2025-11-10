@@ -1331,24 +1331,36 @@ export async function viewContextDetail(item: any): Promise<void> {
     
     let content = '';
     
-    const checkpointPath = workspaceContextDir
-      ? path.join(workspaceContextDir, 'checkpoint.yaml')
-      : undefined;
-    const milestonesPath = workspaceContextDir
-      ? path.join(workspaceContextDir, 'milestones.md')
-      : undefined;
-    
-    const checkpointExists = checkpointPath ? fs.existsSync(checkpointPath) : false;
-    const checkpointData = checkpointExists
-      ? ((yaml.load(fs.readFileSync(checkpointPath, 'utf-8')) as any) || {})
-      : {};
-    const checkpointYaml = checkpointExists
-      ? fs.readFileSync(checkpointPath!, 'utf-8')
-      : getTemplateContent('project', workspaceId);
-    const milestonesText =
-      milestonesPath && fs.existsSync(milestonesPath)
-        ? fs.readFileSync(milestonesPath, 'utf-8')
-        : getTemplateContent('milestones-root', workspaceId);
+  const checkpointPath = workspaceContextDir
+    ? path.join(workspaceContextDir, 'checkpoint.yaml')
+    : undefined;
+  const milestonesPath = workspaceContextDir
+    ? path.join(workspaceContextDir, 'milestones.md')
+    : undefined;
+
+  const checkpointExists =
+    typeof checkpointPath === 'string' && fs.existsSync(checkpointPath);
+  let checkpointData: any = {};
+  let checkpointYaml: string = getTemplateContent('project', workspaceId);
+
+  if (checkpointExists && checkpointPath) {
+    try {
+      const raw = fs.readFileSync(checkpointPath, 'utf-8');
+      checkpointYaml = raw;
+      checkpointData = (yaml.load(raw) as any) || {};
+    } catch (error) {
+      console.warn('[viewContextDetail] Failed to read checkpoint.yaml:', error);
+    }
+  }
+
+  let milestonesText: string = getTemplateContent('milestones-root', workspaceId);
+  if (typeof milestonesPath === 'string' && fs.existsSync(milestonesPath)) {
+    try {
+      milestonesText = fs.readFileSync(milestonesPath, 'utf-8');
+    } catch (error) {
+      console.warn('[viewContextDetail] Failed to read milestones.md:', error);
+    }
+  }
     
     if (contextValue === 'project') {
       const projectName = checkpointData?.project_name || description || 'N/A';
