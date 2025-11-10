@@ -74,6 +74,11 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
     } else if (element.contextValue === 'mode-indicator') {
       // Children of mode indicator - show rewards
       try {
+        const loadingItem = new RewardItem('⏳ Loading balance...', '', 'loading');
+        loadingItem.iconPath = new vscode.ThemeIcon('sync', new vscode.ThemeColor('charts.yellow'));
+        loadingItem.tooltip = 'Fetching rewards balance from backend...';
+        this._onDidChangeTreeData.fire(loadingItem);
+
         const balance = await this.contextPilotService.getBalance();
         
         return [
@@ -83,9 +88,13 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
           new RewardItem('🏆 Achievements', `${balance.achievements?.length || 0} earned`, 'achievements'),
           new RewardItem('📊 Rank', `#${balance.rank || 999}`, 'rank')
         ];
-      } catch (error) {
+      } catch (error: any) {
         console.error('[RewardsProvider] Error loading balance:', error);
-        return [new RewardItem('❌ Error loading balance', '', 'error')];
+        const message = error?.message || 'Backend did not return balance data.';
+        const errorItem = new RewardItem('❌ Error loading balance', message, 'error');
+        errorItem.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('charts.red'));
+        errorItem.tooltip = message;
+        return [errorItem];
       }
     }
     
