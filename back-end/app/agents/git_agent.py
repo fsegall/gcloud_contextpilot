@@ -106,10 +106,11 @@ class GitAgent(BaseAgent):
             event_type: Type of event
             data: Event data payload
         """
-        logger.info(f"[GitAgent] Received event: {event_type}")
+        logger.info(f"[GitAgent] Received event: {event_type} with data keys: {list(data.keys()) if data else 'empty'}")
 
         try:
-            if event_type == EventTypes.PROPOSAL_APPROVED:
+            if event_type == EventTypes.PROPOSAL_APPROVED or event_type == "proposal.approved.v1":
+                logger.info(f"[GitAgent] Processing PROPOSAL_APPROVED event for proposal: {data.get('proposal_id')}")
                 await self._handle_proposal_approved_v2(data)
             elif event_type == EventTypes.MILESTONE_COMPLETE:
                 await self._handle_milestone_v2(data)
@@ -211,7 +212,11 @@ class GitAgent(BaseAgent):
         proposal_id = data.get("proposal_id")
         workspace_id = data.get("workspace_id", self.workspace_id)
 
-        logger.info(f"[GitAgent] Proposal {proposal_id} approved, applying changes...")
+        logger.info(f"[GitAgent] Proposal {proposal_id} approved in workspace {workspace_id}, applying changes...")
+        
+        if not proposal_id:
+            logger.error("[GitAgent] No proposal_id in event data - cannot process")
+            return
 
         # 1. Load proposal to get diff/changes
         proposal_dict = self._load_proposal(proposal_id)

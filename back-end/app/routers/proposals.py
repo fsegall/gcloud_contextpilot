@@ -408,12 +408,23 @@ async def approve_proposal(
 
         # Publish event for Git Agent
         event_bus = get_event_bus()
+        
+        # Ensure Git Agent is initialized and subscribed before publishing
+        # This is critical: if agent isn't initialized, event will be lost
+        try:
+            from app.agents.git_agent import GitAgent
+            git_agent = GitAgent(workspace_id=proposal.workspace_id)
+            logger.info(f"[approve_proposal] Git Agent initialized for workspace: {proposal.workspace_id}")
+        except Exception as e:
+            logger.warning(f"[approve_proposal] Failed to initialize Git Agent: {e} - event will still be published")
+        
         await event_bus.publish(
             topic="proposals-events",
             event_type="proposal.approved.v1",
             source="proposals-api",
             data={
                 "proposal_id": proposal_id,
+                "workspace_id": proposal.workspace_id,  # IMPORTANT: Include workspace_id
                 "user_id": request.user_id,
                 "changes": [
                     c.model_dump()
@@ -423,7 +434,7 @@ async def approve_proposal(
             },
         )
 
-        logger.info(f"✅ Proposal approved: {proposal_id}")
+        logger.info(f"✅ Proposal approved: {proposal_id} - event published to Git Agent")
 
         # Award CPTs for approving a proposal
         try:
