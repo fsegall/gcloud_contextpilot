@@ -43,6 +43,34 @@ uvicorn app.server:app --reload --port 8000
 # Update extension setting to http://localhost:8000
 ```
 
+### Firestore Setup (For Rewards & Proposals)
+To enable Firestore-backed rewards and proposals storage:
+
+1. **Create a Firestore service account**:
+   - GCP Console → IAM & Admin → Service Accounts
+   - Create service account: `contextpilot-firestore`
+   - Grant role: `Cloud Datastore User`
+   - Create key: JSON format → download
+
+2. **Save credentials**:
+   ```bash
+   # Save the downloaded JSON as firestore-service-account.json in project root
+   # (already in .gitignore, won't be committed)
+   ```
+
+3. **Deploy to Cloud Run**:
+   ```bash
+   # The deploy script auto-detects firestore-service-account.json
+   scripts/shell/deploy-cloud-run.sh
+   ```
+   
+   The script will:
+   - Create/update `FIRESTORE_CREDENTIALS_JSON` secret in Secret Manager
+   - Configure Cloud Run to use Firestore for rewards and proposals
+   - Set `REWARDS_MODE=firestore` automatically
+
+4. **Verify**: After deploy, `/rewards/balance` and `/proposals/list` should respond quickly without timeouts.
+
 ---
 
 ## Architecture at a Glance

@@ -23,6 +23,14 @@ else
     echo -e "${YELLOW}⚠️  .env not found at ${ENV_FILE}. Make sure required variables are set manually.${NC}"
 fi
 
+# Auto-detect firestore-service-account.json in project root if not already set
+PROJECT_ROOT="$(dirname "$0")/../.."
+FIRESTORE_SA_FILE="$PROJECT_ROOT/firestore-service-account.json"
+if [ -z "$FIRESTORE_CREDENTIALS_JSON" ] && [ -f "$FIRESTORE_SA_FILE" ]; then
+    echo -e "${BLUE}🔑 Auto-detected firestore-service-account.json, exporting FIRESTORE_CREDENTIALS_JSON${NC}"
+    export FIRESTORE_CREDENTIALS_JSON="$FIRESTORE_SA_FILE"
+fi
+
 # Helper to ensure secrets exist and contain latest values
 ensure_secret() {
     local secret_name=$1

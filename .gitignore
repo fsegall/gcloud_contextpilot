@@ -76,6 +76,7 @@ contracts/lib/
 private_key.txt
 mnemonic.txt
 *.pem
+firestore-service-account.json
 
 # Misc
 *.bak
