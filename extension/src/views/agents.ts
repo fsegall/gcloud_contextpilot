@@ -65,10 +65,10 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
         }
         
         const modeItem = new AgentItem({
-          agent_id: 'event-bus-mode',
+          agentId: 'event-bus-mode',
           name: `⚙️ ${modeIcon} Event Bus: ${modeName}`,
           status: 'active',
-          last_activity: 'now'
+          lastActivity: 'now'
         }, vscode.TreeItemCollapsibleState.Expanded);
         modeItem.tooltip = tooltipText;
         modeItem.contextValue = 'mode-indicator';
@@ -93,13 +93,13 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
         // Return default agents if API not implemented yet
         // 6 active agents + 1 meta-agent (retrospective)
         return [
-          new AgentItem({ agent_id: 'spec', name: '📋 Spec Agent', status: 'active', last_activity: '5m ago' }),
-          new AgentItem({ agent_id: 'git', name: '🔧 Git Agent', status: 'active', last_activity: '2m ago' }),
-          new AgentItem({ agent_id: 'development', name: '💻 Development Agent', status: 'active', last_activity: '3m ago' }),
-          new AgentItem({ agent_id: 'context', name: '📦 Context Agent', status: 'active', last_activity: 'now' }),
-          new AgentItem({ agent_id: 'strategy-coach', name: '🎯 Strategy Coach Agent', status: 'active', last_activity: 'now' }),
-          new AgentItem({ agent_id: 'milestone', name: '🏁 Milestone Agent', status: 'active', last_activity: '10m ago' }),
-          new AgentItem({ agent_id: 'retrospective', name: '🔄 Retrospective Agent', status: 'active', last_activity: '15m ago' }),
+          new AgentItem({ agentId: 'spec', name: '📋 Spec Agent', status: 'active', lastActivity: '5m ago' }),
+          new AgentItem({ agentId: 'git', name: '🔧 Git Agent', status: 'active', lastActivity: '2m ago' }),
+          new AgentItem({ agentId: 'development', name: '💻 Development Agent', status: 'active', lastActivity: '3m ago' }),
+          new AgentItem({ agentId: 'context', name: '📦 Context Agent', status: 'active', lastActivity: 'now' }),
+          new AgentItem({ agentId: 'strategy-coach', name: '🎯 Strategy Coach Agent', status: 'active', lastActivity: 'now' }),
+          new AgentItem({ agentId: 'milestone', name: '🏁 Milestone Agent', status: 'active', lastActivity: '10m ago' }),
+          new AgentItem({ agentId: 'retrospective', name: '🔄 Retrospective Agent', status: 'active', lastActivity: '15m ago' }),
         ];
       }
     }
@@ -115,7 +115,7 @@ class AgentItem extends vscode.TreeItem {
   ) {
     super(agent.name, collapsibleState);
     this.description = agent.status;
-    this.tooltip = `Last activity: ${agent.last_activity}`;
+    this.tooltip = `Last activity: ${agent.lastActivity}`;
     
     const icon = agent.status === 'active' ? 'circle-filled' :
                  agent.status === 'idle' ? 'circle-outline' :

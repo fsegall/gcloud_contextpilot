@@ -5,7 +5,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ChangeProposal } from '../services/contextpilot';
+import { ChangeProposal, ProposedChange } from '../services/contextpilot';
 
 export class ReviewPanelProvider {
   private panel: vscode.WebviewPanel | undefined;
@@ -57,14 +57,14 @@ export class ReviewPanelProvider {
   }
 
   private formatReviewRequest(proposal: ChangeProposal): string {
-    const filesAffected = proposal.proposed_changes
-      .map(c => `- **${c.file_path}** (${c.change_type}): ${c.description}`)
+    const filesAffected = proposal.proposedChanges
+      .map((c: ProposedChange) => `- **${c.filePath}** (${c.changeType}): ${c.description}`)
       .join('\n');
 
     return `# Review Proposal #${proposal.id}
 
 **Title:** ${proposal.title}
-**Agent:** ${proposal.agent_id}
+**Agent:** ${proposal.agentId}
 
 ## Changes
 

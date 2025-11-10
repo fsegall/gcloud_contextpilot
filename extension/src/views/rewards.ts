@@ -83,7 +83,7 @@ export class RewardsProvider implements vscode.TreeDataProvider<RewardItem> {
         
         return [
           new RewardItem('💰 Current Balance', `${balance.balance || 0} CPT`, 'balance'),
-          new RewardItem('📈 Total Earned', `${balance.total_earned || 0} CPT`, 'total'),
+          new RewardItem('📈 Total Earned', `${balance.totalEarned || 0} CPT`, 'total'),
           new RewardItem('🔥 Weekly Streak', `${balance.weeklyStreak || 0} days`, 'streak'),
           new RewardItem('🏆 Achievements', `${balance.achievements?.length || 0} earned`, 'achievements'),
           new RewardItem('📊 Rank', `#${balance.rank || 999}`, 'rank')

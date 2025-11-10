@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ContextPilotService, ChangeProposal } from '../services/contextpilot';
+import { ContextPilotService, ChangeProposal, ProposedChange } from '../services/contextpilot';
 
 type ProposalTreeItem = ProposalItem | ProposalChangeItem;
 
@@ -85,8 +85,8 @@ export class ProposalsProvider implements vscode.TreeDataProvider<ProposalTreeIt
         }
       }
 
-      const changes = element.proposal.proposed_changes || [];
-      return changes.map(change => new ProposalChangeItem(element.proposal!.id, change));
+      const changes = element.proposal.proposedChanges || [];
+      return changes.map((change: ProposedChange) => new ProposalChangeItem(element.proposal!.id, change));
     }
     
     return [];
@@ -111,9 +111,9 @@ class ProposalItem extends vscode.TreeItem {
     } else {
       // Proposal constructor
       this.proposal = proposalOrTitle;
-      const fileCount = proposalOrTitle.proposed_changes?.length || 0;
+      const fileCount = proposalOrTitle.proposedChanges?.length || 0;
       this.tooltip = `${proposalOrTitle.description}\n\n💡 Click ➕ to expand files\n💡 Right-click for actions (View Diff, Approve, Reject)`;
-      this.description = `by ${proposalOrTitle.agent_id} • ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
+      this.description = `by ${proposalOrTitle.agentId} • ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
       this.contextValue = 'proposal';
       this.iconPath = new vscode.ThemeIcon('git-pull-request');
     }
@@ -121,14 +121,14 @@ class ProposalItem extends vscode.TreeItem {
     // Debug: Log proposal ID (only for actual proposals)
     if (this.proposal) {
       console.log(`[ProposalItem] Creating item with ID: ${this.proposal.id}, Title: ${this.proposal.title}`);
-      if (this.proposal.proposed_changes && this.proposal.proposed_changes.length > 0) {
+      if (this.proposal.proposedChanges && this.proposal.proposedChanges.length > 0) {
         this.changesLoaded = true;
       }
     }
     
     // Only set command if this is NOT an expandable proposal with changes
     // This allows the tree to expand/collapse naturally
-    if (this.proposal && this.proposal.proposed_changes && this.proposal.proposed_changes.length > 0) {
+    if (this.proposal && this.proposal.proposedChanges && this.proposal.proposedChanges.length > 0) {
       // Don't set command - let the tree handle expansion
       // User can right-click -> "View Diff" or click on individual files
     } else if (this.proposal) {
@@ -150,7 +150,7 @@ class ProposalItem extends vscode.TreeItem {
       return;
     }
 
-    this.proposal.proposed_changes = proposal.proposed_changes || [];
+    this.proposal.proposedChanges = proposal.proposedChanges || [];
     this.proposal.diff = proposal.diff;
     this.proposal.description = proposal.description;
     this.proposal.status = proposal.status;
@@ -161,19 +161,14 @@ class ProposalItem extends vscode.TreeItem {
 class ProposalChangeItem extends vscode.TreeItem {
   constructor(
     public readonly proposalId: string,
-    public readonly change: {
-      file_path: string;
-      change_type: string;
-      description: string;
-      content?: string;
-    }
+    public readonly change: ProposedChange
   ) {
-    super(change.file_path, vscode.TreeItemCollapsibleState.None);
-    this.tooltip = `${change.change_type}: ${change.description}`;
-    this.description = change.change_type;
+    super(change.filePath, vscode.TreeItemCollapsibleState.None);
+    this.tooltip = `${change.changeType}: ${change.description}`;
+    this.description = change.changeType;
     this.iconPath = new vscode.ThemeIcon(
-      change.change_type === 'create' ? 'new-file' :
-      change.change_type === 'update' ? 'edit' :
+      change.changeType === 'create' ? 'new-file' :
+      change.changeType === 'update' ? 'edit' :
       'trash'
     );
     this.contextValue = 'proposalChange';

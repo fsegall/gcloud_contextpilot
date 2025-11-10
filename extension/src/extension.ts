@@ -6,61 +6,135 @@ import { AgentsProvider } from './views/agents';
 import { CoachProvider } from './views/coach';
 import { ContextTreeProvider } from './views/context';
 import { ReviewPanelProvider } from './views/review-panel';
+// import { ConfigProvider } from './views/config'; // Temporarily disabled
 import * as commands from './commands';
 
 let contextPilotService: ContextPilotService;
 let statusBarItem: vscode.StatusBarItem;
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('ContextPilot extension is now active!');
-
-  // Initialize service
+  // Declare providers and config outside try block to avoid scope issues
+  let proposalsProvider: ProposalsProvider | undefined;
+  let rewardsProvider: RewardsProvider | undefined;
+  let agentsProvider: AgentsProvider | undefined;
+  let coachProvider: CoachProvider | undefined;
+  let contextProvider: ContextTreeProvider | undefined;
   const config = vscode.workspace.getConfiguration('contextpilot');
-  const apiUrl = config.get<string>('apiUrl', 'https://contextpilot-backend-581368740395.us-central1.run.app');
-  const userId = config.get<string>('userId', 'test-user');
-  const walletAddress = config.get<string>('walletAddress', '0xtest...');
   
-  // Enable test mode if userId is 'test-user' or empty
-  const testMode = false; // Force real mode for testing
-  
-  contextPilotService = new ContextPilotService(apiUrl, userId, walletAddress, testMode);
-  
-  console.log(`[ContextPilot] Extension activated - API: ${apiUrl}, Test Mode: ${testMode}`);
+  try {
+    console.log('ContextPilot extension is now active!');
 
-  // Create status bar item
-  statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100
-  );
-  statusBarItem.command = 'contextpilot.showBackendConfig';
-  context.subscriptions.push(statusBarItem);
-  updateStatusBar();
+    // Initialize service
+    const apiUrl = config.get<string>('apiUrl', 'https://contextpilot-backend-581368740395.us-central1.run.app');
+    const userId = config.get<string>('userId', 'test-user');
+    const walletAddress = config.get<string>('walletAddress', '0xtest...');
+    
+    // Enable test mode if userId is 'test-user' or empty
+    const testMode = false; // Force real mode for testing
+    
+    contextPilotService = new ContextPilotService(apiUrl, userId, walletAddress, testMode);
+    
+    console.log(`[ContextPilot] Extension activated - API: ${apiUrl}, Test Mode: ${testMode}`);
 
-  // Register tree data providers
-  const proposalsProvider = new ProposalsProvider(contextPilotService);
-  const rewardsProvider = new RewardsProvider(contextPilotService);
-  const agentsProvider = new AgentsProvider(contextPilotService);
-  const coachProvider = new CoachProvider(contextPilotService);
-  const contextProvider = new ContextTreeProvider(contextPilotService);
+    // Create status bar item
+    statusBarItem = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      100
+    );
+    statusBarItem.command = 'contextpilot.showBackendConfig';
+    context.subscriptions.push(statusBarItem);
+    updateStatusBar();
+
+    console.log('[ContextPilot] Creating tree data providers...');
+    // Register tree data providers with individual error handling
+    
+    try {
+      console.log('[ContextPilot] Creating ProposalsProvider...');
+      proposalsProvider = new ProposalsProvider(contextPilotService);
+      vscode.window.registerTreeDataProvider('contextpilot.proposals', proposalsProvider);
+      console.log('[ContextPilot] ✅ ProposalsProvider registered');
+    } catch (error) {
+      console.error('[ContextPilot] ❌ Failed to create ProposalsProvider:', error);
+    }
+    
+    try {
+      console.log('[ContextPilot] Creating RewardsProvider...');
+      rewardsProvider = new RewardsProvider(contextPilotService);
+      vscode.window.registerTreeDataProvider('contextpilot.rewards', rewardsProvider);
+      console.log('[ContextPilot] ✅ RewardsProvider registered');
+    } catch (error) {
+      console.error('[ContextPilot] ❌ Failed to create RewardsProvider:', error);
+    }
+    
+    try {
+      console.log('[ContextPilot] Creating AgentsProvider...');
+      agentsProvider = new AgentsProvider(contextPilotService);
+      vscode.window.registerTreeDataProvider('contextpilot.agents', agentsProvider);
+      console.log('[ContextPilot] ✅ AgentsProvider registered');
+    } catch (error) {
+      console.error('[ContextPilot] ❌ Failed to create AgentsProvider:', error);
+    }
+    
+    try {
+      console.log('[ContextPilot] Creating CoachProvider...');
+      coachProvider = new CoachProvider(contextPilotService);
+      vscode.window.registerTreeDataProvider('contextpilot.coach', coachProvider);
+      console.log('[ContextPilot] ✅ CoachProvider registered');
+    } catch (error) {
+      console.error('[ContextPilot] ❌ Failed to create CoachProvider:', error);
+    }
+    
+    try {
+      console.log('[ContextPilot] Creating ContextTreeProvider...');
+      contextProvider = new ContextTreeProvider(contextPilotService);
+      vscode.window.registerTreeDataProvider('contextpilot.context', contextProvider);
+      console.log('[ContextPilot] ✅ ContextTreeProvider registered');
+    } catch (error) {
+      console.error('[ContextPilot] ❌ Failed to create ContextTreeProvider:', error);
+    }
+    
+    console.log('[ContextPilot] Tree data providers registration completed');
+    
+    // Show summary of registered providers
+    const registeredCount = [
+      proposalsProvider,
+      rewardsProvider,
+      agentsProvider,
+      coachProvider,
+      contextProvider
+    ].filter(p => p !== undefined).length;
+    
+    console.log(`[ContextPilot] ✅ Successfully registered ${registeredCount}/5 tree data providers`);
+    
+    if (registeredCount === 0) {
+      vscode.window.showErrorMessage('ContextPilot: Failed to initialize dashboard views. Check Extension Host console for details.');
+    } else if (registeredCount < 5) {
+      vscode.window.showWarningMessage(`ContextPilot: Only ${registeredCount}/5 dashboard views initialized. Some features may be unavailable.`);
+    } else {
+      console.log('[ContextPilot] ✅ All dashboard views initialized successfully');
+    }
   
-  // Create review panel provider (maintains conversation context)
-  const reviewPanelProvider = new ReviewPanelProvider(context);
-  commands.setReviewPanel(reviewPanelProvider);
-
-  vscode.window.registerTreeDataProvider('contextpilot.proposals', proposalsProvider);
-  vscode.window.registerTreeDataProvider('contextpilot.rewards', rewardsProvider);
-  vscode.window.registerTreeDataProvider('contextpilot.agents', agentsProvider);
-  vscode.window.registerTreeDataProvider('contextpilot.coach', coachProvider);
-  vscode.window.registerTreeDataProvider('contextpilot.context', contextProvider);
+  // Register config provider with error handling
+  // Temporarily disabled to fix dashboard
+  // let configProvider: ConfigProvider | undefined;
+  // try {
+  //   console.log('[ContextPilot] Initializing config provider...');
+  //   configProvider = new ConfigProvider(contextPilotService);
+  //   vscode.window.registerTreeDataProvider('contextpilot.config', configProvider);
+  //   console.log('[ContextPilot] Config provider initialized successfully');
+  // } catch (error) {
+  //   console.error('[ContextPilot] Failed to initialize config provider:', error);
+  //   // Continue without config view - don't break the entire extension
+  // }
 
   // Register commands
   context.subscriptions.push(
     vscode.commands.registerCommand('contextpilot.connect', async () => {
       await commands.connect(contextPilotService);
-      proposalsProvider.refresh();
-      rewardsProvider.refresh();
-      agentsProvider.refresh();
-      contextProvider.refresh();
+      proposalsProvider?.refresh();
+      rewardsProvider?.refresh();
+      agentsProvider?.refresh();
+      contextProvider?.refresh();
       updateStatusBar();
     }),
 
@@ -95,10 +169,32 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (sandboxRepoUrl === undefined) { return; }
 
+      // Save locally
       await extConfig.update('mainRepo', mainRepo || '', vscode.ConfigurationTarget.Global);
       await extConfig.update('sandboxRepoUrl', sandboxRepoUrl || '', vscode.ConfigurationTarget.Global);
 
+      // Update backend configuration (GITHUB_REPO in Secret Manager and Cloud Run)
+      try {
+        vscode.window.showInformationMessage('Updating backend configuration...');
+        const result = await contextPilotService.updateGitHubRepo(mainRepo);
+        
+        if (result.status === 'success') {
+          vscode.window.showInformationMessage(`✅ ${result.message}`);
+        } else {
+          vscode.window.showWarningMessage(`⚠️ ${result.message}`);
+        }
+      } catch (error: any) {
+        console.error('[ContextPilot] Error updating backend config:', error);
+        vscode.window.showWarningMessage(
+          `⚠️ Local config saved, but backend update failed: ${error.message}. ` +
+          `You may need to configure GITHUB_REPO manually in Cloud Run.`
+        );
+      }
+
       vscode.window.showInformationMessage('ContextPilot repositories saved.');
+      // if (configProvider) {
+      //   configProvider.refresh();
+      // }
     }),
 
     vscode.commands.registerCommand('contextpilot.disconnect', () => {
@@ -134,8 +230,12 @@ export function activate(context: vscode.ExtensionContext) {
         const sandboxRepoUrl = extConfig.get<string>('sandboxRepoUrl', '');
         if (mainRepo || sandboxRepoUrl) {
           message += `\n**Repositories:**\n`;
-          if (mainRepo) message += `• Main Repo: \`${mainRepo}\`\n`;
-          if (sandboxRepoUrl) message += `• Sandbox Repo URL: \`${sandboxRepoUrl}\`\n`;
+          if (mainRepo) {
+            message += `• Main Repo: \`${mainRepo}\`\n`;
+          }
+          if (sandboxRepoUrl) {
+            message += `• Sandbox Repo URL: \`${sandboxRepoUrl}\`\n`;
+          }
         }
 
         message += `\n**Active Agents:** ${health.agents?.length || 0}`;
@@ -163,9 +263,13 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage('No proposal ID provided');
         return;
       }
+      if (!proposalsProvider) {
+        vscode.window.showErrorMessage('Proposals provider is not available');
+        return;
+      }
       await commands.approveProposal(contextPilotService, proposalId, proposalsProvider);
       proposalsProvider.refresh(); // Refresh proposals list
-      rewardsProvider.refresh();
+      rewardsProvider?.refresh();
       updateStatusBar();
     }),
 
@@ -200,6 +304,11 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       
+      if (!proposalsProvider) {
+        vscode.window.showErrorMessage('Proposals provider is not available');
+        return;
+      }
+      
       console.log('[rejectProposal] Using proposal ID:', proposalId);
       await commands.rejectProposal(contextPilotService, proposalId, proposalsProvider);
     }),
@@ -218,20 +327,24 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('contextpilot.askCoach', async () => {
+      if (!coachProvider) {
+        vscode.window.showErrorMessage('Coach provider is not available');
+        return;
+      }
       await commands.askCoach(contextPilotService, coachProvider);
     }),
 
     vscode.commands.registerCommand('contextpilot.commitContext', async () => {
       await commands.commitContext(contextPilotService);
-      proposalsProvider.refresh();
+      proposalsProvider?.refresh();
     }),
 
     vscode.commands.registerCommand('contextpilot.refreshStatus', () => {
-      proposalsProvider.refresh();
-      rewardsProvider.refresh();
-      agentsProvider.refresh();
-      coachProvider.refresh();
-      contextProvider.refresh();
+      proposalsProvider?.refresh();
+      rewardsProvider?.refresh();
+      agentsProvider?.refresh();
+      coachProvider?.refresh();
+      contextProvider?.refresh();
       updateStatusBar();
     }),
 
@@ -283,23 +396,41 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('contextpilot.resetAgentMetrics', async (agentId?: string) => {
+      if (!agentsProvider) {
+        vscode.window.showErrorMessage('Agents provider is not available');
+        return;
+      }
       await commands.resetAgentMetrics(contextPilotService, agentId, agentsProvider);
     }),
 
     vscode.commands.registerCommand('contextpilot.resetAllAgentMetrics', async () => {
+      if (!agentsProvider) {
+        vscode.window.showErrorMessage('Agents provider is not available');
+        return;
+      }
       await commands.resetAgentMetrics(contextPilotService, undefined, agentsProvider);
     })
   );
+
+    // Initialize review panel provider AFTER commands are registered (to avoid circular dependencies)
+    console.log('[ContextPilot] Creating review panel provider...');
+    try {
+      const reviewPanelProvider = new ReviewPanelProvider(context);
+      commands.setReviewPanel(reviewPanelProvider);
+      console.log('[ContextPilot] ✅ ReviewPanelProvider created');
+    } catch (error) {
+      console.error('[ContextPilot] ❌ Failed to create ReviewPanelProvider:', error);
+    }
 
   // Auto-connect if enabled
   if (config.get<boolean>('autoConnect', true)) {
     console.log('[ContextPilot] Starting auto-connect...');
     commands.connect(contextPilotService).then(() => {
       console.log('[ContextPilot] Auto-connect completed, refreshing providers...');
-      proposalsProvider.refresh();
-      rewardsProvider.refresh();
-      agentsProvider.refresh();
-      contextProvider.refresh();
+      proposalsProvider?.refresh();
+      rewardsProvider?.refresh();
+      agentsProvider?.refresh();
+      contextProvider?.refresh();
       updateStatusBar();
     }).catch((error) => {
       console.error('[ContextPilot] Auto-connect failed:', error);
@@ -328,6 +459,10 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({
     dispose: () => clearInterval(statusInterval)
   });
+  } catch (error) {
+    console.error('[ContextPilot] Error during activation:', error);
+    vscode.window.showErrorMessage(`ContextPilot failed to activate: ${error}`);
+  }
 }
 
 async function updateStatusBar() {
@@ -360,7 +495,7 @@ async function updateStatusBar() {
       `ContextPilot v${health.version || '2.0.0'}`,
       ``,
       `💰 Balance: ${balance.balance} CPT`,
-      `📊 Total Earned: ${balance.total_earned} CPT`,
+      `📊 Total Earned: ${balance.totalEarned} CPT`,
       ``
     ];
     

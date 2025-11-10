@@ -1,21 +1,19 @@
-from fastapi import FastAPI, Body, Query, HTTPException, Request
-from typing import Optional, Any, Union
-from app.git_context_manager import Git_Context_Manager
-from datetime import datetime
-from dotenv import load_dotenv
 import os
-from app.llm_request_model import LLMRequest
-from pydantic import BaseModel
-from typing import List
-import httpx
-from datetime import datetime, timezone
-from fastapi import Body, Query
-import logging
-from fastapi.middleware.cors import CORSMiddleware
-from collections import defaultdict
-from time import time
+import sys
+import json
 import copy
+import logging
+import httpx
+from typing import Optional, Any, Union, List, Dict
+from datetime import datetime, timezone
+from time import time
 from pathlib import Path
+from collections import defaultdict
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+from fastapi import FastAPI, Body, Query, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 # Import routers
 from app.routers import rewards, proposals
@@ -24,15 +22,12 @@ from app.agents.spec_agent import SpecAgent
 from app.middleware.abuse_detection import abuse_detector
 from app.utils.workspace_manager import get_workspace_path
 from app.repositories.proposal_repository import get_proposal_repository
-import os
-from typing import List, Dict
-import json
-from pathlib import Path
+from app.git_context_manager import Git_Context_Manager
+from app.llm_request_model import LLMRequest
 
 # Configure logging
 # In Cloud Run, only use StreamHandler (stdout/stderr are captured automatically)
 # FileHandler can fail if directory doesn't exist or lacks permissions
-import sys
 handlers = [logging.StreamHandler(sys.stdout)]
 if os.getenv("ENVIRONMENT") != "production":
     # Only add file handler in non-production environments
@@ -58,8 +53,8 @@ logger.info("=" * 50)
 CONTEXT_PILOT_URL = "http://localhost:8000"
 
 env_candidates = [
-    Path(__file__).resolve().parent.parent / ".env",   # back-end/.env (legacy)
-    Path(__file__).resolve().parents[2] / ".env",      # repository root .env
+    Path(__file__).resolve().parent.parent / ".env",  # back-end/.env (legacy)
+    Path(__file__).resolve().parents[2] / ".env",  # repository root .env
 ]
 
 loaded_envs = []
@@ -71,7 +66,9 @@ for env_path in env_candidates:
 if loaded_envs:
     logger.info("Environment variables loaded from: %s", ", ".join(loaded_envs))
 else:
-    logger.warning("No .env file found in expected locations; relying on existing environment variables")
+    logger.warning(
+        "No .env file found in expected locations; relying on existing environment variables"
+    )
 
 
 def configure_firestore_credentials():
@@ -84,16 +81,23 @@ def configure_firestore_credentials():
         return
 
     if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-        logger.info("GOOGLE_APPLICATION_CREDENTIALS already set; skipping Firestore secret configuration.")
+        logger.info(
+            "GOOGLE_APPLICATION_CREDENTIALS already set; skipping Firestore secret configuration."
+        )
         return
 
     try:
         credentials_path = Path("/tmp/firestore-service-account.json")
         credentials_path.write_text(credentials_json)
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path)
-        logger.info("Configured Firestore credentials from FIRESTORE_CREDENTIALS_JSON secret.")
+        logger.info(
+            "Configured Firestore credentials from FIRESTORE_CREDENTIALS_JSON secret."
+        )
     except Exception as exc:
-        logger.error(f"Failed to configure Firestore credentials from secret: {exc}", exc_info=True)
+        logger.error(
+            f"Failed to configure Firestore credentials from secret: {exc}",
+            exc_info=True,
+        )
 
 
 configure_firestore_credentials()
@@ -151,7 +155,7 @@ async def rate_limit_middleware(request: Request, call_next):
         pubsub_token = request.headers.get("x-verification-token")
         user_agent = request.headers.get("user-agent", "")
         is_internal_ip = client_ip.startswith("169.254.") or client_ip.startswith("10.")
-        
+
         # Allow if it looks like Pub/Sub (has Pub/Sub headers or internal GCP IP)
         if pubsub_token or "CloudPubSub" in user_agent or is_internal_ip:
             logger.debug(f"✅ Allowing Pub/Sub request from {client_ip}")
@@ -235,6 +239,7 @@ except Exception as e:
 # Include events router for Pub/Sub push subscriptions
 try:
     from app.routers import events
+
     app.include_router(events.router)
     logger.info("Events router loaded")
 except Exception as e:
@@ -248,6 +253,7 @@ logger.info("All routers loaded successfully")
 async def startup_event():
     """Log server startup"""
     import socket
+
     port = int(os.getenv("PORT", "8080"))
     logger.info(f"🚀 Server starting on port {port}")
     logger.info("✅ Server startup complete - ready to accept requests")
@@ -279,7 +285,6 @@ def get_context(workspace_id: str = Query("default")):
     }
 
     try:
-        from pathlib import Path
         import re
         import yaml
 
@@ -294,7 +299,8 @@ def get_context(workspace_id: str = Query("default")):
                 context = {
                     "checkpoint": {
                         "project_name": checkpoint_data.get(
-                            "project_name", default_context["checkpoint"]["project_name"]
+                            "project_name",
+                            default_context["checkpoint"]["project_name"],
                         ),
                         "goal": checkpoint_data.get(
                             "goal", default_context["checkpoint"]["goal"]
@@ -803,14 +809,14 @@ def health_check():
     logger.info("Health check called")
     try:
         config = get_config()
-        
+
         # Safely get event_bus_mode value with fallback
         try:
             event_bus_mode_value = config.event_bus_mode.value
         except (AttributeError, ValueError) as e:
             logger.error(f"Error getting event_bus_mode value: {e}")
             event_bus_mode_value = "in_memory"  # Safe fallback
-        
+
         return {
             "status": "ok",
             "version": "2.1.0",
@@ -843,7 +849,7 @@ def health_check():
                 "event_bus_mode": "unknown",
             },
             "agents": [],
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -867,6 +873,135 @@ def get_abuse_stats():
     return abuse_detector.get_stats()
 
 
+@app.post("/admin/config/github-repo")
+async def update_github_repo_config(github_repo: str = Body(..., embed=True)):
+    """
+    Update GITHUB_REPO configuration in Secret Manager and Cloud Run.
+
+    This endpoint:
+    1. Updates the GITHUB_REPO secret in Secret Manager
+    2. Updates the Cloud Run service to use the new secret
+
+    Args:
+        github_repo: Repository in format owner/repo (e.g., fsegall/google-context-pilot)
+
+    Returns:
+        Status message
+    """
+    import subprocess
+    import re
+
+    logger.info(f"POST /admin/config/github-repo called with: {github_repo}")
+
+    # Validate format
+    if not re.match(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$", github_repo):
+        raise HTTPException(
+            status_code=400, detail="Invalid repository format. Use: owner/repo"
+        )
+
+    try:
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if not project_id:
+            raise HTTPException(status_code=500, detail="GCP_PROJECT_ID not configured")
+
+        # Update Secret Manager
+        try:
+            result = subprocess.run(
+                [
+                    "gcloud",
+                    "secrets",
+                    "versions",
+                    "add",
+                    "GITHUB_REPO",
+                    "--data-file=-",
+                    "--project",
+                    project_id,
+                ],
+                input=github_repo.encode(),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Failed to update secret: {result.stderr}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to update Secret Manager: {result.stderr}",
+                )
+
+            logger.info(f"✅ Updated GITHUB_REPO secret: {github_repo}")
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=500,
+                detail="gcloud CLI not available. Cannot update Secret Manager.",
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(
+                status_code=500, detail="Timeout updating Secret Manager"
+            )
+
+        # Update Cloud Run service
+        try:
+            result = subprocess.run(
+                [
+                    "gcloud",
+                    "run",
+                    "services",
+                    "update",
+                    "contextpilot-backend",
+                    "--region",
+                    "us-central1",
+                    "--project",
+                    project_id,
+                    "--set-secrets",
+                    "GITHUB_REPO=GITHUB_REPO:latest",
+                    "--quiet",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"Failed to update Cloud Run service: {result.stderr}")
+                # Don't fail if Cloud Run update fails - secret is already updated
+                return {
+                    "status": "partial_success",
+                    "message": f"Secret updated to {github_repo}, but Cloud Run update failed. Please update manually.",
+                    "github_repo": github_repo,
+                    "error": result.stderr,
+                }
+
+            logger.info(f"✅ Updated Cloud Run service with GITHUB_REPO: {github_repo}")
+
+            return {
+                "status": "success",
+                "message": f"GITHUB_REPO updated to {github_repo}",
+                "github_repo": github_repo,
+            }
+        except FileNotFoundError:
+            return {
+                "status": "partial_success",
+                "message": f"Secret updated to {github_repo}, but gcloud CLI not available to update Cloud Run.",
+                "github_repo": github_repo,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "status": "partial_success",
+                "message": f"Secret updated to {github_repo}, but Cloud Run update timed out.",
+                "github_repo": github_repo,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating GITHUB_REPO config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update configuration: {str(e)}"
+        )
+
+
 @app.get("/agents/status")
 def get_agents_status(workspace_id: str = Query(default="default")):
     """
@@ -878,7 +1013,6 @@ def get_agents_status(workspace_id: str = Query(default="default")):
 
     try:
         from app.agents.agent_orchestrator import AgentOrchestrator
-        from datetime import datetime, timezone
 
         # Get workspace path
         workspace_path = get_workspace_path(workspace_id)
@@ -1027,67 +1161,68 @@ def get_agents_status(workspace_id: str = Query(default="default")):
 def reset_agent_metrics(agent_id: str, workspace_id: str = Query(default="default")):
     """
     Reset metrics for a specific agent (clear errors, events_processed, etc.).
-    
+
     Useful for clearing persistent error states.
     """
-    logger.info(f"POST /agents/{agent_id}/reset-metrics called for workspace: {workspace_id}")
-    
+    logger.info(
+        f"POST /agents/{agent_id}/reset-metrics called for workspace: {workspace_id}"
+    )
+
     try:
         from app.agents.agent_orchestrator import AgentOrchestrator
-        
+
         # Get workspace path
         workspace_path = get_workspace_path(workspace_id)
-        
+
         # Initialize orchestrator
         orchestrator = AgentOrchestrator(
             workspace_id=workspace_id, workspace_path=str(workspace_path)
         )
-        
+
         # Initialize agents
         orchestrator.initialize_agents()
-        
+
         # Get the specific agent
         agent = orchestrator.agents.get(agent_id)
         if not agent:
             raise HTTPException(
-                status_code=404, 
-                detail=f"Agent '{agent_id}' not found. Available: {list(orchestrator.agents.keys())}"
+                status_code=404,
+                detail=f"Agent '{agent_id}' not found. Available: {list(orchestrator.agents.keys())}",
             )
-        
+
         # Reset metrics in agent state
         if hasattr(agent, "state") and "metrics" in agent.state:
             agent.state["metrics"] = {
                 "events_processed": 0,
                 "events_published": 0,
-                "errors": 0
+                "errors": 0,
             }
             agent._save_state()
             logger.info(f"[agents/reset-metrics] Reset metrics for {agent_id}")
-            
+
             # Cleanup
             orchestrator.shutdown_agents()
-            
+
             return {
                 "success": True,
                 "agent_id": agent_id,
                 "message": f"Metrics reset for {agent_id}",
-                "metrics": agent.state["metrics"]
+                "metrics": agent.state["metrics"],
             }
         else:
             # Cleanup
             orchestrator.shutdown_agents()
             raise HTTPException(
                 status_code=400,
-                detail=f"Agent '{agent_id}' does not have metrics state"
+                detail=f"Agent '{agent_id}' does not have metrics state",
             )
-            
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error resetting agent metrics: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reset metrics: {str(e)}"
+            status_code=500, detail=f"Failed to reset metrics: {str(e)}"
         )
 
 
@@ -1095,35 +1230,35 @@ def reset_agent_metrics(agent_id: str, workspace_id: str = Query(default="defaul
 def reset_all_agents_metrics(workspace_id: str = Query(default="default")):
     """
     Reset metrics for all agents in the workspace.
-    
+
     Useful for clearing all persistent error states.
     """
     logger.info(f"POST /agents/reset-metrics called for workspace: {workspace_id}")
-    
+
     try:
         from app.agents.agent_orchestrator import AgentOrchestrator
-        
+
         # Get workspace path
         workspace_path = get_workspace_path(workspace_id)
-        
+
         # Initialize orchestrator
         orchestrator = AgentOrchestrator(
             workspace_id=workspace_id, workspace_path=str(workspace_path)
         )
-        
+
         # Initialize agents
         orchestrator.initialize_agents()
-        
+
         reset_count = 0
         results = {}
-        
+
         for agent_id, agent in orchestrator.agents.items():
             try:
                 if hasattr(agent, "state") and "metrics" in agent.state:
                     agent.state["metrics"] = {
                         "events_processed": 0,
                         "events_published": 0,
-                        "errors": 0
+                        "errors": 0,
                     }
                     agent._save_state()
                     reset_count += 1
@@ -1134,23 +1269,22 @@ def reset_all_agents_metrics(workspace_id: str = Query(default="default")):
             except Exception as e:
                 logger.error(f"Error resetting metrics for {agent_id}: {e}")
                 results[agent_id] = f"error: {str(e)}"
-        
+
         # Cleanup
         orchestrator.shutdown_agents()
-        
+
         return {
             "success": True,
             "workspace_id": workspace_id,
             "reset_count": reset_count,
             "total_agents": len(results),
-            "results": results
+            "results": results,
         }
-        
+
     except Exception as e:
         logger.error(f"Error resetting all agent metrics: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reset metrics: {str(e)}"
+            status_code=500, detail=f"Failed to reset metrics: {str(e)}"
         )
 
 
@@ -1606,8 +1740,6 @@ async def get_context_summary(
 ):
     """Generate intelligent context summary for new chat sessions."""
     try:
-        from app.agents.spec_agent import SpecAgent
-
         # Get workspace path
         workspace_path = get_workspace_path(workspace_id)
         if not workspace_path:
@@ -1713,9 +1845,7 @@ async def approve_proposal_local(
 
 @app.post("/proposals/{proposal_id}/reject")
 async def reject_proposal_local(
-    proposal_id: str,
-    workspace_id: str = Query("default"),
-    payload: Any = Body("")
+    proposal_id: str, workspace_id: str = Query("default"), payload: Any = Body("")
 ):
     """Reject proposal (LOCAL mode - file-based storage)"""
     config = get_config()
@@ -1817,7 +1947,7 @@ async def trigger_agent_retrospective(
                 logger.warning("[API] LLM synthesis requested but no API key found")
 
         logger.info("[API] Starting retrospective process...")
-        
+
         # Set timeout to 840 seconds (14 minutes) to avoid Cloud Run timeout (900s)
         try:
             retrospective = await asyncio.wait_for(
@@ -1827,12 +1957,16 @@ async def trigger_agent_retrospective(
                     gemini_api_key=gemini_api_key,
                     trigger_topic=trigger_topic,
                 ),
-                timeout=840.0  # 14 minutes
+                timeout=840.0,  # 14 minutes
             )
-            logger.info(f"[API] Retrospective completed: {retrospective.get('retrospective_id')}")
+            logger.info(
+                f"[API] Retrospective completed: {retrospective.get('retrospective_id')}"
+            )
             return {"status": "success", "retrospective": retrospective}
         except asyncio.TimeoutError:
-            logger.warning("[API] Retrospective timeout after 14 minutes - process may continue in background")
+            logger.warning(
+                "[API] Retrospective timeout after 14 minutes - process may continue in background"
+            )
             # Even if timeout, the proposal might have been created
             return {
                 "status": "timeout",
@@ -1931,19 +2065,22 @@ async def get_retrospective(
 @app.get("/agents/retrospective/status")
 async def get_retrospective_status(
     workspace_id: str = Query("default"),
-    since: Optional[str] = Query(None, description="ISO timestamp to check for new retrospectives/proposals since")
+    since: Optional[str] = Query(
+        None,
+        description="ISO timestamp to check for new retrospectives/proposals since",
+    ),
 ):
     """
     Get status of the latest retrospective and proposal.
-    
+
     Useful for polling to detect when a retrospective completes and creates a new proposal.
     The frontend can use this to trigger a page reload after approving a proposal and
     waiting for the retrospective to complete.
-    
+
     Args:
         workspace_id: Workspace identifier
         since: Optional ISO timestamp - only return retrospectives/proposals created after this time
-    
+
     Returns:
         {
             "latest_retrospective": {
@@ -1961,19 +2098,21 @@ async def get_retrospective_status(
             "has_new_proposal": true/false  # If since timestamp provided
         }
     """
-    logger.info(f"GET /agents/retrospective/status - workspace: {workspace_id}, since: {since}")
+    logger.info(
+        f"GET /agents/retrospective/status - workspace: {workspace_id}, since: {since}"
+    )
 
     try:
         workspace_path = get_workspace_path(workspace_id)
         retro_dir = Path(workspace_path) / "retrospectives"
         proposals_dir = Path(workspace_path) / "proposals"
-        
+
         result = {
             "latest_retrospective": None,
             "latest_proposal": None,
-            "has_new_proposal": False
+            "has_new_proposal": False,
         }
-        
+
         # Get latest retrospective
         if retro_dir.exists():
             retro_files = sorted(retro_dir.glob("*.json"), reverse=True)
@@ -1981,30 +2120,33 @@ async def get_retrospective_status(
                 try:
                     with open(retro_files[0], "r") as f:
                         retro = json.load(f)
-                    
+
                     retro_timestamp = retro.get("timestamp", "")
                     if since and retro_timestamp:
                         # Check if retrospective is newer than 'since'
-                        from datetime import datetime
                         try:
-                            retro_dt = datetime.fromisoformat(retro_timestamp.replace('Z', '+00:00'))
-                            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                            retro_dt = datetime.fromisoformat(
+                                retro_timestamp.replace("Z", "+00:00")
+                            )
+                            since_dt = datetime.fromisoformat(
+                                since.replace("Z", "+00:00")
+                            )
                             if retro_dt <= since_dt:
                                 # No new retrospective
                                 pass
                         except:
                             pass
-                    
+
                     proposal_id = retro.get("proposal_id")
                     result["latest_retrospective"] = {
                         "retrospective_id": retro.get("retrospective_id"),
                         "timestamp": retro_timestamp,
                         "proposal_id": proposal_id,
-                        "has_proposal": bool(proposal_id)
+                        "has_proposal": bool(proposal_id),
                     }
                 except Exception as e:
                     logger.error(f"Error reading latest retrospective: {e}")
-        
+
         # Get latest proposal
         proposals = []
         if proposals_dir.exists():
@@ -2013,30 +2155,31 @@ async def get_retrospective_status(
             proposals_path = Path(workspace_path) / "proposals.json"
             if proposals_path.exists():
                 proposals = _read_proposals(proposals_path)
-        
+
         if proposals:
             # Sort by created_at
             proposals.sort(key=lambda p: p.get("created_at", ""), reverse=True)
             latest_proposal = proposals[0]
-            
+
             result["latest_proposal"] = {
                 "proposal_id": latest_proposal.get("id"),
                 "created_at": latest_proposal.get("created_at"),
                 "status": latest_proposal.get("status"),
-                "title": latest_proposal.get("title", "")
+                "title": latest_proposal.get("title", ""),
             }
-            
+
             # Check if there's a new proposal since 'since' timestamp
             if since and latest_proposal.get("created_at"):
                 try:
-                    from datetime import datetime
-                    proposal_dt = datetime.fromisoformat(latest_proposal["created_at"].replace('Z', '+00:00'))
-                    since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                    proposal_dt = datetime.fromisoformat(
+                        latest_proposal["created_at"].replace("Z", "+00:00")
+                    )
+                    since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
                     if proposal_dt > since_dt:
                         result["has_new_proposal"] = True
                 except:
                     pass
-        
+
         return result
 
     except Exception as e:
@@ -2045,7 +2188,7 @@ async def get_retrospective_status(
             "latest_retrospective": None,
             "latest_proposal": None,
             "has_new_proposal": False,
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -2190,37 +2333,42 @@ async def development_implement_from_retrospective(
 
 @app.post("/workspace/create")
 async def create_workspace_endpoint(
-    workspace_id: str = Body("default"),
-    workspace_name: str = Body("Default Workspace")
+    workspace_id: str = Body("default"), workspace_name: str = Body("Default Workspace")
 ):
     """Create a new workspace."""
     logger.info(f"POST /workspace/create - workspace: {workspace_id}")
-    
+
     try:
         from app.utils.workspace_manager import create_workspace
-        
+
         # Create workspace directory
-        workspace_path = os.path.join("/app", ".contextpilot", "workspaces", workspace_id)
+        workspace_path = os.path.join(
+            "/app", ".contextpilot", "workspaces", workspace_id
+        )
         os.makedirs(workspace_path, exist_ok=True)
-        
+
         # Create basic workspace files
         meta_file = os.path.join(workspace_path, "meta.json")
         with open(meta_file, "w") as f:
-            json.dump({
-                "workspace_id": workspace_id,
-                "name": workspace_name,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "status": "active"
-            }, f, indent=2)
-        
+            json.dump(
+                {
+                    "workspace_id": workspace_id,
+                    "name": workspace_name,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "active",
+                },
+                f,
+                indent=2,
+            )
+
         logger.info(f"Workspace created: {workspace_path}")
         return {
             "status": "success",
             "workspace_id": workspace_id,
             "workspace_path": workspace_path,
-            "message": f"Workspace '{workspace_id}' created successfully"
+            "message": f"Workspace '{workspace_id}' created successfully",
         }
-        
+
     except Exception as e:
         logger.error(f"Error creating workspace: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

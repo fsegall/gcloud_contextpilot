@@ -156,20 +156,20 @@ export async function approveProposal(
       async (progress) => {
         progress.report({ message: 'Applying diff to files...' });
         
-        for (const change of proposal.proposed_changes) {
-          const filePath = path.join(workspaceRoot, change.file_path);
+        for (const change of proposal.proposedChanges) {
+          const filePath = path.join(workspaceRoot, change.filePath);
           
-          if (change.change_type === 'delete') {
+          if (change.changeType === 'delete') {
             if (fs.existsSync(filePath)) {
               await fs.promises.unlink(filePath);
-              console.log(`[approveProposal] Deleted: ${change.file_path}`);
+              console.log(`[approveProposal] Deleted: ${change.filePath}`);
             }
           } else {
             // Create or update file
             await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
             const content = change.after || '';
             await fs.promises.writeFile(filePath, content, 'utf-8');
-            console.log(`[approveProposal] ${change.change_type}: ${change.file_path}`);
+            console.log(`[approveProposal] ${change.changeType}: ${change.filePath}`);
           }
         }
         
@@ -185,7 +185,7 @@ ${proposal.description}
 
 Applied by ContextPilot Extension.
 Proposal-ID: ${proposalId}
-Agent: ${proposal.agent_id}`;
+Agent: ${proposal.agentId}`;
         
         const commitResult = await git.commit(commitMsg);
         console.log(`[approveProposal] Committed: ${commitResult.commit}`);
@@ -211,7 +211,7 @@ Agent: ${proposal.agent_id}`;
       try {
         const status = await service.getRetrospectiveStatus(workspaceId, startTime);
         
-        if (status.has_new_proposal && status.latest_proposal) {
+        if (status.hasNewProposal && status.latestProposal) {
           clearInterval(pollInterval);
           
           // Force refresh of proposals tree
@@ -221,7 +221,7 @@ Agent: ${proposal.agent_id}`;
           
           // Show notification and reload window
           const action = await vscode.window.showInformationMessage(
-            `🎉 Nova proposta criada após retrospectiva: ${status.latest_proposal.title}`,
+            `🎉 Nova proposta criada após retrospectiva: ${status.latestProposal.title}`,
             'Recarregar Janela'
           );
           
@@ -440,12 +440,12 @@ export async function viewProposalDiff(
     let content = proposal.diff?.content || '';
     
     if (!content) {
-      // Fallback: generate pseudo-diff from proposed_changes
+      // Fallback: generate pseudo-diff from proposedChanges
       content = `# ${proposal.title}\n\n${proposal.description}\n\n`;
       content += `## Proposed Changes:\n\n`;
       
-      for (const change of proposal.proposed_changes) {
-        content += `### ${change.file_path} (${change.change_type})\n\n`;
+      for (const change of proposal.proposedChanges) {
+        content += `### ${change.filePath} (${change.changeType})\n\n`;
         content += `${change.description}\n\n`;
         
         if (change.diff) {
@@ -533,8 +533,8 @@ export async function viewProposalChange(
   try {
     const proposal = await service.getProposal(proposalId);
     const targetChange =
-      proposal?.proposed_changes.find(
-        (c) => c.file_path === change.file_path && c.change_type === change.change_type
+      proposal?.proposedChanges.find(
+        (c: ProposedChange) => c.filePath === change.filePath && c.changeType === change.changeType
       ) || change;
 
     if (!targetChange) {
@@ -542,7 +542,7 @@ export async function viewProposalChange(
       return;
     }
 
-    const languageId = inferLanguageId(targetChange.file_path);
+    const languageId = inferLanguageId(targetChange.filePath);
 
     if (targetChange.diff) {
       const doc = await vscode.workspace.openTextDocument({
@@ -570,7 +570,7 @@ export async function viewProposalChange(
         'vscode.diff',
         beforeDoc.uri,
         afterDoc.uri,
-        `${targetChange.file_path} (${targetChange.change_type})`
+        `${targetChange.filePath} (${targetChange.changeType})`
       );
       return;
     }
@@ -724,16 +724,16 @@ async function askClaudeToReview(
     ? `## Workspace Artifacts\n${artifactSections.join('\n\n')}`
     : '';
 
-  const filesAffected = proposal.proposed_changes
-    .map(c => `- **${c.file_path}** (${c.change_type}): ${c.description}`)
+  const filesAffected = proposal.proposedChanges
+    .map((c: ProposedChange) => `- **${c.filePath}** (${c.changeType}): ${c.description}`)
     .join('\n');
 
-  const fallbackDiff = proposal.proposed_changes
-    .map((c) => {
+  const fallbackDiff = proposal.proposedChanges
+    .map((c: ProposedChange) => {
       if (c.diff) { return c.diff; }
-      if (c.after) { return `+++ ${c.file_path}\n${c.after}`; }
-      if (c.before) { return `--- ${c.file_path}\n${c.before}`; }
-      return `# ${c.change_type.toUpperCase()} ${c.file_path}`;
+      if (c.after) { return `+++ ${c.filePath}\n${c.after}`; }
+      if (c.before) { return `--- ${c.filePath}\n${c.before}`; }
+      return `# ${c.changeType.toUpperCase()} ${c.filePath}`;
     })
     .join('\n\n');
 
@@ -745,42 +745,98 @@ async function askClaudeToReview(
     `## Proposed Changes\n\n\`\`\`diff\n${diffContent}\n\`\`\`\n\n## Files Affected\n${filesAffected || '- (none listed)'}`
   ].filter(Boolean).join('\n\n');
 
-  const context = `# Review Change Proposal #${proposal.id}\n\n**Title:** ${proposal.title}\n**Description:** ${proposal.description}\n**Agent:** ${proposal.agent_id}\n\n${promptBody}\n`;
+  const context = `# Review Change Proposal #${proposal.id}\n\n**Title:** ${proposal.title}\n**Description:** ${proposal.description}\n**Agent:** ${proposal.agentId}\n\n${promptBody}\n`;
 
+  // Always copy to clipboard first
+  await vscode.env.clipboard.writeText(context);
+
+  // Get list of available commands once and filter out non-existent commands
+  let availableCommands: string[] = [];
   try {
-    const chatOptions = {
-      prompt: context,
-      sessionId: contextPilotChatSessionId
-    };
-
-    const result = await vscode.commands.executeCommand(
-      'workbench.action.chat.open',
-      chatOptions
+    availableCommands = await vscode.commands.getCommands();
+    console.log('[ContextPilot] Available commands count:', availableCommands.length);
+    
+    // Log chat-related commands that exist
+    const chatRelatedCommands = availableCommands.filter(cmd => 
+      cmd.includes('chat') || cmd.includes('cursor')
     );
-
-    if (result && typeof result === 'object' && 'sessionId' in result) {
-      contextPilotChatSessionId = (result as any).sessionId;
-    }
-
-    await vscode.env.clipboard.writeText(context);
-
-    if (!usedReviewPanel) {
-      vscode.window.showInformationMessage(
-        '🤖 Chat opened with review context. If not auto-filled, paste from clipboard (Cmd+V).'
-      );
-    }
+    console.log('[ContextPilot] Chat-related commands found:', chatRelatedCommands);
   } catch (error) {
-    await vscode.env.clipboard.writeText(context);
+    console.log('[ContextPilot] Could not get commands list:', error);
+  }
 
-    const result = await vscode.window.showInformationMessage(
-      '📋 Review context copied to clipboard! Open Cursor Chat and paste to ask Claude.',
-      'Open Chat',
-      'OK'
-    );
+  // Filter chat commands to only include those that exist
+  const allChatCommands = [
+    { cmd: 'workbench.action.chat.open', args: [{ prompt: context, sessionId: contextPilotChatSessionId }] },
+    { cmd: 'workbench.action.chat.open', args: [context] },
+    { cmd: 'workbench.action.chat.newChat', args: [{ prompt: context }] },
+    { cmd: 'workbench.action.chat.openChat', args: [context] },
+    { cmd: 'cursor.chat.open', args: [{ prompt: context }] },
+    { cmd: 'cursor.chat.newChat', args: [context] },
+    { cmd: 'workbench.action.chat.open', args: [] },
+  ];
 
-    if (result === 'Open Chat') {
-      await vscode.commands.executeCommand('workbench.action.chat.open');
+  // Only try commands that exist (if we have the list)
+  const chatCommands = availableCommands.length > 0
+    ? allChatCommands.filter(({ cmd }) => {
+        const exists = availableCommands.includes(cmd);
+        console.log(`[ContextPilot] Command ${cmd} exists:`, exists);
+        return exists;
+      })
+    : []; // If we can't get the list, don't try any commands to avoid errors
+  
+  console.log('[ContextPilot] Filtered chat commands to try:', chatCommands.map(c => c.cmd));
+
+  let chatOpened = false;
+  for (const { cmd, args } of chatCommands) {
+    try {
+      // Try executing the command with arguments
+      const result = await vscode.commands.executeCommand(cmd, ...args);
+
+      if (result && typeof result === 'object' && 'sessionId' in result) {
+        contextPilotChatSessionId = (result as any).sessionId;
+      }
+
+      chatOpened = true;
+      
+      // If chat opened but context might not be injected via args, try to paste from clipboard
+      const contextInjected = args.length > 0 && 
+        (args[0] === context || 
+         (typeof args[0] === 'object' && args[0]?.prompt === context));
+      
+      if (!contextInjected) {
+        // Wait a bit for chat to open and focus on input
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // Try to paste from clipboard into the chat input
+        try {
+          await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+          console.log('[ContextPilot] Context pasted into chat input');
+        } catch (pasteError) {
+          // If paste doesn't work, clipboard is already set and user can paste manually
+          console.log('[ContextPilot] Could not paste automatically, clipboard ready for manual paste');
+        }
+      }
+      
+      if (!usedReviewPanel) {
+        vscode.window.showInformationMessage(
+          '🤖 Chat opened with review context. If not auto-filled, paste from clipboard (Cmd+V / Ctrl+V).'
+        );
+      }
+      break;
+    } catch (error: any) {
+      // Log the error but continue trying other commands
+      console.log(`[ContextPilot] Command ${cmd} failed: ${error.message}`);
+      continue;
     }
+  }
+
+  // If no chat command worked, show message with clipboard
+  if (!chatOpened) {
+    vscode.window.showInformationMessage(
+      '📋 Review context copied to clipboard! Please open Cursor Chat manually (Cmd+L / Ctrl+L) and paste (Cmd+V / Ctrl+V) to ask Claude.',
+      { modal: false }
+    );
   }
 }
 
@@ -797,7 +853,7 @@ export function resetChatSession(): void {
 }
 
 async function showProposalFiles(proposal: ChangeProposal): Promise<void> {
-  const files = proposal.proposed_changes.map(c => c.file_path);
+  const files = proposal.proposedChanges.map((c: ProposedChange) => c.filePath);
   
   const selected = await vscode.window.showQuickPick(files, {
     placeHolder: 'Select file to view'
@@ -893,10 +949,10 @@ export async function viewRelatedFiles(service: ContextPilotService, proposalId:
         const workspaceId = getWorkspaceId();
         
         // Add files from proposed changes
-        if (proposal.proposed_changes) {
-            for (const change of proposal.proposed_changes) {
-                if (change.file_path && !relatedFiles.includes(change.file_path)) {
-                    relatedFiles.push(change.file_path);
+        if (proposal.proposedChanges) {
+            for (const change of proposal.proposedChanges) {
+                if (change.filePath && !relatedFiles.includes(change.filePath)) {
+                    relatedFiles.push(change.filePath);
                 }
             }
         }

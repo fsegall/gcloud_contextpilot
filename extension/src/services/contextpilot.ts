@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import axios, { AxiosInstance } from 'axios';
 
 export interface ProposalDiff {
@@ -6,8 +7,8 @@ export interface ProposalDiff {
 }
 
 export interface ProposedChange {
-  file_path: string;
-  change_type: 'create' | 'update' | 'delete';
+  filePath: string;
+  changeType: 'create' | 'update' | 'delete';
   description: string;
   before?: string;
   after?: string;
@@ -16,17 +17,17 @@ export interface ProposedChange {
 
 export interface ChangeProposal {
   id: string;
-  agent_id: string;
-  workspace_id: string;
+  agentId: string;
+  workspaceId: string;
   title: string;
   description: string;
   diff: ProposalDiff;
-  proposed_changes: Array<ProposedChange>;
+  proposedChanges: Array<ProposedChange>;
   status: 'pending' | 'approved' | 'rejected';
-  created_at: string;
-  ai_review?: {
+  createdAt: string;
+  aiReview?: {
     model: string;
-    verdict: 'approve' | 'reject' | 'needs_changes';
+    verdict: 'approve' | 'reject' | 'needsChanges';
     reasoning: string;
     concerns: string[];
     suggestions: string[];
@@ -35,18 +36,60 @@ export interface ChangeProposal {
 
 export interface Balance {
   balance: number;
-  total_earned: number;
-  pending_rewards: number;
+  totalEarned: number;
+  pendingRewards: number;
   weeklyStreak?: number;
   achievements?: any[];
   rank?: number;
 }
 
 export interface AgentStatus {
-  agent_id: string;
+  agentId: string;
   name: string;
   status: 'active' | 'idle' | 'error';
-  last_activity: string;
+  lastActivity: string;
+}
+
+// Helper functions to convert API responses (snake_case) to camelCase
+function convertProposedChange(change: any): ProposedChange {
+  return {
+    filePath: change.file_path || change.filePath,
+    changeType: change.change_type || change.changeType,
+    description: change.description,
+    before: change.before,
+    after: change.after,
+    diff: change.diff
+  };
+}
+
+function convertChangeProposal(proposal: any): ChangeProposal {
+  return {
+    id: proposal.id,
+    agentId: proposal.agent_id || proposal.agentId,
+    workspaceId: proposal.workspace_id || proposal.workspaceId,
+    title: proposal.title,
+    description: proposal.description,
+    diff: proposal.diff,
+    proposedChanges: (proposal.proposed_changes || proposal.proposedChanges || []).map(convertProposedChange),
+    status: proposal.status,
+    createdAt: proposal.created_at || proposal.createdAt,
+    aiReview: proposal.ai_review || proposal.aiReview ? {
+      model: (proposal.ai_review || proposal.aiReview).model,
+      verdict: (proposal.ai_review || proposal.aiReview).verdict === 'needs_changes' ? 'needsChanges' : (proposal.ai_review || proposal.aiReview).verdict,
+      reasoning: (proposal.ai_review || proposal.aiReview).reasoning,
+      concerns: (proposal.ai_review || proposal.aiReview).concerns || [],
+      suggestions: (proposal.ai_review || proposal.aiReview).suggestions || []
+    } : undefined
+  };
+}
+
+function convertAgentStatus(agent: any): AgentStatus {
+  return {
+    agentId: agent.agent_id || agent.agentId,
+    name: agent.name,
+    status: agent.status,
+    lastActivity: agent.last_activity || agent.lastActivity
+  };
 }
 
 export class ContextPilotService {
@@ -62,6 +105,7 @@ export class ContextPilotService {
       baseURL: apiUrl,
       timeout: 30000, // Increased for Cloud Run cold starts
       headers: {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         'Content-Type': 'application/json',
       },
     });
@@ -125,6 +169,7 @@ export class ContextPilotService {
       const [userProposals, systemProposals] = await Promise.all([
         // User's proposals
         this.client.get('/proposals/list', {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           params: { 
             workspace_id: this.workspaceId || 'contextpilot',
             user_id: this.userId,
@@ -136,6 +181,7 @@ export class ContextPilotService {
         }),
         // System proposals (from agents)
         this.client.get('/proposals/list', {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           params: { 
             workspace_id: this.workspaceId || 'contextpilot',
             user_id: 'system',
@@ -156,9 +202,12 @@ export class ContextPilotService {
       combined.forEach(p => uniqueMap.set(p.id, p));
       const arr = Array.from(uniqueMap.values());
       
-      console.log(`[ContextPilot] Fetched ${arr.length} proposals (${userArr.length} user + ${systemArr.length} system):`, 
-        arr.map((p: any) => ({ id: p.id, title: p.title, user_id: p.user_id })));
-      return arr;
+      // Convert API responses (snake_case) to camelCase
+      const converted = arr.map((p: any) => convertChangeProposal(p));
+      
+      console.log(`[ContextPilot] Fetched ${converted.length} proposals (${userArr.length} user + ${systemArr.length} system):`, 
+        converted.map((p: ChangeProposal) => ({ id: p.id, title: p.title, agentId: p.agentId })));
+      return converted;
     } catch (error) {
       console.error('Failed to fetch proposals:', error);
       return []; // Return empty array instead of throwing to avoid breaking the UI
@@ -169,10 +218,12 @@ export class ContextPilotService {
     try {
       console.log(`[ContextPilot] getProposal called with ID: ${proposalId}`);
       const response = await this.client.get(`/proposals/${proposalId}`, {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         params: { workspace_id: 'contextpilot' }
       });
       console.log(`[ContextPilot] getProposal response status: ${response.status}`);
-      return response.data;
+      // Convert API response (snake_case) to camelCase
+      return convertChangeProposal(response.data);
     } catch (error) {
       console.error('Failed to fetch proposal:', error);
       return null;
@@ -188,6 +239,7 @@ export class ContextPilotService {
       let response;
       if (isCloudMode) {
         // CLOUD mode: Send ProposalApprovalRequest object
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         response = await this.client.post(`/proposals/${proposalId}/approve`, {
           user_id: this.userId,
           comment: 'Approved via VS Code extension'
@@ -195,6 +247,7 @@ export class ContextPilotService {
       } else {
         // LOCAL mode: Send without body (only proposal_id in URL)
         response = await this.client.post(`/proposals/${proposalId}/approve`, null, {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           params: { workspace_id: this.workspaceId || 'contextpilot' }
         });
       }
@@ -216,6 +269,7 @@ export class ContextPilotService {
       
       if (isCloudMode) {
         // CLOUD mode: Send ProposalRejectionRequest object
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         await this.client.post(`/proposals/${proposalId}/reject`, {
           user_id: this.userId,
           reason: reason || 'Rejected by user'
@@ -223,6 +277,7 @@ export class ContextPilotService {
       } else {
         // LOCAL mode: Send reason as string directly with workspace param
         await this.client.post(`/proposals/${proposalId}/reject`, reason || 'Rejected by user', {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           params: { workspace_id: this.workspaceId || 'contextpilot' }
         });
       }
@@ -256,8 +311,8 @@ export class ContextPilotService {
     console.log(`[ContextPilot] Balance: ${totalPoints} CPT`);
     return {
       balance: totalPoints,
-      total_earned: totalPoints,
-      pending_rewards: pendingRewards,
+      totalEarned: totalPoints,
+      pendingRewards: pendingRewards,
       weeklyStreak: 0,
       achievements: [],
       rank: 999
@@ -277,9 +332,12 @@ export class ContextPilotService {
   async getAgentsStatus(): Promise<AgentStatus[]> {
     try {
       const response = await this.client.get('/agents/status', {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         params: { workspace_id: this.workspaceId || 'contextpilot' }
       });
-      return response.data;
+      // Convert API responses (snake_case) to camelCase
+      const agents = Array.isArray(response.data) ? response.data : [];
+      return agents.map((agent: any) => convertAgentStatus(agent));
     } catch (error) {
       console.error('Failed to fetch agents status:', error);
       return [];
@@ -291,11 +349,13 @@ export class ContextPilotService {
       if (agentId) {
         // Reset specific agent
         await this.client.post(`/agents/${agentId}/reset-metrics`, null, {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           params: { workspace_id: this.workspaceId || 'contextpilot' }
         });
       } else {
         // Reset all agents
         await this.client.post('/agents/reset-metrics', null, {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
           params: { workspace_id: this.workspaceId || 'contextpilot' }
         });
       }
@@ -308,6 +368,7 @@ export class ContextPilotService {
 
   async askCoach(question: string): Promise<string> {
     try {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
       const response = await this.client.post('/agents/coach/ask', {
         user_id: this.userId,
         question,
@@ -321,6 +382,7 @@ export class ContextPilotService {
 
   async commitContext(): Promise<void> {
     try {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
       await this.client.post('/context/commit', {
         user_id: this.userId,
         workspace_path: process.cwd(),
@@ -349,6 +411,7 @@ export class ContextPilotService {
   async getContextReal(workspaceId: string = 'default'): Promise<any> {
     try {
       const response = await this.client.get('/context', {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         params: { workspace_id: workspaceId }
       });
       console.log('[ContextPilot] Context loaded:', response.data);
@@ -362,6 +425,7 @@ export class ContextPilotService {
   async commitChangesReal(message: string, agent: string = 'extension', workspaceId: string = 'default'): Promise<boolean> {
     try {
       const response = await this.client.post('/commit', null, {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         params: {
           message,
           agent,
@@ -380,6 +444,7 @@ export class ContextPilotService {
   async getCoachTipReal(workspaceId: string = 'default'): Promise<string> {
     try {
       const response = await this.client.get('/coach', {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         params: { workspace_id: workspaceId }
       });
       return response.data.tip || 'No tips available';
@@ -391,11 +456,13 @@ export class ContextPilotService {
 
   async triggerRetrospective(workspaceId: string = 'default', topic?: string): Promise<any> {
     try {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
       const response = await this.client.post('/agents/retrospective/trigger', {
         trigger: 'manual',
         trigger_topic: topic,  // The discussion topic for agents
         use_llm: true  // Enable AI-powered insights
       }, {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         params: { workspace_id: workspaceId },
         timeout: 900000 // Allow up to 15 minutes to match backend timeout
       });
@@ -411,6 +478,7 @@ export class ContextPilotService {
   async getMilestonesReal(workspaceId: string = 'default'): Promise<any[]> {
     try {
       const response = await this.client.get('/context/milestones', {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         params: { workspace_id: workspaceId }
       });
       return response.data.milestones || [];
@@ -421,34 +489,67 @@ export class ContextPilotService {
   }
 
   async getRetrospectiveStatus(workspaceId: string = 'default', since?: string): Promise<{
-    latest_retrospective: {
-      retrospective_id: string;
+    latestRetrospective: {
+      retrospectiveId: string;
       timestamp: string;
-      proposal_id?: string;
-      has_proposal: boolean;
+      proposalId?: string;
+      hasProposal: boolean;
     } | null;
-    latest_proposal: {
-      proposal_id: string;
-      created_at: string;
+    latestProposal: {
+      proposalId: string;
+      createdAt: string;
       status: string;
       title: string;
     } | null;
-    has_new_proposal: boolean;
+    hasNewProposal: boolean;
   }> {
     try {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
       const params: any = { workspace_id: workspaceId };
       if (since) {
         params.since = since;
       }
       const response = await this.client.get('/agents/retrospective/status', { params });
-      return response.data;
+      const data = response.data;
+      // Convert snake_case from API to camelCase
+      return {
+        latestRetrospective: data.latest_retrospective ? {
+          retrospectiveId: data.latest_retrospective.retrospective_id,
+          timestamp: data.latest_retrospective.timestamp,
+          proposalId: data.latest_retrospective.proposal_id,
+          hasProposal: data.latest_retrospective.has_proposal
+        } : null,
+        latestProposal: data.latest_proposal ? {
+          proposalId: data.latest_proposal.proposal_id,
+          createdAt: data.latest_proposal.created_at,
+          status: data.latest_proposal.status,
+          title: data.latest_proposal.title
+        } : null,
+        hasNewProposal: data.has_new_proposal || false
+      };
     } catch (error) {
       console.error('Failed to get retrospective status:', error);
       return {
-        latest_retrospective: null,
-        latest_proposal: null,
-        has_new_proposal: false
+        latestRetrospective: null,
+        latestProposal: null,
+        hasNewProposal: false
       };
+    }
+  }
+
+  async updateGitHubRepo(githubRepo: string): Promise<{ status: string; message: string; githubRepo?: string }> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      const response = await this.client.post('/admin/config/github-repo', { github_repo: githubRepo });
+      const data = response.data;
+      return {
+        status: data.status,
+        message: data.message,
+        githubRepo: data.github_repo
+      };
+    } catch (error: any) {
+      console.error('[ContextPilot] Error updating GitHub repo config:', error);
+      throw new Error(error.response?.data?.detail || error.message || 'Failed to update GitHub repository configuration');
     }
   }
 }
