@@ -212,10 +212,18 @@ class GitAgent(BaseAgent):
         proposal_id = data.get("proposal_id")
         workspace_id = data.get("workspace_id", self.workspace_id)
 
-        logger.info(f"[GitAgent] Proposal {proposal_id} approved in workspace {workspace_id}, applying changes...")
+        logger.info(f"[GitAgent] ========== PROPOSAL APPROVED EVENT ==========")
+        logger.info(f"[GitAgent] Proposal {proposal_id} approved in workspace {workspace_id}")
+        logger.info(f"[GitAgent] Event data keys: {list(data.keys())}")
+        
+        # Log environment detection
+        environment = os.getenv("ENVIRONMENT", "local")
+        use_pubsub = os.getenv("USE_PUBSUB", "false").lower() == "true"
+        logger.info(f"[GitAgent] Environment detection: ENVIRONMENT={environment}, USE_PUBSUB={use_pubsub}")
+        logger.info(f"[GitAgent] is_cloud_run = {self.is_cloud_run}")
         
         if not proposal_id:
-            logger.error("[GitAgent] No proposal_id in event data - cannot process")
+            logger.error("[GitAgent] ❌ No proposal_id in event data - cannot process")
             return
 
         # 1. Load proposal to get diff/changes
@@ -243,7 +251,8 @@ class GitAgent(BaseAgent):
         # 2. Always check environment mode (local vs Cloud Run)
         # This is critical: behavior differs based on environment
         mode_str = "Cloud Run" if self.is_cloud_run else "local"
-        logger.info(f"[GitAgent] Processing proposal in {mode_str} mode")
+        logger.info(f"[GitAgent] 🔍 Processing proposal in {mode_str} mode")
+        logger.info(f"[GitAgent] 🔍 is_cloud_run = {self.is_cloud_run} (ENVIRONMENT={os.getenv('ENVIRONMENT', 'local')}, USE_PUBSUB={os.getenv('USE_PUBSUB', 'false')})")
 
         # 3. Apply changes based on environment mode
         files_changed = []
@@ -252,23 +261,28 @@ class GitAgent(BaseAgent):
         if self.is_cloud_run:
             # Cloud Run mode: No git local available
             # Trigger GitHub Action workflow to apply changes remotely
-            logger.info(
-                f"[GitAgent] Cloud Run mode: Triggering GitHub Action workflow to apply changes"
-            )
+            logger.info(f"[GitAgent] 🚀 Cloud Run mode detected - triggering GitHub Action workflow")
+            logger.info(f"[GitAgent] 📋 Proposal object type: {type(proposal)}")
+            logger.info(f"[GitAgent] 📋 Proposal ID: {getattr(proposal, 'id', None) or (proposal.get('id') if isinstance(proposal, dict) else 'N/A')}")
+            
             github_action_result = await self._trigger_github_action(proposal)
+            
             if github_action_result:
                 status = github_action_result.get("status")
-                logger.info(
-                    f"[GitAgent] GitHub Action trigger result: {status}"
-                )
+                logger.info(f"[GitAgent] ✅ GitHub Action trigger completed with status: {status}")
+                logger.info(f"[GitAgent] 📋 Result details: {github_action_result}")
+                
                 if status == "error":
                     error_msg = github_action_result.get("message", "Unknown error")
-                    logger.warning(f"[GitAgent] GitHub Action trigger failed: {error_msg}")
+                    reason = github_action_result.get("reason", "unknown")
+                    logger.error(f"[GitAgent] ❌ GitHub Action trigger failed: {error_msg} (reason: {reason})")
+            else:
+                logger.warning(f"[GitAgent] ⚠️ GitHub Action trigger returned None (no result)")
         else:
             # Local mode: Git is available locally
             # Apply changes locally, commit, and push if needed
             # NO need to trigger GitHub Action (we have git access)
-            logger.info(f"[GitAgent] Local mode: Applying changes locally with git...")
+            logger.info(f"[GitAgent] 💻 Local mode: Applying changes locally with git...")
             files_changed = await self._apply_proposal_changes(proposal_dict)
             logger.info(f"[GitAgent] Applied changes to {len(files_changed)} files")
 

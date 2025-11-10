@@ -121,7 +121,9 @@ echo ""
 echo -e "${BLUE}2️⃣ Building Docker image...${NC}"
 cd "$(dirname "$0")/../../back-end"
 
-docker build -t $IMAGE_NAME:latest .
+# Force rebuild without cache to ensure latest code is included
+echo -e "${YELLOW}⚠️  Building without cache to ensure latest code changes are included...${NC}"
+docker build --no-cache -t $IMAGE_NAME:latest .
 
 echo -e "${GREEN}✓${NC} Image built successfully"
 
