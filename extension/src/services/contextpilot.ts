@@ -252,18 +252,22 @@ export class ContextPilotService {
   async getBalance(): Promise<Balance> {
     try {
       // Use real rewards endpoint
-      const response = await this.client.get(`/rewards/balance/${this.userId}`);
-      console.log(`[ContextPilot] Balance: ${response.data.total_points} CPT`);
+      const response = await this.client.get(`/rewards/balance/${this.userId}`, {
+        timeout: 10000 // Fail fast so dashboard load isn't blocked
+      });
+      const totalPoints = response.data?.total_points ?? 0;
+      const pendingRewards = response.data?.pending_blockchain ?? 0;
+      console.log(`[ContextPilot] Balance: ${totalPoints} CPT`);
       return {
-        balance: response.data.total_points,
-        total_earned: response.data.total_points,
-        pending_rewards: response.data.pending_blockchain,
+        balance: totalPoints,
+        total_earned: totalPoints,
+        pending_rewards: pendingRewards,
         weeklyStreak: 0, // Not available in API yet
         achievements: [], // Not available in API yet
         rank: 999 // Not available in API yet
       };
     } catch (error) {
-      console.error('Failed to fetch balance:', error);
+      console.warn('[ContextPilot] Balance endpoint unavailable, using fallback.', error);
       return { balance: 0, total_earned: 0, pending_rewards: 0 };
     }
   }
