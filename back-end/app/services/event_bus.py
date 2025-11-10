@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import uuid
+import json
+import os
 from collections import defaultdict
 from datetime import datetime, timezone
 from enum import Enum
@@ -39,11 +41,13 @@ class Topics(str, Enum):
 
 
 class EventBusInterface(Protocol):
-    def subscribe(self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]) -> None:
-        ...
+    def subscribe(
+        self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]
+    ) -> None: ...
 
-    def unsubscribe(self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]) -> None:
-        ...
+    def unsubscribe(
+        self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]
+    ) -> None: ...
 
     async def publish(
         self,
@@ -53,21 +57,20 @@ class EventBusInterface(Protocol):
         source: str,
         data: Dict[str, Any],
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        ...
+    ) -> str: ...
 
-    def get_event_log(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        ...
+    def get_event_log(self, limit: Optional[int] = None) -> List[Dict[str, Any]]: ...
 
-    def reset(self) -> None:
-        ...
+    def reset(self) -> None: ...
 
 
 class InMemoryEventBus(EventBusInterface):
     """Simple in-memory event bus for development and local testing."""
 
     def __init__(self, max_log_size: int = 500) -> None:
-        self._subscribers: Dict[str, List[Callable[[str, Dict[str, Any]], Any]]] = defaultdict(list)
+        self._subscribers: Dict[str, List[Callable[[str, Dict[str, Any]], Any]]] = (
+            defaultdict(list)
+        )
         self._event_log: List[Dict[str, Any]] = []
         self._max_log_size = max_log_size
         self._lock = asyncio.Lock()
@@ -75,15 +78,27 @@ class InMemoryEventBus(EventBusInterface):
     # ------------------------------------------------------------------
     # Subscription management
     # ------------------------------------------------------------------
-    def subscribe(self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]) -> None:
+    def subscribe(
+        self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]
+    ) -> None:
         if handler not in self._subscribers[event_type]:
             self._subscribers[event_type].append(handler)
-            logger.debug("Subscribed handler %s to %s", getattr(handler, "__name__", handler), event_type)
+            logger.debug(
+                "Subscribed handler %s to %s",
+                getattr(handler, "__name__", handler),
+                event_type,
+            )
 
-    def unsubscribe(self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]) -> None:
+    def unsubscribe(
+        self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]
+    ) -> None:
         if handler in self._subscribers[event_type]:
             self._subscribers[event_type].remove(handler)
-            logger.debug("Unsubscribed handler %s from %s", getattr(handler, "__name__", handler), event_type)
+            logger.debug(
+                "Unsubscribed handler %s from %s",
+                getattr(handler, "__name__", handler),
+                event_type,
+            )
 
     # ------------------------------------------------------------------
     # Publish
@@ -115,10 +130,17 @@ class InMemoryEventBus(EventBusInterface):
 
         handlers = list(self._subscribers.get(event_type, []))
         if not handlers:
-            logger.debug("No subscribers for event %s", event_type)
+            logger.warning(
+                "⚠️ No subscribers for event %s - event will be lost! (InMemoryEventBus requires agents to be initialized before publishing)",
+                event_type,
+            )
+            # Note: With Pub/Sub, events are persistent and agents pull from subscriptions
+            # With InMemoryEventBus, agents must be initialized and subscribed before events are published
             return event_id
 
-        async def _execute_handler(handler: Callable[[str, Dict[str, Any]], Any]) -> None:
+        async def _execute_handler(
+            handler: Callable[[str, Dict[str, Any]], Any],
+        ) -> None:
             try:
                 if asyncio.iscoroutinefunction(handler):
                     await handler(event_type, data)
@@ -133,7 +155,9 @@ class InMemoryEventBus(EventBusInterface):
                     exc_info=True,
                 )
 
-        await asyncio.gather(*[_execute_handler(handler) for handler in handlers], return_exceptions=True)
+        await asyncio.gather(
+            *[_execute_handler(handler) for handler in handlers], return_exceptions=True
+        )
         return event_id
 
     # ------------------------------------------------------------------
@@ -149,7 +173,102 @@ class InMemoryEventBus(EventBusInterface):
         self._event_log.clear()
 
 
-_event_bus_instance: Optional[InMemoryEventBus] = None
+class PubSubEventBus(EventBusInterface):
+    """
+    Google Cloud Pub/Sub event bus for production.
+    Events are published to GCP Pub/Sub topics and agents pull from subscriptions.
+    """
+
+    def __init__(self, project_id: str, max_log_size: int = 500):
+        try:
+            from google.cloud import pubsub_v1
+
+            self.publisher = pubsub_v1.PublisherClient()
+            self.subscriber = pubsub_v1.SubscriberClient()
+            self.project_id = project_id
+            self._subscribers: Dict[str, List[Callable[[str, Dict[str, Any]], Any]]] = (
+                defaultdict(list)
+            )
+            self._event_log: List[Dict[str, Any]] = []
+            self._max_log_size = max_log_size
+            self._subscription_futures: List[Any] = []
+            self._listening = False
+            logger.info(f"[PubSubEventBus] Initialized for project: {project_id}")
+        except ImportError:
+            logger.error("[PubSubEventBus] google-cloud-pubsub not installed")
+            raise
+
+    def subscribe(
+        self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]
+    ) -> None:
+        """Register handler for event type (local registry for Pub/Sub messages)"""
+        if handler not in self._subscribers[event_type]:
+            self._subscribers[event_type].append(handler)
+            logger.info(f"[PubSubEventBus] Registered handler for {event_type}")
+
+    def unsubscribe(
+        self, event_type: str, handler: Callable[[str, Dict[str, Any]], Any]
+    ) -> None:
+        """Unregister handler"""
+        if handler in self._subscribers[event_type]:
+            self._subscribers[event_type].remove(handler)
+            logger.debug(f"[PubSubEventBus] Unregistered handler from {event_type}")
+
+    async def publish(
+        self,
+        *,
+        topic: str,
+        event_type: str,
+        source: str,
+        data: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Publish event to Pub/Sub topic"""
+        topic_path = self.publisher.topic_path(self.project_id, topic)
+
+        event_payload = {
+            "event_id": f"evt-{uuid.uuid4().hex}",
+            "topic": topic,
+            "event_type": event_type,
+            "source": source,
+            "data": data,
+            "metadata": metadata or {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Log locally for debugging
+        self._event_log.append(event_payload)
+        if len(self._event_log) > self._max_log_size:
+            self._event_log = self._event_log[-self._max_log_size :]
+
+        # Publish to Pub/Sub
+        message_bytes = json.dumps(event_payload).encode("utf-8")
+        future = self.publisher.publish(topic_path, message_bytes)
+        message_id = future.result()  # Block until published
+
+        logger.info(
+            f"[PubSubEventBus] Published {event_type} to {topic} (msg_id: {message_id})"
+        )
+        return message_id
+
+    def get_event_log(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get local event log (for debugging)"""
+        if limit is None or limit >= len(self._event_log):
+            return list(self._event_log)
+        return self._event_log[-limit:]
+
+    def reset(self) -> None:
+        """Reset local state"""
+        self._subscribers.clear()
+        self._event_log.clear()
+        if self._listening:
+            for future in self._subscription_futures:
+                future.cancel()
+            self._subscription_futures.clear()
+            self._listening = False
+
+
+_event_bus_instance: Optional[EventBusInterface] = None
 
 
 def get_event_bus(
@@ -158,12 +277,52 @@ def get_event_bus(
     agent_id: Optional[str] = None,
     **_: Any,
 ) -> EventBusInterface:
-    """Return the singleton event bus instance."""
+    """
+    Return the singleton event bus instance.
 
+    Args:
+        project_id: GCP project ID (required for Pub/Sub)
+        force_in_memory: Force in-memory bus even if Pub/Sub is available
+        agent_id: Agent identifier (for logging)
+
+    Returns:
+        EventBus instance (Pub/Sub or in-memory based on USE_PUBSUB env var)
+    """
     global _event_bus_instance
-    if _event_bus_instance is None:
+
+    if _event_bus_instance is not None:
+        if agent_id:
+            logger.debug("EventBus requested by %s", agent_id)
+        return _event_bus_instance
+
+    # Determine which implementation to use
+    # Check both USE_PUBSUB and EVENT_BUS_MODE for compatibility
+    use_pubsub_env = os.getenv("USE_PUBSUB", "false").lower() == "true"
+    event_bus_mode = os.getenv("EVENT_BUS_MODE", "").lower().strip()
+    use_pubsub_mode = event_bus_mode == "pubsub"
+
+    use_pubsub = (
+        not force_in_memory
+        and project_id is not None
+        and (use_pubsub_env or use_pubsub_mode)
+    )
+
+    if use_pubsub:
+        try:
+            _event_bus_instance = PubSubEventBus(project_id)
+            logger.info(f"[EventBus] Using Google Pub/Sub (project: {project_id})")
+        except Exception as e:
+            logger.warning(
+                f"[EventBus] Pub/Sub init failed, falling back to in-memory: {e}",
+                exc_info=True,
+            )
+            _event_bus_instance = InMemoryEventBus()
+            logger.info("[EventBus] Using in-memory EventBus (fallback)")
+    else:
         _event_bus_instance = InMemoryEventBus()
-        logger.info("In-memory EventBus initialized (project_id=%s, in_memory=%s)", project_id, force_in_memory)
+        logger.info(
+            f"[EventBus] Using in-memory EventBus (force_in_memory={force_in_memory}, USE_PUBSUB={os.getenv('USE_PUBSUB', 'false')})"
+        )
 
     if agent_id:
         logger.debug("EventBus requested by %s", agent_id)
@@ -172,6 +331,7 @@ def get_event_bus(
 
 
 def reset_event_bus() -> None:
+    """Reset global event bus instance (for testing)"""
     global _event_bus_instance
     if _event_bus_instance is not None:
         _event_bus_instance.reset()

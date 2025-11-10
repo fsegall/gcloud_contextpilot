@@ -174,7 +174,8 @@ async def create_proposal(proposal: ChangeProposal = Body(...)):
         await proposals_col.document(proposal.id).set(proposal.model_dump(mode="json"))
 
         # Publish event
-        event_bus = get_event_bus()
+        project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+        event_bus = get_event_bus(project_id=project_id)
         await event_bus.publish(
             topic="proposals-events",
             event_type="proposal.created.v1",
@@ -407,7 +408,8 @@ async def approve_proposal(
             )
 
         # Publish event for Git Agent
-        event_bus = get_event_bus()
+        project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+        event_bus = get_event_bus(project_id=project_id)
         
         # Ensure Git Agent is initialized and subscribed before publishing
         # This is critical: if agent isn't initialized, event will be lost
@@ -534,7 +536,8 @@ async def reject_proposal(
         )
 
         # Publish event (agents can learn from this)
-        event_bus = get_event_bus()
+        project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+        event_bus = get_event_bus(project_id=project_id)
         await event_bus.publish(
             topic="proposals-events",
             event_type="proposal.rejected.v1",

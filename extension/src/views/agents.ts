@@ -24,8 +24,21 @@ export class AgentsProvider implements vscode.TreeDataProvider<AgentItem> {
       console.log('[AgentsProvider] health.config:', health?.config);
       // Backend returns config nested: { config: { event_bus_mode: "pubsub" } }
       const mode = health?.config?.event_bus_mode;
-      this.eventBusMode = typeof mode === 'string' && mode.length > 0 ? mode : 'unknown';
-      console.log('[AgentsProvider] eventBusMode set to:', this.eventBusMode);
+      // Normalize to lowercase for comparison (handles "pubsub", "Pub/Sub", "PUBSUB", etc.)
+      const normalizedMode = typeof mode === 'string' && mode.length > 0 
+        ? mode.toLowerCase().trim() 
+        : 'unknown';
+      
+      // Map common variations to standard values
+      if (normalizedMode === 'pubsub' || normalizedMode === 'pub/sub') {
+        this.eventBusMode = 'pubsub';
+      } else if (normalizedMode === 'in_memory' || normalizedMode === 'in-memory' || normalizedMode === 'memory') {
+        this.eventBusMode = 'in_memory';
+      } else {
+        this.eventBusMode = normalizedMode;
+      }
+      
+      console.log('[AgentsProvider] eventBusMode set to:', this.eventBusMode, '(from:', mode, ')');
       // Do NOT fire here to avoid refresh loops; refresh() controls repaint
     } catch (error) {
       console.error('[AgentsProvider] Failed to update event bus mode:', error);
