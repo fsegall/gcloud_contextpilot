@@ -94,12 +94,25 @@ class AgentOrchestrator:
                         workspace_path=str(self.workspace_path),
                         workspace_id=self.workspace_id,
                     )
-                elif agent_id in ["context", "coach", "milestone"]:
-                    # New agents need workspace_path and workspace_id
-                    agent = agent_class(
-                        workspace_path=str(self.workspace_path),
-                        workspace_id=self.workspace_id,
-                    )
+                elif agent_id == "context":
+                    # ContextAgent only needs project_id
+                    project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+                    if project_id:
+                        agent = agent_class(project_id=project_id)
+                    else:
+                        logger.warning(f"[Orchestrator] Cannot initialize {agent_id} agent: GCP_PROJECT_ID not set")
+                        continue
+                elif agent_id in ["coach", "milestone"]:
+                    # These agents may need workspace_path and workspace_id
+                    try:
+                        agent = agent_class(
+                            workspace_path=str(self.workspace_path),
+                            workspace_id=self.workspace_id,
+                        )
+                    except TypeError:
+                        # Try with just workspace_id if workspace_path not supported
+                        logger.warning(f"[Orchestrator] {agent_id} agent doesn't support workspace_path, trying workspace_id only")
+                        agent = agent_class(workspace_id=self.workspace_id)
                 else:
                     # Default: try both parameters
                     agent = agent_class(

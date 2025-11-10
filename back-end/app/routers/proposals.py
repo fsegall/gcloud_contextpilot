@@ -444,34 +444,19 @@ async def approve_proposal(
             logger.error(f"Failed to award reward: {e}")
             # Don't fail the approval if rewards fail
 
-        # Trigger GitHub Action via repository_dispatch webhook
-        try:
-            github_action_result = await trigger_github_action(proposal)
-        except Exception as github_error:
-            logger.error(
-                "❌ Failed to trigger GitHub Action for proposal %s: %s",
-                proposal_id,
-                github_error,
-            )
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to trigger GitHub Action: {github_error}",
-            )
-
+        # Note: GitHub Action trigger is now handled by Git Agent
+        # The event "proposal.approved.v1" is published above, and Git Agent will:
+        # 1. Trigger GitHub Action via repository_dispatch webhook
+        # 2. Apply changes locally (if in local mode)
+        # 3. Commit changes (if in local mode)
+        
         response_data = {
             "status": "approved",
             "proposal_id": proposal_id,
-            "message": "Proposal approved. Git Agent will apply changes.",
-            "github_action": github_action_result
+            "message": "Proposal approved. Git Agent will trigger GitHub Action and apply changes.",
         }
 
-        # Log the result
-        if github_action_result.get("status") == "success":
-            logger.info(f"✅ Proposal {proposal_id} approved and GitHub Action triggered")
-        elif github_action_result.get("status") == "skipped":
-            logger.warning(f"⚠️ Proposal {proposal_id} approved but GitHub Action skipped: {github_action_result.get('reason')}")
-        else:
-            logger.error(f"❌ Proposal {proposal_id} approved but GitHub Action failed: {github_action_result.get('message')}")
+        logger.info(f"✅ Proposal {proposal_id} approved - Git Agent will handle GitHub Action trigger")
 
         return response_data
 

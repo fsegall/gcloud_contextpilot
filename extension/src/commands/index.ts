@@ -747,8 +747,10 @@ async function askClaudeToReview(
 
   const context = `# Review Change Proposal #${proposal.id}\n\n**Title:** ${proposal.title}\n**Description:** ${proposal.description}\n**Agent:** ${proposal.agentId}\n\n${promptBody}\n`;
 
-  // Always copy to clipboard first
+  // Always copy to clipboard first - this ensures context is available even if chat doesn't open automatically
   await vscode.env.clipboard.writeText(context);
+  console.log('[askClaudeToReview] Context copied to clipboard. Length:', context.length, 'chars');
+  console.log('[askClaudeToReview] Context includes artifacts from:', workspaceContextDir);
 
   // Get list of available commands once and filter out non-existent commands
   let availableCommands: string[] = [];
@@ -833,10 +835,24 @@ async function askClaudeToReview(
 
   // If no chat command worked, show message with clipboard
   if (!chatOpened) {
+    const artifactCount = artifactSections.length;
+    const hasArtifacts = artifactCount > 0;
+    const artifactInfo = hasArtifacts 
+      ? ` (includes ${artifactCount} context artifact${artifactCount > 1 ? 's' : ''} from .contextpilot/workspaces/${workspaceId}/)`
+      : '';
+    
     vscode.window.showInformationMessage(
-      '📋 Review context copied to clipboard! Please open Cursor Chat manually (Cmd+L / Ctrl+L) and paste (Cmd+V / Ctrl+V) to ask Claude.',
+      `📋 Review context copied to clipboard!${artifactInfo} Please open Cursor Chat manually (Cmd+L / Ctrl+L) and paste (Cmd+V / Ctrl+V) to ask Claude with full context.`,
       { modal: false }
     );
+    console.log('[askClaudeToReview] Chat not opened automatically. Context is in clipboard and ready to paste.');
+    console.log('[askClaudeToReview] Artifacts loaded:', artifactCount, 'files');
+  } else if (!usedReviewPanel) {
+    // Chat opened, show info about artifacts
+    const artifactCount = artifactSections.length;
+    if (artifactCount > 0) {
+      console.log(`[askClaudeToReview] Chat opened with ${artifactCount} context artifacts included`);
+    }
   }
 }
 
@@ -1671,6 +1687,421 @@ milestones:
 `;
     default:
       return '# Context Artifact\n\nUpdate this file to keep agents informed.\n';
+  }
+}
+
+/**
+ * Initialize .contextpilot/ directory structure for a new project.
+ * This should be called when:
+ * - A new workspace is opened
+ * - git init is detected
+ * - User manually requests initialization
+ */
+export async function initializeContextPilot(workspaceId?: string): Promise<boolean> {
+  try {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage('No workspace folder open');
+      return false;
+    }
+
+    const targetWorkspaceId = workspaceId || getWorkspaceId();
+    const contextPilotDir = path.join(workspaceRoot, '.contextpilot', 'workspaces', targetWorkspaceId);
+    
+    // Check if already initialized
+    const checkpointPath = path.join(contextPilotDir, 'checkpoint.yaml');
+    if (fs.existsSync(checkpointPath)) {
+      console.log(`[initializeContextPilot] ContextPilot already initialized for workspace: ${targetWorkspaceId}`);
+      return true;
+    }
+
+    // Create directory structure
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(contextPilotDir));
+    const retrospectivesDir = path.join(contextPilotDir, 'retrospectives');
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(retrospectivesDir));
+
+    // Get project name from workspace folder or use workspaceId
+    const projectName = vscode.workspace.workspaceFolders?.[0]?.name || targetWorkspaceId;
+    const today = new Date().toISOString().slice(0, 10);
+    const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+
+    // Create checkpoint.yaml
+    const checkpointContent = `project_name: ${projectName}
+goal: ""
+current_status: ""
+milestones: []
+created_at: ${new Date().toISOString()}
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(checkpointPath),
+      Buffer.from(checkpointContent, 'utf-8')
+    );
+
+    // Create history.json
+    const historyPath = path.join(contextPilotDir, 'history.json');
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(historyPath),
+      Buffer.from('[]', 'utf-8')
+    );
+
+    // Create context.md
+    const contextPath = path.join(contextPilotDir, 'context.md');
+    const contextContent = `# 📄 ${projectName} — Contexto Atual
+
+## 🎯 Visão geral
+- Projeto: ${projectName}
+- Status: 
+- Objetivo: 
+
+## 🚀 Estado atual
+
+
+## 🟢 Próximos passos imediatos
+
+
+---
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(contextPath),
+      Buffer.from(contextContent, 'utf-8')
+    );
+
+    // Create timeline.md
+    const timelinePath = path.join(contextPilotDir, 'timeline.md');
+    const timelineContent = `# 🕒 ${projectName} — Timeline de contexto
+
+## ${new Date().toISOString().slice(0, 10)}
+- Projeto inicializado
+
+---
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(timelinePath),
+      Buffer.from(timelineContent, 'utf-8')
+    );
+
+    // Create milestones.md
+    const milestonesPath = path.join(contextPilotDir, 'milestones.md');
+    const milestonesContent = `# 🏁 ${projectName} — Milestones
+
+## ✅ Concluídos
+- 🟢 Projeto inicializado
+
+## 🔜 Próximos
+- 🌟 Definir milestones específicos do projeto
+- 📄 Documentar progresso
+
+---
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(milestonesPath),
+      Buffer.from(milestonesContent, 'utf-8')
+    );
+
+    // Create task_history.md
+    const taskHistoryPath = path.join(contextPilotDir, 'task_history.md');
+    const taskHistoryContent = `# 📋 ${projectName} — Task History
+
+## ${new Date().toISOString().slice(0, 10)}
+
+### ${new Date().toISOString()}
+- **Agent**: system
+- **Message**: Project initialized
+- **Commit**: (initial)
+
+---
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(taskHistoryPath),
+      Buffer.from(taskHistoryContent, 'utf-8')
+    );
+
+    // Create project_scope.md
+    const projectScopePath = path.join(contextPilotDir, 'project_scope.md');
+    const projectScopeContent = `# Project Scope
+
+**Last Updated:** ${today}  
+**Project:** ${projectName}
+
+## 🎯 Project Goal
+
+<!-- Define the primary objective of this project -->
+
+
+---
+
+## ✅ In Scope
+
+<!-- List features, capabilities, and deliverables that ARE part of this project -->
+
+
+---
+
+## ❌ Out of Scope
+
+<!-- List features, capabilities, and deliverables that are NOT part of this project -->
+
+
+---
+
+## 🎓 Success Criteria
+
+<!-- What does "done" look like? Define measurable criteria -->
+
+
+---
+
+## 🚧 Known Constraints
+
+<!-- Technical, time, or resource constraints -->
+
+
+---
+
+## 📊 Project Boundaries
+
+### What We Will Do
+
+
+### What We Won't Do (Yet)
+
+
+---
+
+## 🔄 Scope Change Process
+
+If you want to add something to scope:
+1. Document it here
+2. Update milestones accordingly
+3. Notify all agents (they will read this file)
+4. Consider impact on launch date
+
+---
+
+**Notes:**
+- This file is read by **Spec Agent** and **Strategy Agent**
+- Changes here will affect how agents make decisions
+- Keep this updated as project evolves
+
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(projectScopePath),
+      Buffer.from(projectScopeContent, 'utf-8')
+    );
+
+    // Create project_checklist.md
+    const projectChecklistPath = path.join(contextPilotDir, 'project_checklist.md');
+    const projectChecklistContent = `# Project Checklist
+
+**Project:** ${projectName}  
+**Progress:** 0/0 items (0% complete)  
+**Last Updated:** ${today}
+
+---
+
+## 📋 Phase 1: Foundation (0/0)
+
+- [ ] Set up Git repository
+- [ ] Configure project structure
+- [ ] Create initial project documentation
+
+---
+
+## 📋 Phase 2: Development (0/0)
+
+<!-- Add your project-specific phases here -->
+
+
+---
+
+## 🎯 Quick Stats
+
+**Total Items:** 0  
+**Completed:** 0  
+**In Progress:** 0  
+**Blocked:** 0
+
+---
+
+## 📝 Notes
+
+- This checklist is read by **Strategy Agent**, **Milestone Agent**, and **Coach Agent**
+- When you complete an item, mark it with \`[x]\`
+- Agents will track completion rate and suggest next steps
+- Blocked items should be escalated to user
+- Commits can be used to track progress automatically
+
+---
+
+**Last Milestone Completed:** (none)  
+**Next Milestone:** (define first milestone)
+
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(projectChecklistPath),
+      Buffer.from(projectChecklistContent, 'utf-8')
+    );
+
+    // Create daily_checklist.md
+    const dailyChecklistPath = path.join(contextPilotDir, 'daily_checklist.md');
+    const dailyChecklistContent = `# Daily Checklist
+
+**Date:** ${today}  
+**Day:** ${dayOfWeek}  
+**Completed:** 0/0 tasks
+
+---
+
+## 🌅 Morning Routine
+
+- [ ] Review yesterday's progress
+- [ ] Check for urgent notifications
+- [ ] Plan today's priorities (top 3)
+- [ ] Review active proposals
+
+---
+
+## 💻 Development Tasks
+
+### High Priority
+- [ ] Task 1: _______________
+- [ ] Task 2: _______________
+- [ ] Task 3: _______________
+
+### Medium Priority
+- [ ] Task 4: _______________
+- [ ] Task 5: _______________
+
+### Low Priority
+- [ ] Task 6: _______________
+
+---
+
+## 🧪 Testing & Quality
+
+- [ ] Run tests for today's changes
+- [ ] Check linter errors
+- [ ] Review code for technical debt
+- [ ] Update documentation if needed
+
+---
+
+## 📝 Documentation
+
+- [ ] Update relevant .md files
+- [ ] Document any decisions made
+- [ ] Add comments to complex code
+- [ ] Update CHANGELOG if applicable
+
+---
+
+## 🔄 Git & Version Control
+
+- [ ] Commit work with semantic messages
+- [ ] Push to remote repository
+- [ ] Review open PRs (if any)
+- [ ] Update issue tracker
+
+---
+
+## 🤝 Communication
+
+- [ ] Respond to team messages (if applicable)
+- [ ] Update project status
+- [ ] Share blockers or concerns
+- [ ] Ask for help if stuck
+
+---
+
+## 🌙 Evening Review
+
+- [ ] Mark completed tasks above
+- [ ] Document any blockers
+- [ ] Plan tomorrow's top 3 priorities
+- [ ] Celebrate today's wins! 🎉
+
+---
+
+## 📊 Daily Metrics
+
+**Time Worked:** _____ hours  
+**Tasks Completed:** 0/0  
+**Commits Made:** _____  
+**Blockers:** _____
+
+---
+
+## 🎯 Top 3 Priorities for Tomorrow
+
+1. _______________
+2. _______________
+3. _______________
+
+---
+
+## 💭 Notes & Reflections
+
+<!-- Use this space for thoughts, ideas, or learnings from today -->
+
+
+---
+
+**Agent Notes:**
+- **Coach Agent** reads this at 9am and 6pm to provide reminders and motivation
+- **Retrospective Agent** analyzes completion patterns weekly
+- Keep this updated throughout the day for best agent support
+- Commits can be used to track daily progress automatically
+
+`;
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(dailyChecklistPath),
+      Buffer.from(dailyChecklistContent, 'utf-8')
+    );
+
+    console.log(`[initializeContextPilot] ✅ ContextPilot initialized for workspace: ${targetWorkspaceId}`);
+    vscode.window.showInformationMessage(
+      `✅ ContextPilot initialized! Context files created in .contextpilot/workspaces/${targetWorkspaceId}/`
+    );
+    
+    return true;
+  } catch (error: any) {
+    console.error('[initializeContextPilot] Error:', error);
+    vscode.window.showErrorMessage(`Failed to initialize ContextPilot: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Check if .contextpilot/ is initialized and prompt user if not.
+ * This can be called on workspace open or git init detection.
+ */
+export async function ensureContextPilotInitialized(): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return;
+  }
+
+  const workspaceId = getWorkspaceId();
+  const checkpointPath = path.join(workspaceRoot, '.contextpilot', 'workspaces', workspaceId, 'checkpoint.yaml');
+  
+  if (!fs.existsSync(checkpointPath)) {
+    // Check if .git exists (project is a git repo)
+    const gitDir = path.join(workspaceRoot, '.git');
+    const isGitRepo = fs.existsSync(gitDir);
+    
+    if (isGitRepo) {
+      // If git repo exists, prompt to initialize
+      const initialize = await vscode.window.showInformationMessage(
+        'ContextPilot: This project doesn\'t have a .contextpilot/ directory. Initialize it now?',
+        'Initialize',
+        'Later'
+      );
+      
+      if (initialize === 'Initialize') {
+        await initializeContextPilot();
+      }
+    }
+    // If not a git repo, don't prompt (user might not have done git init yet)
   }
 }
 

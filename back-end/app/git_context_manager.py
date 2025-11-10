@@ -69,9 +69,44 @@ class Git_Context_Manager:
         git_root = self.find_git_root()
         logger.info(f"Git root found: {git_root}")
 
-        self.repo = git.Repo(git_root, search_parent_directories=True)
-        self.project_root = self.repo.working_tree_dir
-        logger.info(f"Project root: {self.project_root}")
+        # Try to initialize git repo, but handle gracefully if git is not available
+        try:
+            # Check if .git directory exists before trying to create Repo
+            git_dir = os.path.join(git_root, ".git")
+            if os.path.isdir(git_dir) or os.path.isfile(git_dir):  # .git can be a file (worktree) or dir
+                self.repo = git.Repo(git_root, search_parent_directories=True)
+                self.project_root = self.repo.working_tree_dir
+                logger.info(f"Git repository initialized. Project root: {self.project_root}")
+            else:
+                # No .git found - this is OK in Cloud Run mode
+                environment = os.getenv("ENVIRONMENT", "local")
+                if environment == "production" or os.getenv("USE_PUBSUB") == "true":
+                    logger.info("No .git directory found - operating in API-only mode (Cloud Run)")
+                    self.repo = None
+                    self.project_root = git_root
+                    logger.info(f"Using workspace path as project root: {self.project_root}")
+                else:
+                    # In local mode, try anyway (might be a bare repo or submodule)
+                    try:
+                        self.repo = git.Repo(git_root, search_parent_directories=True)
+                        self.project_root = self.repo.working_tree_dir if self.repo.working_tree_dir else git_root
+                        logger.info(f"Git repository initialized (bare or submodule). Project root: {self.project_root}")
+                    except Exception as e:
+                        logger.warning(f"Could not initialize git repo: {e}. Operating in API-only mode.")
+                        self.repo = None
+                        self.project_root = git_root
+        except Exception as e:
+            # Git not available or error initializing - this is OK in Cloud Run
+            environment = os.getenv("ENVIRONMENT", "local")
+            if environment == "production" or os.getenv("USE_PUBSUB") == "true":
+                logger.info(f"Git repository not available - operating in API-only mode (Cloud Run): {e}")
+                self.repo = None
+                self.project_root = git_root
+            else:
+                logger.warning(f"Git repository initialization failed: {e}")
+                # Still set repo to None to avoid crashes, but log warning
+                self.repo = None
+                self.project_root = git_root
 
         logger.info(f"Creating context directory: {self.context_dir}")
         os.makedirs(self.context_dir, exist_ok=True)
@@ -90,10 +125,22 @@ class Git_Context_Manager:
         logger.info("Git_Context_Manager initialization completed")
 
     def find_git_root(self):
+        """Find git root directory, or return workspace path if git is not available (Cloud Run mode)."""
         logger.info("Starting git root search...")
         path = os.getcwd()
         logger.info(f"Starting from current directory: {path}")
 
+        # In Cloud Run, git may not be available - check environment
+        environment = os.getenv("ENVIRONMENT", "local")
+        if environment == "production" or os.getenv("USE_PUBSUB") == "true":
+            # Cloud Run mode - git operations are handled via GitHub API, not local git
+            logger.info("Cloud Run mode detected - git operations will use GitHub API")
+            # Return workspace path as fallback (git operations will be API-based)
+            workspace_path = get_workspace_path(self.workspace_id)
+            logger.info(f"Using workspace path as git root fallback: {workspace_path}")
+            return str(workspace_path)
+
+        # Local mode - try to find actual git repository
         while path != os.path.dirname(path):
             git_dir = os.path.join(path, ".git")
             logger.debug(f"Checking for .git directory at: {git_dir}")
@@ -104,8 +151,11 @@ class Git_Context_Manager:
             path = os.path.dirname(path)
             logger.debug(f"Moving up to parent directory: {path}")
 
-        logger.error("Git directory not found in any parent directory")
-        raise git.exc.InvalidGitRepositoryError("❌ Git directory not found.")
+        # Git not found - use workspace path as fallback
+        logger.warning("Git directory not found in any parent directory - using workspace path as fallback")
+        workspace_path = get_workspace_path(self.workspace_id)
+        logger.info(f"Using workspace path as git root fallback: {workspace_path}")
+        return str(workspace_path)
 
     def initialize_markdown_files(self):
         logger.info(
@@ -320,8 +370,16 @@ class Git_Context_Manager:
         except Exception as e:
             return f"Error querying LLM: {str(e)}"
 
-    def get_project_context(self):
-        """Load project context from checkpoint.yaml and history.json."""
+    def get_project_context(self, include_temporal: bool = False):
+        """
+        Load project context from checkpoint.yaml and history.json.
+        
+        Args:
+            include_temporal: If True, include Git log temporal context
+            
+        Returns:
+            dict with checkpoint, history, and optionally temporal data
+        """
         context = {}
         if os.path.exists(self.checkpoint_path):
             with open(self.checkpoint_path) as f:
@@ -329,6 +387,11 @@ class Git_Context_Manager:
         if os.path.exists(self.history_path):
             with open(self.history_path) as f:
                 context["history"] = json.load(f)
+        
+        # Add temporal context from Git if requested
+        if include_temporal:
+            context["temporal"] = self.get_temporal_context(since_days=30)
+        
         return context
 
     async def _track_reward_action(self, action_type: str, metadata: dict):
@@ -356,40 +419,64 @@ class Git_Context_Manager:
         except Exception as e:
             logger.error(f"Error tracking reward: {e}")
 
-    def commit_changes(self, message: str, agent: str = "manual"):
+    def commit_changes(self, message: str, agent: str = "manual", allow_empty: bool = False):
         """
         Create git commit with metadata tracking and reward integration.
 
         Args:
             message: Commit message
             agent: Agent name for tracking
+            allow_empty: If True, allow commit even with no changes (for temporal markers)
 
         Returns:
-            Commit hash or "SKIPPED_NO_CHANGES" if nothing to commit
+            Commit hash or "SKIPPED_NO_CHANGES" if nothing to commit (unless allow_empty=True)
         """
-        logger.info(f"Starting commit with message: '{message}' from agent: {agent}")
+        # In Cloud Run mode, git operations are done via GitHub API, not local git
+        if self.repo is None:
+            logger.info("Git repository not available (Cloud Run mode) - commit operations use GitHub API")
+            logger.info(f"Would commit with message: '{message}' from agent: {agent}")
+            # Return a placeholder - actual commits happen via GitHub API in Cloud Run
+            return "CLOUD_RUN_MODE"  # Indicates commit should be done via API
+        
+        logger.info(f"Starting commit with message: '{message}' from agent: {agent} (allow_empty={allow_empty})")
         try:
             logger.info("Adding all files to git...")
 
-            context_md_path = os.path.join(self.context_dir, "context.md")
-            logger.info(f"Checking if context.md exists at: {context_md_path}")
-            if os.path.exists(context_md_path):
-                comment = f"\n<!-- Auto-update by agent '{agent}' at {datetime.now(timezone.utc).isoformat()} -->\n"
-                with open(context_md_path, "a", encoding="utf-8") as f:
-                    f.write(comment)
-                logger.info(f"🚨 Forced update comment added to {context_md_path}")
+            # For temporal markers, add a small timestamp to context.md to ensure there's something to commit
+            if allow_empty:
+                context_md_path = os.path.join(self.context_dir, "context.md")
+                logger.info(f"Checking if context.md exists at: {context_md_path}")
+                if os.path.exists(context_md_path):
+                    comment = f"\n<!-- Auto-update by agent '{agent}' at {datetime.now(timezone.utc).isoformat()} -->\n"
+                    with open(context_md_path, "a", encoding="utf-8") as f:
+                        f.write(comment)
+                    logger.info(f"🚨 Temporal marker comment added to {context_md_path}")
+                else:
+                    # If context.md doesn't exist, create a minimal one for the temporal marker
+                    os.makedirs(self.context_dir, exist_ok=True)
+                    with open(context_md_path, "w", encoding="utf-8") as f:
+                        f.write(f"# Project Context\n\n<!-- Temporal marker: {datetime.now(timezone.utc).isoformat()} -->\n")
+                    logger.info(f"Created context.md for temporal marker")
 
             self.repo.git.add(A=True)
             logger.info("Files added successfully.")
 
             # Check if there's anything to commit
             if not self.repo.is_dirty(untracked_files=True):
-                logger.warning("No changes detected after first add. Skipping commit.")
-                return "SKIPPED_NO_CHANGES"
+                if allow_empty:
+                    logger.info("No changes detected, but allow_empty=True - creating empty commit for temporal marker")
+                    # Create empty commit using --allow-empty
+                    commit = self.repo.index.commit(message, allow_empty=True)
+                    logger.info(f"✅ Empty commit created with hash: {commit.hexsha}")
+                else:
+                    logger.warning("No changes detected after first add. Skipping commit.")
+                    return "SKIPPED_NO_CHANGES"
+            else:
+                logger.info("Creating commit with changes...")
+                commit = self.repo.index.commit(message)
+                logger.info(f"✅ Commit created with hash: {commit.hexsha}")
 
-            logger.info("Creating initial commit...")
-            commit = self.repo.index.commit(message)
-            logger.info(f"✅ Commit created with hash: {commit.hexsha}")
+            # Commit creation is now handled above (either empty or with changes)
 
             # Track reward (async, fire-and-forget)
             import asyncio
@@ -429,7 +516,7 @@ class Git_Context_Manager:
             self.log_history(message=message, agent=agent, commit=commit.hexsha)
 
             # Check for new changes after first commit (safety check)
-            if self.repo.is_dirty(untracked_files=True):
+            if self.repo is not None and self.repo.is_dirty(untracked_files=True):
                 logger.info(
                     "Detected new changes after first commit. Adding and committing final changes before push..."
                 )
@@ -539,8 +626,190 @@ class Git_Context_Manager:
             return msg.splitlines()[0]
         return msg
 
+    def get_git_log(self, since_days: Optional[int] = None, max_commits: int = 50) -> list:
+        """
+        Get Git commit history to situate agents in time.
+        
+        Returns structured commit history with:
+        - timestamp (ISO format)
+        - commit hash
+        - author
+        - message
+        - date (formatted)
+        
+        Args:
+            since_days: Only get commits from last N days (None = all)
+            max_commits: Maximum number of commits to return
+            
+        Returns:
+            List of commit dicts with temporal context
+        """
+        if self.repo is None:
+            logger.warning("Git repository not available (Cloud Run mode) - cannot get git log")
+            return []
+        
+        try:
+            # Build git log command
+            log_format = "--pretty=format:%H|%an|%ae|%ad|%s"
+            date_format = "--date=iso-strict"
+            cmd = ["log", log_format, date_format]
+            
+            if since_days:
+                cmd.append(f"--since={since_days} days ago")
+            
+            if max_commits:
+                cmd.append(f"-{max_commits}")
+            
+            # Execute git log
+            log_output = self.repo.git.execute(cmd)
+            
+            if not log_output:
+                logger.info("No commits found in git log")
+                return []
+            
+            commits = []
+            for line in log_output.strip().split('\n'):
+                if not line:
+                    continue
+                
+                parts = line.split('|', 4)
+                if len(parts) < 5:
+                    continue
+                
+                commit_hash, author_name, author_email, commit_date, message = parts
+                
+                # Parse date
+                # Git date format: "2025-11-10 15:15:03 -0300"
+                dt = None
+                try:
+                    # Git log with --date=iso-strict gives: "2025-11-10T15:15:03-03:00"
+                    # But sometimes it's: "2025-11-10 15:15:03 -0300"
+                    if 'T' in commit_date:
+                        # ISO format with T separator
+                        dt = datetime.fromisoformat(commit_date)
+                    elif ' ' in commit_date:
+                        # Space-separated format: "2025-11-10 15:15:03 -0300"
+                        parts = commit_date.split(' ')
+                        if len(parts) >= 3:
+                            date_part = parts[0]
+                            time_part = parts[1]
+                            tz_part = parts[2]
+                            # Format timezone: "-0300" -> "-03:00"
+                            if len(tz_part) == 5 and tz_part[0] in ['+', '-']:
+                                tz_formatted = f"{tz_part[:3]}:{tz_part[3:]}"
+                            else:
+                                tz_formatted = tz_part
+                            dt_str = f"{date_part}T{time_part}{tz_formatted}"
+                            dt = datetime.fromisoformat(dt_str)
+                        else:
+                            # Just date and time, no timezone
+                            dt_str = commit_date.replace(' ', 'T')
+                            dt = datetime.fromisoformat(dt_str)
+                    else:
+                        # Try direct ISO format
+                        dt = datetime.fromisoformat(commit_date)
+                    
+                    date_str = dt.strftime('%Y-%m-%d')
+                    time_str = dt.strftime('%H:%M:%S')
+                except Exception as e:
+                    logger.warning(f"Failed to parse commit date: {commit_date}, error: {e}")
+                    date_str = commit_date.split(' ')[0] if ' ' in commit_date else commit_date.split('T')[0] if 'T' in commit_date else commit_date
+                    time_str = ""
+                
+                commits.append({
+                    "commit": commit_hash,
+                    "author": author_name,
+                    "email": author_email,
+                    "date": commit_date,
+                    "date_formatted": date_str,
+                    "time": time_str,
+                    "message": message,
+                    "timestamp": dt.isoformat() if dt else commit_date
+                })
+            
+            logger.info(f"Retrieved {len(commits)} commits from git log")
+            return commits
+            
+        except Exception as e:
+            logger.error(f"Error getting git log: {str(e)}")
+            return []
+    
+    def get_temporal_context(self, since_days: Optional[int] = 30) -> dict:
+        """
+        Get temporal context from Git history for agents.
+        
+        Provides:
+        - Recent commits (last N days)
+        - Commit frequency
+        - Activity timeline
+        - Recent changes summary
+        
+        Args:
+            since_days: How many days back to look (default: 30)
+            
+        Returns:
+            Dict with temporal context information
+        """
+        commits = self.get_git_log(since_days=since_days, max_commits=100)
+        
+        if not commits:
+            return {
+                "has_git_history": False,
+                "message": "No git history available (Cloud Run mode or new repository)"
+            }
+        
+        # Group commits by date
+        commits_by_date = {}
+        for commit in commits:
+            date = commit.get("date_formatted", "unknown")
+            if date not in commits_by_date:
+                commits_by_date[date] = []
+            commits_by_date[date].append(commit)
+        
+        # Calculate stats
+        total_commits = len(commits)
+        unique_days = len(commits_by_date)
+        avg_commits_per_day = total_commits / unique_days if unique_days > 0 else 0
+        
+        # Get most recent commit
+        most_recent = commits[0] if commits else None
+        
+        # Get commits by author
+        authors = {}
+        for commit in commits:
+            author = commit.get("author", "unknown")
+            if author not in authors:
+                authors[author] = 0
+            authors[author] += 1
+        
+        return {
+            "has_git_history": True,
+            "total_commits": total_commits,
+            "period_days": since_days,
+            "unique_days_with_commits": unique_days,
+            "avg_commits_per_day": round(avg_commits_per_day, 2),
+            "most_recent_commit": most_recent,
+            "commits_by_author": authors,
+            "commits_by_date": {
+                date: len(commits_list) 
+                for date, commits_list in commits_by_date.items()
+            },
+            "recent_commits": commits[:10],  # Last 10 commits
+            "timeline": [
+                {
+                    "date": date,
+                    "commits": len(commits_list),
+                    "messages": [c["message"] for c in commits_list[:3]]  # Sample messages
+                }
+                for date, commits_list in sorted(commits_by_date.items(), reverse=True)[:7]  # Last 7 days
+            ]
+        }
+    
     def show_diff(self):
         """Get current git diff."""
+        if self.repo is None:
+            logger.warning("Git repository not available (Cloud Run mode) - cannot generate diff")
+            return ""  # Return empty diff in Cloud Run mode
         return self.repo.git.diff(None)
 
     def summarize_diff_for_commit(self, diff: str) -> str:
@@ -616,6 +885,12 @@ class Git_Context_Manager:
         return response.choices[0].message.content.strip()
 
     def push_changes(self, remote_name: str = "origin", branch: str = "main"):
+        # In Cloud Run mode, git operations are done via GitHub API, not local git
+        if self.repo is None:
+            logger.info("Git repository not available (Cloud Run mode) - push operations use GitHub API")
+            logger.info(f"Would push to remote '{remote_name}' on branch '{branch}'")
+            return {"status": "cloud_run_mode", "message": "Push operations use GitHub API in Cloud Run mode"}
+        
         logger.info(
             f"Pushing changes to remote '{remote_name}' on branch '{branch}'..."
         )

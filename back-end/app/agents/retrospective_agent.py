@@ -642,16 +642,16 @@ Keep the tone encouraging and constructive. Maximum 200 words.
                     .get("parts", [{}])[0]
                     .get("text", "")
                 )
-                return text if text else "LLM synthesis unavailable."
+                return text if text else None
             else:
                 logger.error(
-                    f"[RetrospectiveAgent] Gemini API error: {response.status_code} - {response.text}"
+                    f"[RetrospectiveAgent] Gemini API error: {response.status_code} - {response.text[:500]}"
                 )
-                return "LLM synthesis unavailable. See raw insights above."
+                return None
 
         except Exception as e:
-            logger.error(f"[RetrospectiveAgent] LLM synthesis failed: {e}")
-            return "LLM synthesis unavailable. See raw insights above."
+            logger.error(f"[RetrospectiveAgent] LLM synthesis failed: {e}", exc_info=True)
+            return None
 
     def _save_retrospective(self, retrospective: Dict) -> None:
         """Save retrospective report to workspace"""

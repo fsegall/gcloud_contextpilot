@@ -1,0 +1,36 @@
+{
+  "retrospective_id": "retro-20251108-041958",
+  "timestamp": "2025-11-08T04:19:58.317236+00:00",
+  "trigger": "manual",
+  "topic": null,
+  "agent_metrics": {
+    "git": {
+      "events_processed": 0,
+      "events_published": 0,
+      "errors": 0
+    },
+    "development": {
+      "events_processed": 1,
+      "events_published": 0,
+      "errors": 0
+    }
+  },
+  "agent_learnings": {},
+  "event_summary": {
+    "total_events": 0,
+    "event_types": {},
+    "most_active_agent": "none"
+  },
+  "insights": [
+    "Agents processed 1 events in this cycle.",
+    "\u23f8\ufe0f Idle agents: git. Consider reviewing their triggers."
+  ],
+  "action_items": [
+    {
+      "priority": "medium",
+      "action": "Review event subscriptions for idle agents",
+      "assigned_to": "developer"
+    }
+  ],
+  "llm_summary": null
+}

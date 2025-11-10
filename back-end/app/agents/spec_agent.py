@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.agents.base_agent import BaseAgent
 from app.utils.workspace_manager import get_workspace_path
+from app.services.event_bus import EventTypes
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,13 @@ class SpecAgent(BaseAgent):
                 "description: Update this file with workspace metadata.\n"
             ),
         }
+
+        # Subscribe to events that trigger documentation validation/updates
+        self.subscribe_to_event(EventTypes.GIT_COMMIT)
+        self.subscribe_to_event(EventTypes.PROPOSAL_APPROVED)
+        self.subscribe_to_event(EventTypes.PROPOSAL_CREATED)
+        
+        logger.info("[SpecAgent] Subscribed to events: git.commit.v1, proposal.approved.v1, proposal.created.v1")
 
     # ------------------------------------------------------------------
     # Documentation analysis
@@ -273,19 +281,99 @@ class SpecAgent(BaseAgent):
         return "\n".join(sections)
 
     # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_git_commit(self, data: Dict[str, Any]) -> None:
+        """Update documentation when code changes are committed."""
+        files_changed = data.get("files_changed", [])
+        commit_hash = data.get("commit_hash")
+        proposal_id = data.get("proposal_id")
+        
+        logger.info(
+            f"[SpecAgent] Git commit detected: {commit_hash}, "
+            f"files: {len(files_changed)}, proposal: {proposal_id}"
+        )
+        
+        # Validate docs after code changes
+        issues = await self.validate_docs()
+        if issues:
+            logger.info(f"[SpecAgent] Found {len(issues)} documentation issues after commit")
+            # Create proposals for high-severity issues
+            for issue in issues:
+                if issue.get("severity") == "high":
+                    await self._create_proposal_for_issue(issue)
+                    logger.info(
+                        f"[SpecAgent] Created proposal for high-severity issue: {issue.get('file')}"
+                    )
+        else:
+            logger.debug("[SpecAgent] No documentation issues found after commit")
+
+    async def _handle_proposal_approved(self, data: Dict[str, Any]) -> None:
+        """Update documentation when proposals are approved."""
+        proposal_id = data.get("proposal_id")
+        agent_id = data.get("agent_id")
+        workspace_id = data.get("workspace_id")
+        
+        logger.info(
+            f"[SpecAgent] Proposal approved: {proposal_id} by {agent_id} in {workspace_id}"
+        )
+        
+        # Validate docs after proposal approval (in case approved changes affect docs)
+        issues = await self.validate_docs()
+        if issues:
+            logger.debug(f"[SpecAgent] Found {len(issues)} documentation issues after proposal approval")
+
+    async def _handle_proposal_created(self, data: Dict[str, Any]) -> None:
+        """Track new proposals and validate documentation consistency."""
+        proposal_id = data.get("proposal_id")
+        agent_id = data.get("agent_id")
+        title = data.get("title", "")
+        
+        logger.debug(
+            f"[SpecAgent] Proposal created: {proposal_id} by {agent_id} - {title[:50]}"
+        )
+        
+        # Store proposal info in memory for context
+        self.remember(f"proposal_{proposal_id}", {
+            "agent_id": agent_id,
+            "title": title,
+            "created_at": data.get("timestamp"),
+        })
+
+    # ------------------------------------------------------------------
     # BaseAgent abstract method implementations
     # ------------------------------------------------------------------
 
     async def handle_event(self, event_type: str, event_data: Dict[str, Any]) -> None:
         """
-        SpecAgent currently runs on-demand through explicit API calls. We keep
-        the method to satisfy BaseAgent's contract and log anything that might
-        arrive through the event bus.
+        Handle incoming events and trigger documentation validation/updates.
+        
+        Args:
+            event_type: Type of event (e.g., 'git.commit.v1')
+            event_data: Event data payload
         """
-        logger.debug(
-            "[SpecAgent] handle_event called for '%s' (no reactive behaviour implemented)",
-            event_type,
-        )
+        try:
+            logger.info(f"[SpecAgent] Received event: {event_type}")
+            
+            if event_type == EventTypes.GIT_COMMIT:
+                await self._handle_git_commit(event_data)
+            elif event_type == EventTypes.PROPOSAL_APPROVED:
+                await self._handle_proposal_approved(event_data)
+            elif event_type == EventTypes.PROPOSAL_CREATED:
+                await self._handle_proposal_created(event_data)
+            else:
+                logger.debug(
+                    f"[SpecAgent] Unhandled event type: {event_type}"
+                )
+            
+            self.increment_metric("events_processed")
+        except Exception as e:
+            logger.error(
+                f"[SpecAgent] Error handling {event_type}: {e}",
+                exc_info=True
+            )
+            self.increment_metric("errors")
 
     async def start(self) -> None:
         """No background work needed for SpecAgent."""

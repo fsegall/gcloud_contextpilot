@@ -1,0 +1,55 @@
+{
+  "retrospective_id": "retro-20251107-155642",
+  "timestamp": "2025-11-07T15:56:42.386367+00:00",
+  "trigger": "manual",
+  "topic": null,
+  "agent_metrics": {
+    "spec": {
+      "events_processed": 0,
+      "events_published": 0,
+      "errors": 0
+    },
+    "git": {
+      "events_processed": 0,
+      "events_published": 0,
+      "errors": 0
+    },
+    "development": {
+      "events_processed": 0,
+      "events_published": 0,
+      "errors": 0
+    },
+    "context": {
+      "events_processed": 0,
+      "events_published": 0,
+      "errors": 0
+    },
+    "coach": {
+      "events_processed": 0,
+      "events_published": 0,
+      "errors": 0
+    },
+    "milestone": {
+      "events_processed": 0,
+      "events_published": 0,
+      "errors": 0
+    }
+  },
+  "agent_learnings": {},
+  "event_summary": {
+    "total_events": 0,
+    "event_types": {},
+    "most_active_agent": "none"
+  },
+  "insights": [
+    "\u23f8\ufe0f Idle agents: spec, git, development, context, coach, milestone. Consider reviewing their triggers."
+  ],
+  "action_items": [
+    {
+      "priority": "medium",
+      "action": "Review event subscriptions for idle agents",
+      "assigned_to": "developer"
+    }
+  ],
+  "llm_summary": null
+}

@@ -74,13 +74,61 @@ class DevelopmentAgent(BaseAgent):
         # Sandbox mode configuration
         self.sandbox_enabled = os.getenv("SANDBOX_ENABLED", "false").lower() == "true"
         self.sandbox_repo_url = os.getenv("SANDBOX_REPO_URL", "")
-        self.github_token = os.getenv("GITHUB_TOKEN") or os.getenv(
-            "PERSONAL_GITHUB_TOKEN"
-        )
+        # Get GitHub token - prioritize PERSONAL_GITHUB_TOKEN for Codespaces
+        # PERSONAL_GITHUB_TOKEN should have codespace scope
+        personal_token = os.getenv("PERSONAL_GITHUB_TOKEN")
+        github_token = os.getenv("GITHUB_TOKEN")
+        gh_token = os.getenv("GH_TOKEN")
+        
+        # For Codespaces, prefer PERSONAL_GITHUB_TOKEN (should have codespace scope)
+        # For regular GitHub operations, GITHUB_TOKEN is fine
+        self.github_token = personal_token or github_token or gh_token
+        
         if self.github_token:
-            self.github_token = (
-                self.github_token.strip()
-            )  # Remove whitespace and newlines
+            # Remove all whitespace, newlines, and quotes
+            self.github_token = self.github_token.strip().strip('"').strip("'")
+            
+            # Log which token source is being used
+            if personal_token:
+                logger.info("[DevelopmentAgent] Using PERSONAL_GITHUB_TOKEN for GitHub API")
+            elif github_token:
+                logger.info("[DevelopmentAgent] Using GITHUB_TOKEN for GitHub API")
+            elif gh_token:
+                logger.info("[DevelopmentAgent] Using GH_TOKEN for GitHub API")
+            
+            # Validate token format (should start with ghp_ or github_pat_)
+            if not (self.github_token.startswith("ghp_") or self.github_token.startswith("github_pat_")):
+                logger.warning(
+                    f"[DevelopmentAgent] GitHub token doesn't match expected format (starts with ghp_ or github_pat_)"
+                )
+                # Try to extract token if it's wrapped in JSON or other format
+                if "ghp_" in self.github_token:
+                    # Extract token from string
+                    import re
+                    match = re.search(r"ghp_[A-Za-z0-9_]{36,}", self.github_token)
+                    if match:
+                        self.github_token = match.group(0)
+                        logger.info("[DevelopmentAgent] Extracted GitHub token from string")
+                    else:
+                        logger.error("[DevelopmentAgent] Could not extract valid GitHub token")
+                        self.github_token = None
+                elif "github_pat_" in self.github_token:
+                    # Extract fine-grained token
+                    import re
+                    match = re.search(r"github_pat_[A-Za-z0-9_]{82,}", self.github_token)
+                    if match:
+                        self.github_token = match.group(0)
+                        logger.info("[DevelopmentAgent] Extracted GitHub fine-grained token from string")
+                    else:
+                        logger.error("[DevelopmentAgent] Could not extract valid GitHub fine-grained token")
+                        self.github_token = None
+                else:
+                    logger.error("[DevelopmentAgent] Invalid GitHub token format")
+                    self.github_token = None
+            else:
+                # Token format is valid, log preview
+                token_preview = f"{self.github_token[:10]}...{self.github_token[-4:]}" if len(self.github_token) > 14 else "***"
+                logger.info(f"[DevelopmentAgent] GitHub token validated (preview: {token_preview})")
 
         # Codespaces mode configuration
         self.codespaces_enabled = (
@@ -434,19 +482,40 @@ Context from Retrospective:
         """
         # Check if codespaces mode is enabled
         if self.codespaces_enabled:
-            logger.info(
-                "[DevelopmentAgent] Codespaces mode enabled - implementing in visual environment"
-            )
-            codespace_result = await self._implement_in_codespace(description, context)
-            if codespace_result:
-                # Create a proposal to track the codespace implementation
-                return await self._create_codespace_proposal(
-                    description, codespace_result, context
-                )
-            else:
+            if not self.github_token:
                 logger.warning(
-                    "[DevelopmentAgent] Codespace implementation failed, falling back to sandbox mode"
+                    "[DevelopmentAgent] Codespaces enabled but no GitHub token - disabling codespaces mode"
                 )
+                self.codespaces_enabled = False
+            else:
+                logger.info(
+                    "[DevelopmentAgent] Codespaces mode enabled - attempting codespace implementation"
+                )
+                # Quick auth check first
+                test_list = await self._list_active_codespaces()
+                if test_list is None:
+                    # 401/403 - auth failed, disable codespaces for this run
+                    logger.warning(
+                        "[DevelopmentAgent] Codespaces authentication failed (401/403) - disabling codespaces mode and using sandbox mode"
+                    )
+                    logger.warning(
+                        "[DevelopmentAgent] Ensure GITHUB_TOKEN has 'codespace' scope: https://github.com/settings/tokens"
+                    )
+                    self.codespaces_enabled = False
+                elif test_list is not False:  # False means other error, None means auth failed
+                    # Auth successful, proceed with codespace implementation
+                    logger.info(f"[DevelopmentAgent] ✅ Codespaces API authentication successful")
+                    codespace_result = await self._implement_in_codespace(description, context)
+                    if codespace_result:
+                        # Create a proposal to track the codespace implementation
+                        return await self._create_codespace_proposal(
+                            description, codespace_result, context
+                        )
+                    else:
+                        logger.warning(
+                            "[DevelopmentAgent] Codespace implementation failed, falling back to sandbox mode"
+                        )
+                # If test_list is None (auth failed) or False (other error), fall through to sandbox mode
 
         # Check if sandbox mode is enabled
         if self.sandbox_enabled:
@@ -1232,45 +1301,114 @@ Examples:
             )
             return None
 
-    async def _list_active_codespaces(self) -> List[Dict]:
-        """List all active Codespaces for the repository."""
+    async def _list_active_codespaces(self) -> Optional[List[Dict]]:
+        """
+        List all active Codespaces for the repository.
+        
+        Returns:
+            List of codespaces if successful, None if auth failed (401/403), [] if other error
+        """
+        if not self.github_token:
+            logger.error("[DevelopmentAgent] No GitHub token available for Codespaces API")
+            return None
+            
         try:
             url = "https://api.github.com/user/codespaces"
             headers = {
-                "Authorization": f"token {self.github_token}",
-                "Accept": "application/vnd.github.v3+json",
+                "Authorization": f"Bearer {self.github_token}",  # Use Bearer for GitHub API v4+
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
             }
 
-            response = requests.get(url, headers=headers, timeout=30)
+            # Use requests for now (can be switched to httpx later)
+            response = requests.get(url, headers=headers, timeout=10)
 
             if response.status_code == 200:
                 codespaces_data = response.json()
                 # Filter for our repository
+                repo_name = self.codespaces_repo.split("/")[-1] if self.codespaces_repo else ""
                 active_codespaces = [
                     cs
                     for cs in codespaces_data.get("codespaces", [])
-                    if cs.get("repository", {}).get("name")
-                    == self.codespaces_repo.split("/")[-1]
+                    if cs.get("repository", {}).get("name") == repo_name
                     and cs.get("state") in ["Available", "Starting"]
                 ]
                 logger.info(
-                    f"[DevelopmentAgent] Found {len(active_codespaces)} active codespaces"
+                    f"[DevelopmentAgent] Found {len(active_codespaces)} active codespaces for {repo_name}"
                 )
                 return active_codespaces
-            else:
+            elif response.status_code in [401, 403]:
+                # Authentication/Authorization failed
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("message", "Unknown error")
+                    documentation_url = error_data.get("documentation_url", "")
+                    # Check if error mentions scopes
+                    errors = error_data.get("errors", [])
+                    scope_errors = [e for e in errors if "scope" in str(e).lower() or "permission" in str(e).lower()]
+                except:
+                    error_msg = response.text[:200]
+                    documentation_url = ""
+                    scope_errors = []
+                    
                 logger.error(
-                    f"[DevelopmentAgent] Failed to list codespaces: {response.status_code}"
+                    f"[DevelopmentAgent] ❌ Authentication failed for Codespaces API: {response.status_code} - {error_msg}"
+                )
+                if scope_errors:
+                    logger.error(f"[DevelopmentAgent] Scope errors: {scope_errors}")
+                if documentation_url:
+                    logger.error(f"[DevelopmentAgent] Documentation: {documentation_url}")
+                
+                # Log token source for debugging
+                token_source = "PERSONAL_GITHUB_TOKEN" if os.getenv("PERSONAL_GITHUB_TOKEN") else ("GITHUB_TOKEN" if os.getenv("GITHUB_TOKEN") else "GH_TOKEN")
+                logger.error(
+                    f"[DevelopmentAgent] Token source: {token_source}"
+                )
+                logger.error(
+                    f"[DevelopmentAgent] Token preview: {self.github_token[:10]}...{self.github_token[-4:]} (length: {len(self.github_token)})"
+                )
+                logger.error(
+                    "[DevelopmentAgent] ⚠️  Required scopes for Codespaces API:"
+                )
+                logger.error(
+                    "  - 'repo' (Full control of private repositories)"
+                )
+                logger.error(
+                    "  - 'codespace' (Full control of codespaces)"
+                )
+                logger.error(
+                    "[DevelopmentAgent] Create/update token at: https://github.com/settings/tokens"
+                )
+                logger.error(
+                    "[DevelopmentAgent] For fine-grained tokens, ensure 'Codespaces' permission is enabled"
+                )
+                return None
+            else:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("message", response.text[:200])
+                except:
+                    error_msg = response.text[:200]
+                logger.error(
+                    f"[DevelopmentAgent] Failed to list codespaces: {response.status_code} - {error_msg}"
                 )
                 return []
 
+        except requests.Timeout:
+            logger.warning("[DevelopmentAgent] Timeout listing codespaces - skipping")
+            return []
         except Exception as e:
-            logger.error(f"[DevelopmentAgent] Error listing codespaces: {e}")
+            logger.error(f"[DevelopmentAgent] Error listing codespaces: {e}", exc_info=True)
             return []
 
     async def _reuse_existing_codespace(self) -> Optional[Dict]:
         """Check if we can reuse an existing Codespace."""
         try:
             active_codespaces = await self._list_active_codespaces()
+            
+            # If None, auth failed - return None to signal error
+            if active_codespaces is None:
+                return None
 
             if not active_codespaces:
                 logger.info("[DevelopmentAgent] No active codespaces found")
@@ -1294,6 +1432,11 @@ Examples:
         """Clean up old Codespaces to avoid hitting the limit."""
         try:
             active_codespaces = await self._list_active_codespaces()
+            
+            # If None, auth failed - skip cleanup
+            if active_codespaces is None:
+                logger.warning("[DevelopmentAgent] Cannot cleanup codespaces - authentication failed")
+                return
 
             if len(active_codespaces) <= 1:
                 logger.info("[DevelopmentAgent] No old codespaces to clean up")
@@ -1336,22 +1479,46 @@ Examples:
                 "retention_period_minutes": 60,
             }
             headers = {
-                "Authorization": f"token {self.github_token}",
-                "Accept": "application/vnd.github.v3+json",
+                "Authorization": f"Bearer {self.github_token}",  # Use Bearer instead of token
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
                 "Content-Type": "application/json",
             }
 
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            # Use requests (httpx can be used later if needed)
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
 
             if response.status_code == 201:
                 codespace_data = response.json()
                 logger.info(
-                    f"[DevelopmentAgent] Created new codespace: {codespace_data['id']}"
+                    f"[DevelopmentAgent] Created new codespace: {codespace_data.get('id', 'unknown')}"
                 )
                 return codespace_data
-            else:
+            elif response.status_code in [401, 403]:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("message", "Unknown error")
+                    documentation_url = error_data.get("documentation_url", "")
+                except:
+                    error_msg = response.text[:200]
+                    documentation_url = ""
                 logger.error(
-                    f"[DevelopmentAgent] Failed to create codespace: {response.status_code} - {response.text}"
+                    f"[DevelopmentAgent] Authentication failed when creating codespace: {response.status_code} - {error_msg}"
+                )
+                if documentation_url:
+                    logger.error(f"[DevelopmentAgent] Documentation: {documentation_url}")
+                logger.error(
+                    "[DevelopmentAgent] Required scopes: 'repo', 'codespace'. Create token at: https://github.com/settings/tokens"
+                )
+                return None
+            else:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("message", response.text[:200])
+                except:
+                    error_msg = response.text[:200]
+                logger.error(
+                    f"[DevelopmentAgent] Failed to create codespace: {response.status_code} - {error_msg}"
                 )
                 return None
 

@@ -1939,49 +1939,53 @@ async def trigger_agent_retrospective(
         import asyncio
         from app.agents.retrospective_agent import trigger_retrospective
 
-        # Get Gemini API key if LLM synthesis requested
+        # Get Gemini API key for LLM synthesis (only if use_llm is True)
         gemini_api_key = None
         if use_llm:
             gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if not gemini_api_key:
-                logger.warning("[API] LLM synthesis requested but no API key found")
+                logger.warning("[API] LLM synthesis requested (use_llm=True) but no API key found. Retrospective will be created without LLM summary.")
+            else:
+                logger.info("[API] Gemini API key found, will generate LLM summary")
+        else:
+            logger.info("[API] use_llm=False, skipping LLM summary generation")
 
-        logger.info("[API] Starting retrospective process...")
+        logger.info("[API] Starting retrospective process in background...")
 
-        # Set timeout to 840 seconds (14 minutes) to avoid Cloud Run timeout (900s)
-        try:
-            retrospective = await asyncio.wait_for(
-                trigger_retrospective(
+        # Process retrospective asynchronously to avoid HTTP timeout
+        # This allows the request to return immediately while processing continues
+        async def run_retrospective():
+            try:
+                retrospective = await trigger_retrospective(
                     workspace_id=workspace_id,
                     trigger=trigger,
                     gemini_api_key=gemini_api_key,
                     trigger_topic=trigger_topic,
-                ),
-                timeout=840.0,  # 14 minutes
-            )
-            logger.info(
-                f"[API] Retrospective completed: {retrospective.get('retrospective_id')}"
-            )
-            return {"status": "success", "retrospective": retrospective}
-        except asyncio.TimeoutError:
-            logger.warning(
-                "[API] Retrospective timeout after 14 minutes - process may continue in background"
-            )
-            # Even if timeout, the proposal might have been created
-            return {
-                "status": "timeout",
-                "message": "Retrospective is processing in background. Check proposals list for generated proposal.",
-            }
+                )
+                logger.info(
+                    f"[API] ✅ Retrospective completed: {retrospective.get('retrospective_id')}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"[API] ❌ Error in background retrospective: {e}",
+                    exc_info=True
+                )
 
-    except TimeoutError as e:
-        logger.error(f"Retrospective timeout: {str(e)}")
-        # Even if timeout, the proposal might have been created
+        # Start background task (don't await - let it run in background)
+        asyncio.create_task(run_retrospective())
+
+        # Return immediately to avoid HTTP timeout
+        logger.info("[API] Retrospective process started in background, returning response immediately")
         return {
-            "status": "timeout",
-            "message": "Retrospective is processing in background. Check proposals list for generated proposal.",
+            "status": "started",
+            "message": "Retrospective process started in background. It may take 2-5 minutes to complete. Check proposals list or retrospective list endpoint for results.",
+            "workspace_id": workspace_id,
+            "trigger": trigger,
+            "topic": trigger_topic,
         }
+
     except Exception as e:
-        logger.error(f"Error triggering retrospective: {str(e)}", exc_info=True)
+        logger.error(f"Error starting retrospective: {str(e)}", exc_info=True)
         return {"status": "error", "message": str(e)}
 
 

@@ -1,0 +1,32 @@
+# 📄 test-workspace — Contexto Atual
+
+## 🎯 Visão geral
+- Projeto: test-workspace ()
+- Status: 
+- Objetivo: Centralizar gestão de contexto para facilitar retomadas, branchs de experimentos e controle de milestones.
+
+## 💡 Decisão chave
+- O test-workspace será usado para armazenar o próprio contexto do desenvolvimento dele mesmo.
+- Caso o SaaS não finalize a tempo, o test-workspace será pivotado para submission no World Hackathon.
+
+## 🚀 Estado atual
+- Migration clean no Supabase concluída e testada.
+- Sistema de workspaces e memberships pronto (RLS revisada).
+- Frontend separado no repo `contextpilot-compass-ui`.
+- CLI em Python com Typer funcionando.
+- API REST com FastAPI ativa.
+- UI React integrada com API (Lovable + adaptações manuais).
+
+## 🧩 Componentes principais
+- FastAPI para API principal
+- Typer CLI
+- React UI separada
+- Supabase DB com RLS
+- TUI (Text UI) preliminar
+
+## 🟢 Próximos passos imediatos
+- Consolidar arquivos de contexto.
+- Integrar snapshot ao fluxo principal do test-workspace.
+- Preparar pitch rápido (PDF ou Markdown).
+
+---

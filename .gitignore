@@ -81,8 +81,49 @@ firestore-service-account.json
 # Misc
 *.bak
 *.tmp
+
+# ContextPilot - Project Context (VERSIONED)
+# Each project repository has its own .contextpilot/ directory
+# This contains project-specific context, history, and documentation
+# These files SHOULD be versioned as they are part of the project documentation
+# 
+# When you do `git init` in a new project, you also create a .contextpilot/ 
+# for that project. This context is versioned along with the code.
+#
+# Structure:
+#   .contextpilot/
+#     workspaces/
+#       {workspace_id}/          # Usually "default" or project name
+#         context.md             # Current project context
+#         history.json            # Commit history log
+#         checkpoint.yaml         # Project state
+#         timeline.md             # Project timeline
+#         task_history.md         # Full task history
+#         milestones.md           # Project milestones
+#         retrospectives/        # Retrospective documents
+#           *.md
+#           *.json
+
+# Ignore workspace directories by default (safety)
 .contextpilot/workspaces/*/
+
+# But allow versioning of all context files (they are project documentation)
 !.contextpilot/workspaces/.gitkeep
+!.contextpilot/workspaces/*/
+!.contextpilot/workspaces/*/*.md
+!.contextpilot/workspaces/*/*.yaml
+!.contextpilot/workspaces/*/*.json
+!.contextpilot/workspaces/*/retrospectives/
+!.contextpilot/workspaces/*/retrospectives/*.md
+!.contextpilot/workspaces/*/retrospectives/*.json
+
+# Ignore temporary/cache files only
+.contextpilot/workspaces/*/*.tmp
+.contextpilot/workspaces/*/*.bak
+.contextpilot/workspaces/*/.cache/
+
+# Ignore user-specific metadata (not part of project context)
+.contextpilot/workspaces/*/meta.json
 
 # Keep important config templates
 !.env.example

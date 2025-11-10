@@ -1,0 +1,17 @@
+created_at: '2025-11-07T15:56:40.610928'
+current_status: 'Context workspace aligned; rehearsing full agent cycle before demo.'
+goal: 'Demonstrate end-to-end ContextPilot workflow from retrospective to merged PR.'
+milestones:
+- name: Align workspace artifacts and documentation
+  status: completed
+  due: '2025-11-09'
+- name: Ship deployable VSIX build with context-aware prompts
+  status: completed
+  due: '2025-11-10'
+- name: Rehearse full retrospective → proposal → PR flow
+  status: in_progress
+  due: '2025-11-11'
+- name: Finalize hackathon submission package
+  status: planned
+  due: '2025-11-12'
+project_name: test-workspace

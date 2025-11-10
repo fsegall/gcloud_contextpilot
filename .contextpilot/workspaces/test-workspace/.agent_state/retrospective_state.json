@@ -1,0 +1,12 @@
+{
+  "agent_id": "retrospective",
+  "workspace_id": "test-workspace",
+  "created_at": "2025-11-07T15:56:42.249066",
+  "last_updated": "2025-11-08T04:20:06.588860",
+  "memory": {},
+  "metrics": {
+    "events_processed": 0,
+    "events_published": 2,
+    "errors": 0
+  }
+}

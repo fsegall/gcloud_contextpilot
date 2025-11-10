@@ -145,6 +145,12 @@
         "command": "contextpilot.openContextFile",
         "title": "Open Context File",
         "icon": "$(edit)"
+      },
+      {
+        "command": "contextpilot.initializeContext",
+        "title": "ContextPilot: Initialize Project Context",
+        "icon": "$(folder-opened)",
+        "category": "ContextPilot"
       }
     ],
     "viewsContainers": {

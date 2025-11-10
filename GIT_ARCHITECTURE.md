@@ -90,6 +90,20 @@ push_changes(remote_name: str, branch: str)
 initialize_markdown_files()
 ```
 
+**Context Files (Versioned in Git):**
+- Each project repository has its own `.contextpilot/workspaces/{workspace_id}/` directory
+- When you do `git init` in a new project, you also create a `.contextpilot/` for that project
+- These context files are **versioned in git** as they are part of the project documentation:
+  - `context.md` - Current project context and status
+  - `history.json` - Structured commit history log
+  - `checkpoint.yaml` - Project state and milestones
+  - `timeline.md` - Project timeline organized by date
+  - `task_history.md` - Complete task and commit history
+  - `milestones.md` - Project milestones and goals
+  - `retrospectives/*.md` and `retrospectives/*.json` - Retrospective documents
+- This allows developers who clone the repository to have the full project context
+- The context evolves with the code, providing a living documentation of the project
+
 ---
 
 ### 2. GitAgent (High-Level)
@@ -100,6 +114,10 @@ initialize_markdown_files()
 
 **Responsibilities:**
 - Event-driven commit decisions (reacts to proposals, milestones)
+- **Environment detection** (local vs Cloud Run mode)
+- **Conditional behavior** based on environment:
+  - **Local mode**: Apply changes locally, commit via git
+  - **Cloud Run mode**: Trigger GitHub Action webhook (no local git)
 - Conventional Commits message generation
 - Smart commit filtering (decides what's worth committing)
 - **NEW:** Markdown file management (context.md, timeline.md, task_history.md)
@@ -110,6 +128,27 @@ initialize_markdown_files()
 **Event Subscriptions:**
 - `PROPOSAL_APPROVED` → Apply changes from proposals
 - `MILESTONE_COMPLETE` → Create milestone commits + tags
+
+**Environment Detection:**
+```python
+def _is_cloud_run_mode(self) -> bool:
+    """Determine if running in Cloud Run (production) mode."""
+    environment = os.getenv("ENVIRONMENT", "local")
+    use_pubsub = os.getenv("USE_PUBSUB", "false").lower() == "true"
+    is_production = environment == "production"
+    return is_production or use_pubsub
+```
+
+**Proposal Approval Flow:**
+1. **Always check environment** (`self.is_cloud_run`)
+2. **If Cloud Run mode:**
+   - Trigger GitHub Action via `_trigger_github_action()` webhook
+   - Do NOT apply changes locally (no git access)
+   - Do NOT create local commits
+3. **If Local mode:**
+   - Apply changes locally via `_apply_proposal_changes()`
+   - Create local commit via `_commit()`
+   - Do NOT trigger GitHub Action (git is available)
 
 **Enhanced Features (v2.0):**
 
@@ -140,51 +179,67 @@ initialize_markdown_files()
 
 **File:** `back-end/app/routers/proposals.py`
 
-**Function:** `approve_proposal()` (Line 322)
+**Function:** `approve_proposal()`
 
-**Dual Responsibility:**
+**Responsibility:**
 
 1. **Internal Processing:**
    ```python
-   # Publish event for Git Agent (Layer 1)
+   # Publish event for Git Agent
    event_bus.publish(
        topic="proposals-events",
        event_type="proposal.approved.v1",
-       data={...}
+       data={
+           "proposal_id": proposal_id,
+           "workspace_id": workspace_id,
+           ...
+       }
    )
    ```
 
-2. **External Trigger:**
-   ```python
-   # Trigger GitHub Actions (Layer 2)
-   await trigger_github_action(proposal_id)
-   ```
+2. **Git Agent Handles Everything:**
+   - Git Agent receives `proposal.approved.v1` event
+   - Git Agent checks environment (local vs Cloud Run)
+   - Git Agent decides: local commit OR GitHub Action trigger
+   - Router does NOT trigger GitHub Action directly
+
+**Note:** GitHub Action trigger is now handled by Git Agent, not the router.
 
 ---
 
-### 4. GitHub Actions Trigger
+### 4. GitHub Actions Trigger (Git Agent)
 
-**File:** `back-end/app/routers/proposals.py`
+**File:** `back-end/app/agents/git_agent.py`
 
-**Function:** `trigger_github_action()` (Line 38-76)
+**Function:** `_trigger_github_action()` (Line 615+)
 
 **Purpose:** Bridge to GitHub Actions via repository_dispatch webhook
 
+**When Called:**
+- Only in **Cloud Run mode** (when `self.is_cloud_run == True`)
+- Called by `_handle_proposal_approved_v2()` method
+
 **Implementation:**
 ```python
-async def trigger_github_action(proposal_id: str):
-    github_token = os.getenv("GITHUB_TOKEN")
-    github_repo = os.getenv("GITHUB_REPO", "owner/repo")
+async def _trigger_github_action(self, proposal: Any) -> Optional[Dict]:
+    """Trigger GitHub Action via repository_dispatch webhook."""
+    github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+    github_repo = os.getenv("GITHUB_REPO") or os.getenv("GITHUB_REPOSITORY")
     
     url = f"https://api.github.com/repos/{github_repo}/dispatches"
     
     payload = {
         "event_type": "proposal-approved",
-        "client_payload": {"proposal_id": proposal_id}
+        "client_payload": {
+            "proposal_id": proposal.id,
+            "workspace_id": proposal.workspace_id,
+            "agent_id": proposal.agent_id,
+            "title": proposal.title,
+        }
     }
     
     # POST to GitHub API
-    await client.post(url, json=payload, headers={...})
+    response = await client.post(url, json=payload, headers={...})
 ```
 
 **GitHub API Response:**
@@ -245,6 +300,8 @@ on:
 
 **Configuration:**
 ```bash
+ENVIRONMENT=local          # or not set
+USE_PUBSUB=false           # or not set
 STORAGE_MODE=local
 REWARDS_MODE=local
 EVENT_BUS_MODE=in_memory
@@ -259,6 +316,14 @@ Developer → Extension → Backend → Git Agent
                             LOCAL REPOSITORY
                               (direct commit)
 ```
+
+**Key Behavior:**
+- ✅ Git Agent has **direct access to local git repository**
+- ✅ Applies changes **locally** via `_apply_proposal_changes()`
+- ✅ Creates **local commits** via `Git_Context_Manager.commit_changes()`
+- ✅ **NO GitHub Action trigger** (git is available locally)
+- ✅ Fast (no network round-trip)
+- ✅ Works offline
 
 **Characteristics:**
 - ✅ Fast (no network round-trip)
@@ -275,10 +340,12 @@ Developer → Extension → Backend → Git Agent
 
 ---
 
-### Cloud Mode
+### Cloud Run Mode
 
 **Configuration:**
 ```bash
+ENVIRONMENT=production      # OR
+USE_PUBSUB=true            # Either one enables Cloud Run mode
 STORAGE_MODE=cloud
 REWARDS_MODE=firestore
 EVENT_BUS_MODE=pubsub
@@ -290,23 +357,32 @@ GITHUB_REPO=owner/repo
 ```
 Developer → Extension → Cloud Run → Proposals Router
                                            ↓
-                    ┌──────────────────────┴──────────────────────┐
-                    ↓                                              ↓
-              Event Bus                                  GitHub API
-                    ↓                                              ↓
-              Git Agent                               GitHub Actions
-            (metadata only)                                        ↓
-                                                        REMOTE REPOSITORY
-                                                          (real commit)
+                                    Event Bus
+                                           ↓
+                                    Git Agent
+                                           ↓
+                              GitHub API (repository_dispatch)
+                                           ↓
+                              GitHub Actions Workflow
+                                           ↓
+                                    REMOTE REPOSITORY
+                                      (real commit)
 ```
+
+**Key Behavior:**
+- ✅ Git Agent **detects Cloud Run mode** via `_is_cloud_run_mode()`
+- ✅ **NO local git access** (stateless container, no `.git` directory)
+- ✅ **Triggers GitHub Action** via `_trigger_github_action()` webhook
+- ✅ **NO local file changes** (changes applied by GitHub Actions workflow)
+- ✅ GitHub Actions workflow applies changes and commits remotely
 
 **Characteristics:**
 - ✅ Multi-user safe
 - ✅ Complete audit trail in GitHub
 - ✅ Automated CI/CD
 - ✅ No local git required
-- ❌ Slight delay (GitHub Actions startup)
-- ❌ Requires GITHUB_TOKEN setup
+- ❌ Slight delay (GitHub Actions startup ~20-60s)
+- ❌ Requires GITHUB_TOKEN and GITHUB_REPO setup
 
 **Use Cases:**
 - Production deployments
@@ -316,7 +392,7 @@ Developer → Extension → Cloud Run → Proposals Router
 
 ---
 
-## Git Flow (Cloud Mode)
+## Git Flow (Cloud Run Mode)
 
 ### Complete Flow Diagram
 
@@ -332,35 +408,55 @@ Developer → Extension → Cloud Run → Proposals Router
 │    ✅ Update Firestore: status = "approved"                │
 │    ✅ Publish event: proposal.approved.v1                  │
 │    ✅ Track CPT rewards (+25 CPT)                          │
-│    ✅ trigger_github_action(proposal_id)                   │
+│    ❌ NO direct GitHub Action trigger                      │
 └──────────────────┬──────────────────────────────────────────┘
                    ↓
-        ┌──────────┴──────────┐
-        ↓                     ↓
-┌────────────────────────────┐  ┌────────────────────────────────────────┐
-│ 2a. EVENT BUS              │  │ 2b. GITHUB API                         │
-│  (In-memory / Pub/Sub-ready)│ │  POST /repos/{owner}/{repo}/dispatches│
-│                            │ │  {                                      │
-│ Git Agent receives:        │ │    "event_type": "proposal-approved",  │
-│ - proposal_id              │ │    "client_payload": {                 │
-│ - changes                  │ │      "proposal_id": "..."              │
-│                            │ │    }                                    │
-│ Does:                      │ │  }                                      │
-│ • Log history              │ └──────────────┬─────────────────────────┘
-│ • Update MDs               │                ↓
-│ • Track CPT (async)        │  ┌─────────────────────────────────────────┐
-│ • No commit!               │  │ 3. GITHUB ACTIONS                       │
-└────────────────────────────┘  │   (.github/workflows/apply-proposal.yml)│
-└────────────────┘   │                                          │
-                     │   1. Checkout repository                 │
-                     │   2. GET /proposals/{id}                 │
-                     │   3. Apply changes to files              │
-                     │   4. git add .                           │
-                     │   5. git commit -m "feat: Apply..."      │
-                     │   6. git push                            │
-                     │   7. POST /proposals/{id}/update         │
-                     │      {commit_hash: "abc123"}             │
-                     └─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ 3. EVENT BUS                                                │
+│    (Pub/Sub or In-Memory)                                   │
+│    → Routes event to Git Agent                              │
+└──────────────────┬──────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 4. GIT AGENT                                                │
+│    Receives: proposal.approved.v1                           │
+│                                                              │
+│    Checks: self.is_cloud_run == True                        │
+│                                                              │
+│    Actions:                                                  │
+│    ✅ Load proposal from Firestore                          │
+│    ✅ Trigger GitHub Action via webhook                      │
+│    ❌ NO local file changes (no git access)                 │
+│    ❌ NO local commits                                       │
+└──────────────────┬──────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 5. GITHUB API                                               │
+│    POST /repos/{owner}/{repo}/dispatches                    │
+│    {                                                          │
+│      "event_type": "proposal-approved",                    │
+│      "client_payload": {                                     │
+│        "proposal_id": "...",                                 │
+│        "workspace_id": "...",                               │
+│        "agent_id": "...",                                    │
+│        "title": "..."                                        │
+│      }                                                       │
+│    }                                                         │
+└──────────────────┬──────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 6. GITHUB ACTIONS                                           │
+│    (.github/workflows/apply-proposal.yml)                    │
+│                                                              │
+│    1. Checkout repository                                    │
+│    2. GET /proposals/{id} (fetch proposal)                  │
+│    3. Apply changes to files                                │
+│    4. git add .                                             │
+│    5. git commit -m "feat: Apply proposal..."               │
+│    6. git push                                              │
+│    7. (Optional) POST /proposals/{id}/update                │
+│       {commit_hash: "abc123"}                               │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### Step-by-Step
@@ -370,34 +466,33 @@ Developer → Extension → Cloud Run → Proposals Router
    - Clicks "Approve" button
    - Extension sends: `POST /proposals/{id}/approve`
 
-2. **Backend Processing** (Cloud Run)
+2. **Backend Processing** (Cloud Run - Proposals Router)
    - Updates proposal status in Firestore
-   - Publishes internal event to Event Bus
+   - Publishes internal event: `proposal.approved.v1`
    - Awards CPT rewards (+25 for approval)
-   - Calls `trigger_github_action()`
+   - **Does NOT trigger GitHub Action** (handled by Git Agent)
 
-3. **Dual Path Execution**
+3. **Git Agent Processing**
+   - Receives `proposal.approved.v1` event via Event Bus
+   - **Detects Cloud Run mode** (`self.is_cloud_run == True`)
+   - Loads proposal from Firestore
+   - **Triggers GitHub Action** via `_trigger_github_action()` webhook
+   - **Does NOT apply changes locally** (no git access in Cloud Run)
+   - **Does NOT create local commits**
 
-   **Path A - Internal (Git Agent):**
-   - Receives `proposal.approved.v1` event
-   - Logs to history.json
-   - Updates markdown files
-   - Tracks rewards metadata
-   - **Does NOT commit to git**
-
-   **Path B - External (GitHub Actions):**
-   - Receives `repository_dispatch` webhook
-   - Fetches proposal details from backend
-   - Applies file changes
+4. **GitHub Actions Workflow**
+   - Receives `repository_dispatch` webhook from Git Agent
+   - Fetches proposal details from backend API
+   - Applies file changes from `proposed_changes`
    - Creates real git commit
    - Pushes to repository
-   - Updates proposal with commit hash
+   - (Optional) Updates proposal with commit hash
 
-4. **Result**
+5. **Result**
    - Changes appear in GitHub repository
    - Full audit trail available
    - CI/CD tests run automatically
-   - Metadata tracked internally
+   - Metadata tracked internally by Git Agent
 
 ---
 
@@ -421,20 +516,30 @@ Developer → Extension → Cloud Run → Proposals Router
 └──────────────────┬──────────────────────────────────────────┘
                    ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 3. GIT AGENT (Event Handler)                               │
-│    Receives: proposal.approved.v1                          │
-│                                                              │
-│    Does:                                                    │
-│    1. Load proposal from local storage                      │
-│    2. Apply changes to files                                │
-│    3. _commit() → Git_Context_Manager                      │
-│    4. Log history.json                                      │
-│    5. Update markdown files                                 │
-│    6. Track rewards                                         │
+│ 3. EVENT BUS                                                │
+│    (In-Memory)                                              │
+│    → Routes event to Git Agent                              │
 └──────────────────┬──────────────────────────────────────────┘
                    ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 4. GIT_CONTEXT_MANAGER                                     │
+│ 4. GIT AGENT                                                │
+│    Receives: proposal.approved.v1                           │
+│                                                              │
+│    Checks: self.is_cloud_run == False                       │
+│                                                              │
+│    Actions:                                                  │
+│    1. Load proposal from local storage                      │
+│    2. Apply changes to files (_apply_proposal_changes)      │
+│    3. Generate commit message                               │
+│    4. _commit() → Git_Context_Manager                        │
+│    5. Log history.json                                      │
+│    6. Update markdown files                                 │
+│    7. Track rewards                                         │
+│    ❌ NO GitHub Action trigger (git is available locally)    │
+└──────────────────┬──────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 5. GIT_CONTEXT_MANAGER                                     │
 │    commit_changes(message, agent)                          │
 │                                                              │
 │    1. git add --all                                         │
@@ -442,17 +547,28 @@ Developer → Extension → Cloud Run → Proposals Router
 │    3. Log to history.json                                   │
 │    4. Update task_history.md                                │
 │    5. Return commit hash                                    │
+└──────────────────┬──────────────────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────────────────┐
+│ 6. LOCAL GIT REPOSITORY                                     │
+│    ✅ Changes committed locally                             │
+│    ✅ Full git history available                            │
+│    ✅ Can push manually if needed                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Differences from Cloud Mode
+### Differences from Cloud Run Mode
 
-| Aspect | Cloud Mode | Local Mode |
-|--------|-----------|-----------|
+| Aspect | Cloud Run Mode | Local Mode |
+|--------|---------------|-----------|
+| **Environment Detection** | `ENVIRONMENT=production` OR `USE_PUBSUB=true` | `ENVIRONMENT=local` (or not set) AND `USE_PUBSUB=false` |
 | **Storage** | Firestore | JSON files |
-| **Event Bus** | Pub/Sub (planned toggle) | In-Memory (default in current build) |
-| **Git Commits** | GitHub Actions | Direct (Git Agent) |
-| **Speed** | ~30s delay | Instant |
+| **Event Bus** | Pub/Sub (if enabled) | In-Memory (default) |
+| **Git Access** | ❌ No local git (stateless) | ✅ Direct git access |
+| **File Changes** | Applied by GitHub Actions | Applied by Git Agent locally |
+| **Git Commits** | GitHub Actions workflow | Direct (Git Agent → Git_Context_Manager) |
+| **GitHub Action Trigger** | ✅ Yes (via webhook) | ❌ No (git available locally) |
+| **Speed** | ~20-60s delay (workflow) | Instant (<5s) |
 | **Multi-user** | ✅ Safe | ❌ Conflicts possible |
 | **Audit Trail** | GitHub | Local only |
 | **CI/CD** | ✅ Automatic | ❌ Manual |

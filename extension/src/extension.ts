@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { ContextPilotService, ProposedChange } from './services/contextpilot';
 import { ProposalsProvider } from './views/proposals';
 import { RewardsProvider } from './views/rewards';
@@ -395,6 +396,10 @@ export function activate(context: vscode.ExtensionContext) {
       await commands.openContextFile(item);
     }),
 
+    vscode.commands.registerCommand('contextpilot.initializeContext', async () => {
+      await commands.initializeContextPilot();
+    }),
+
     vscode.commands.registerCommand('contextpilot.resetAgentMetrics', async (agentId?: string) => {
       if (!agentsProvider) {
         vscode.window.showErrorMessage('Agents provider is not available');
@@ -413,6 +418,57 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
     // Initialize review panel provider AFTER commands are registered (to avoid circular dependencies)
+    
+    // Check if .contextpilot/ is initialized when workspace opens
+    // This ensures new projects get context files automatically
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+      // Delay check slightly to ensure workspace is fully loaded
+      setTimeout(async () => {
+        try {
+          await commands.ensureContextPilotInitialized();
+        } catch (error) {
+          console.error('[ContextPilot] Failed to check context initialization:', error);
+        }
+      }, 2000);
+    }
+    
+    // Listen for workspace folder changes (new workspace opened)
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
+        if (event.added.length > 0) {
+          // New workspace folder added - check if context needs initialization
+          setTimeout(async () => {
+            try {
+              await commands.ensureContextPilotInitialized();
+            } catch (error) {
+              console.error('[ContextPilot] Failed to check context initialization:', error);
+            }
+          }, 2000);
+        }
+      })
+    );
+    
+    // Watch for .git directory creation (user did git init)
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot) {
+      const gitDir = path.join(workspaceRoot, '.git');
+      const gitWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRoot, '.git/**')
+      );
+      
+      gitWatcher.onDidCreate(async () => {
+        // .git directory was created - check if context needs initialization
+        setTimeout(async () => {
+          try {
+            await commands.ensureContextPilotInitialized();
+          } catch (error) {
+            console.error('[ContextPilot] Failed to check context initialization:', error);
+          }
+        }, 1000);
+      });
+      
+      context.subscriptions.push(gitWatcher);
+    }
     console.log('[ContextPilot] Creating review panel provider...');
     try {
       const reviewPanelProvider = new ReviewPanelProvider(context);

@@ -19,6 +19,7 @@ from app.agents.base_agent import BaseAgent
 from app.services.event_bus import EventTypes, Topics
 from app.agents.diff_generator import apply_patch, read_file_safe
 from app.repositories.proposal_repository import get_proposal_repository
+from app.models.proposal import ChangeProposal
 from enum import Enum
 from pathlib import Path
 import json
@@ -81,7 +82,21 @@ class GitAgent(BaseAgent):
         self.use_llm_commits = os.getenv("USE_LLM_COMMITS", "false").lower() == "true"
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
 
-        logger.info(f"[GitAgent] Initialized for workspace: {workspace_id}")
+        # Environment detection (always check)
+        self.is_cloud_run = self._is_cloud_run_mode()
+        logger.info(f"[GitAgent] Initialized for workspace: {workspace_id} (mode: {'Cloud Run' if self.is_cloud_run else 'local'})")
+
+    def _is_cloud_run_mode(self) -> bool:
+        """
+        Determine if running in Cloud Run (production) mode.
+        
+        Returns:
+            True if in Cloud Run mode, False if local mode
+        """
+        environment = os.getenv("ENVIRONMENT", "local")
+        use_pubsub = os.getenv("USE_PUBSUB", "false").lower() == "true"
+        is_production = environment == "production"
+        return is_production or use_pubsub
 
     async def handle_event(self, event_type: str, data: Dict) -> None:
         """
@@ -194,47 +209,93 @@ class GitAgent(BaseAgent):
     async def _handle_proposal_approved_v2(self, data: Dict) -> None:
         """Handle proposal.approved.v1 event (new event bus format)"""
         proposal_id = data.get("proposal_id")
-        workspace_id = data.get("workspace_id")
+        workspace_id = data.get("workspace_id", self.workspace_id)
 
         logger.info(f"[GitAgent] Proposal {proposal_id} approved, applying changes...")
 
         # 1. Load proposal to get diff/changes
-        proposal = self._load_proposal(proposal_id)
-        if not proposal:
+        proposal_dict = self._load_proposal(proposal_id)
+        if not proposal_dict:
             logger.error(f"[GitAgent] Proposal {proposal_id} not found")
             return
 
-        # 2. Apply changes from proposal
-        files_changed = await self._apply_proposal_changes(proposal)
-        logger.info(f"[GitAgent] Applied changes to {len(files_changed)} files")
+        # Convert to ChangeProposal model for type safety
+        try:
+            proposal = ChangeProposal(**proposal_dict)
+        except Exception as e:
+            logger.error(f"[GitAgent] Failed to parse proposal {proposal_id}: {e}")
+            # Fallback: create a minimal ChangeProposal-like object from dict
+            class ProposalObj:
+                def __init__(self, d: Dict):
+                    self.id = d.get("id", proposal_id)
+                    self.workspace_id = d.get("workspace_id", workspace_id)
+                    self.agent_id = d.get("agent_id")
+                    self.title = d.get("title", proposal_id)
+                    self.description = d.get("description", "")
+                    self.proposed_changes = d.get("proposed_changes", [])
+            proposal = ProposalObj(proposal_dict)
 
-        # 3. Generate commit message
-        message = self._generate_commit_message(
-            commit_type=CommitType.AGENT,
-            scope="proposal",
-            subject=f"Apply proposal: {proposal.get('title', proposal_id)}",
-            body=f"{proposal.get('description', '')}\n\nProposal-ID: {proposal_id}",
-            agent_name="git-agent",
-        )
+        # 2. Always check environment mode (local vs Cloud Run)
+        # This is critical: behavior differs based on environment
+        mode_str = "Cloud Run" if self.is_cloud_run else "local"
+        logger.info(f"[GitAgent] Processing proposal in {mode_str} mode")
 
-        # 4. Commit
-        commit_hash = self._commit(message, agent="git-agent")
-
-        if commit_hash:
-            # Publish git.commit event
-            await self.publish_event(
-                topic=Topics.GIT_EVENTS,
-                event_type=EventTypes.GIT_COMMIT,
-                data={
-                    "commit_hash": commit_hash,
-                    "workspace_id": workspace_id,
-                    "proposal_id": proposal_id,
-                    "files_changed": files_changed,
-                },
-            )
+        # 3. Apply changes based on environment mode
+        files_changed = []
+        commit_hash = None
+        
+        if self.is_cloud_run:
+            # Cloud Run mode: No git local available
+            # Trigger GitHub Action workflow to apply changes remotely
             logger.info(
-                f"[GitAgent] Committed {commit_hash} for proposal {proposal_id}"
+                f"[GitAgent] Cloud Run mode: Triggering GitHub Action workflow to apply changes"
             )
+            github_action_result = await self._trigger_github_action(proposal)
+            if github_action_result:
+                status = github_action_result.get("status")
+                logger.info(
+                    f"[GitAgent] GitHub Action trigger result: {status}"
+                )
+                if status == "error":
+                    error_msg = github_action_result.get("message", "Unknown error")
+                    logger.warning(f"[GitAgent] GitHub Action trigger failed: {error_msg}")
+        else:
+            # Local mode: Git is available locally
+            # Apply changes locally, commit, and push if needed
+            # NO need to trigger GitHub Action (we have git access)
+            logger.info(f"[GitAgent] Local mode: Applying changes locally with git...")
+            files_changed = await self._apply_proposal_changes(proposal_dict)
+            logger.info(f"[GitAgent] Applied changes to {len(files_changed)} files")
+
+            # Generate commit message
+            proposal_title = getattr(proposal, "title", None) or proposal_dict.get("title", proposal_id)
+            proposal_description = getattr(proposal, "description", None) or proposal_dict.get("description", "")
+            message = self._generate_commit_message(
+                commit_type=CommitType.AGENT,
+                scope="proposal",
+                subject=f"Apply proposal: {proposal_title}",
+                body=f"{proposal_description}\n\nProposal-ID: {proposal_id}",
+                agent_name="git-agent",
+            )
+
+            # Commit locally
+            commit_hash = self._commit(message, agent="git-agent")
+
+            if commit_hash:
+                # Publish git.commit event
+                await self.publish_event(
+                    topic=Topics.GIT_EVENTS,
+                    event_type=EventTypes.GIT_COMMIT,
+                    data={
+                        "commit_hash": commit_hash,
+                        "workspace_id": workspace_id,
+                        "proposal_id": proposal_id,
+                        "files_changed": files_changed,
+                    },
+                )
+                logger.info(
+                    f"[GitAgent] Committed locally: {commit_hash} for proposal {proposal_id}"
+                )
 
     async def _handle_milestone_v2(self, data: Dict) -> None:
         """Handle milestone.complete.v1 event (new event bus format)"""
@@ -401,7 +462,7 @@ class GitAgent(BaseAgent):
 
         return "Changes:\n" + "\n".join(f"- {change}" for change in changes)
 
-    def _commit(self, message: str, agent: str = "git-agent") -> Optional[str]:
+    def _commit(self, message: str, agent: str = "git-agent", allow_empty: bool = False) -> Optional[str]:
         """
         Execute git commit using Git_Context_Manager.
 
@@ -415,19 +476,49 @@ class GitAgent(BaseAgent):
         Args:
             message: Commit message
             agent: Agent name for tracking
+            allow_empty: If True, allow commit even with no changes (for temporal markers)
 
         Returns:
             Commit hash or None if failed
         """
         try:
-            logger.info(f"[GitAgent] Committing with message: {message[:50]}...")
+            logger.info(f"[GitAgent] Committing with message: {message[:50]}... (allow_empty={allow_empty})")
             # Git_Context_Manager handles everything: commit + history + markdown + rewards
-            result = self.git_manager.commit_changes(message=message, agent=agent)
+            result = self.git_manager.commit_changes(message=message, agent=agent, allow_empty=allow_empty)
             logger.info(f"[GitAgent] Commit successful: {result}")
             return result
         except Exception as e:
             logger.error(f"[GitAgent] Commit failed: {str(e)}")
             return None
+    
+    async def force_temporal_commit(self, reason: str = "temporal_marker") -> Optional[str]:
+        """
+        Force a commit to mark the current date/time.
+        
+        This is useful for:
+        - Marking start/end of day
+        - Creating temporal reference points
+        - Updating daily checklists
+        - Situating agents in time
+        
+        Args:
+            reason: Reason for the temporal commit (e.g., "daily_marker", "checkpoint", "session_start")
+            
+        Returns:
+            Commit hash or None if failed
+        """
+        if self.is_cloud_run:
+            logger.info("[GitAgent] Cloud Run mode - temporal commits are handled via GitHub API")
+            return None
+        
+        now = datetime.now(timezone.utc)
+        date_str = now.strftime('%Y-%m-%d')
+        time_str = now.strftime('%H:%M:%S UTC')
+        
+        message = f"chore(temporal): {reason} - {date_str} {time_str}\n\nTemporal marker to situate agents in time.\nReason: {reason}\nTimestamp: {now.isoformat()}"
+        
+        logger.info(f"[GitAgent] Forcing temporal commit: {reason} at {date_str} {time_str}")
+        return self._commit(message=message, agent="git-agent", allow_empty=True)
 
     # ===== LLM-Enhanced Commit Messages (GitAgent-specific feature) =====
 
@@ -566,6 +657,112 @@ Generate ONLY the commit message, nothing else."""
                 logger.error(f"[GitAgent] Failed to apply change to {file_path}: {e}")
 
         return files_changed
+
+    async def _trigger_github_action(self, proposal: Any) -> Optional[Dict[str, Any]]:
+        """
+        Trigger GitHub Action via repository_dispatch webhook.
+        
+        This method is called by Git Agent when a proposal is approved.
+        Works in both local and Cloud Run modes.
+
+        Args:
+            proposal: ChangeProposal object or dict-like object with proposal data
+
+        Returns:
+            dict with status and message, or None if not configured
+        """
+        github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+        if github_token:
+            github_token = github_token.strip()
+        if not github_token:
+            logger.warning(
+                "[GitAgent] GITHUB_TOKEN or PERSONAL_GITHUB_TOKEN not configured - skipping GitHub Action trigger"
+            )
+            return {
+                "status": "error",
+                "message": "GITHUB_TOKEN or PERSONAL_GITHUB_TOKEN must be configured to trigger GitHub Actions",
+                "reason": "configuration_missing"
+            }
+
+        github_repo = os.getenv("GITHUB_REPO") or os.getenv("GITHUB_REPOSITORY")
+        if github_repo:
+            github_repo = github_repo.strip()
+        if not github_repo:
+            logger.warning(
+                "[GitAgent] GITHUB_REPO not configured - skipping GitHub Action trigger"
+            )
+            return {
+                "status": "error",
+                "message": "GITHUB_REPO (owner/repo) must be set to trigger GitHub Actions",
+                "reason": "configuration_missing"
+            }
+
+        # Extract proposal data (works with both ChangeProposal model and dict)
+        proposal_id = getattr(proposal, "id", None) or proposal.get("id") if isinstance(proposal, dict) else None
+        proposal_workspace_id = getattr(proposal, "workspace_id", None) or proposal.get("workspace_id") if isinstance(proposal, dict) else self.workspace_id
+        proposal_agent_id = getattr(proposal, "agent_id", None) or proposal.get("agent_id") if isinstance(proposal, dict) else None
+        proposal_title = getattr(proposal, "title", None) or proposal.get("title", proposal_id) if isinstance(proposal, dict) else proposal_id
+
+        url = f"https://api.github.com/repos/{github_repo}/dispatches"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {github_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        payload = {
+            "event_type": "proposal-approved",
+            "client_payload": {
+                "proposal_id": proposal_id,
+                "workspace_id": proposal_workspace_id or self.workspace_id,
+                "agent_id": proposal_agent_id,
+                "title": proposal_title,
+            },
+        }
+
+        logger.info(
+            f"[GitAgent] 🚀 Triggering GitHub Action for proposal={proposal_id} (workspace={proposal_workspace_id}, repo={github_repo})"
+        )
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url, json=payload, headers=headers, timeout=10.0
+                )
+
+                if response.status_code == 204:
+                    logger.info(
+                        f"[GitAgent] ✅ GitHub Action triggered successfully for proposal: {proposal_id}"
+                    )
+                    return {
+                        "status": "success",
+                        "message": f"GitHub Action triggered for proposal {proposal_id}",
+                        "repo": github_repo,
+                    }
+                else:
+                    error_text = response.text
+                    logger.error(
+                        f"[GitAgent] ❌ GitHub Action trigger failed: {response.status_code} - {error_text}"
+                    )
+                    return {
+                        "status": "error",
+                        "status_code": response.status_code,
+                        "message": f"Failed to trigger GitHub Action: {error_text}",
+                        "repo": github_repo,
+                    }
+        except (httpx.TimeoutException, httpx.ReadTimeout) as e:
+            logger.error(f"[GitAgent] ❌ GitHub Action trigger timeout: {e}")
+            return {
+                "status": "error",
+                "message": f"Timeout while triggering GitHub Action: {str(e)}",
+                "repo": github_repo,
+            }
+        except Exception as e:
+            logger.error(f"[GitAgent] ❌ Error triggering GitHub Action: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "message": f"Error triggering GitHub Action: {str(e)}",
+                "repo": github_repo
+            }
 
     # ===== Future features (branches, tags, rollback) =====
 
