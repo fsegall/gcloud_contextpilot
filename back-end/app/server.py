@@ -14,6 +14,7 @@ import logging
 from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
 from time import time
+import copy
 
 # Import routers
 from app.routers import rewards, proposals
@@ -232,26 +233,64 @@ def get_manager(workspace_id: str = "default"):
 
 @app.get("/context")
 def get_context(workspace_id: str = Query("default")):
+    """
+    Return project context for the workspace.
+
+    Preference order:
+    1. Workspace checkpoint (.contextpilot/workspaces/<id>/checkpoint.yaml)
+    2. Legacy markdown files in repository root (PROJECT.md, etc.)
+    3. Default hard-coded fallback
+    """
     logger.info(f"GET /context called with workspace_id: {workspace_id}")
 
+    default_context = {
+        "checkpoint": {
+            "project_name": "ContextPilot - AI Development Assistant",
+            "goal": "Transform development workflows with AI-powered multi-agent assistance",
+            "current_status": "Core Functionality Complete",
+            "milestones": [],
+        }
+    }
+
     try:
-        # Try to read from PROJECT.md, GOAL.md, STATUS.md, MILESTONES.md
         from pathlib import Path
         import re
+        import yaml
 
+        # First try workspace checkpoint (dynamic per project)
+        try:
+            workspace_path = get_workspace_path(workspace_id)
+            checkpoint_file = Path(workspace_path) / "checkpoint.yaml"
+            if checkpoint_file.exists():
+                with open(checkpoint_file, "r", encoding="utf-8") as f:
+                    checkpoint_data = yaml.safe_load(f) or {}
+
+                context = {
+                    "checkpoint": {
+                        "project_name": checkpoint_data.get(
+                            "project_name", default_context["checkpoint"]["project_name"]
+                        ),
+                        "goal": checkpoint_data.get(
+                            "goal", default_context["checkpoint"]["goal"]
+                        ),
+                        "current_status": checkpoint_data.get(
+                            "current_status",
+                            default_context["checkpoint"]["current_status"],
+                        ),
+                        "milestones": checkpoint_data.get("milestones", []),
+                    }
+                }
+                logger.info("Context loaded from workspace checkpoint.yaml")
+                return context
+        except Exception as workspace_error:
+            logger.warning(
+                f"Failed to read workspace checkpoint: {workspace_error}", exc_info=True
+            )
+
+        # Fallback to repository markdown files (legacy behaviour)
         project_root = Path("/app")
-        logger.info(f"Project root: {project_root}")
+        context = copy.deepcopy(default_context)
 
-        context = {
-            "checkpoint": {
-                "project_name": "ContextPilot - AI Development Assistant",
-                "goal": "Transform development workflows with AI-powered multi-agent assistance",
-                "current_status": "Core Functionality Complete",
-                "milestones": [],
-            }
-        }
-
-        # Try to read PROJECT.md (override defaults if exists)
         project_file = project_root / "PROJECT.md"
         if project_file.exists():
             try:
@@ -259,11 +298,10 @@ def get_context(workspace_id: str = Query("default")):
                 match = re.search(r"#\s+(.+?)(?:\n|$)", content)
                 if match:
                     context["checkpoint"]["project_name"] = match.group(1).strip()
-                    logger.info(f"Loaded project name from PROJECT.md")
+                    logger.info("Loaded project name from PROJECT.md")
             except Exception as e:
                 logger.warning(f"Error reading PROJECT.md: {e}")
 
-        # Try to read GOAL.md
         goal_file = project_root / "GOAL.md"
         if goal_file.exists():
             try:
@@ -271,11 +309,10 @@ def get_context(workspace_id: str = Query("default")):
                 match = re.search(r"\*\*(.+?)\*\*", content)
                 if match:
                     context["checkpoint"]["goal"] = match.group(1).strip()
-                    logger.info(f"Loaded goal from GOAL.md")
+                    logger.info("Loaded goal from GOAL.md")
             except Exception as e:
                 logger.warning(f"Error reading GOAL.md: {e}")
 
-        # Try to read STATUS.md
         status_file = project_root / "STATUS.md"
         if status_file.exists():
             try:
@@ -283,23 +320,19 @@ def get_context(workspace_id: str = Query("default")):
                 match = re.search(r"Current Status:\s+\*\*(.+?)\*\*", content)
                 if match:
                     context["checkpoint"]["current_status"] = match.group(1).strip()
-                    logger.info(f"Loaded status from STATUS.md")
+                    logger.info("Loaded status from STATUS.md")
             except Exception as e:
                 logger.warning(f"Error reading STATUS.md: {e}")
 
-        # Try to read MILESTONES.md
         milestones_file = project_root / "MILESTONES.md"
-        logger.info(f"Looking for MILESTONES.md at: {milestones_file}")
-        logger.info(f"MILESTONES.md exists: {milestones_file.exists()}")
         if milestones_file.exists():
             try:
                 content = milestones_file.read_text(encoding="utf-8")
-                logger.info(f"MILESTONES.md content length: {len(content)}")
                 completed_matches = re.findall(
                     r"- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)", content
                 )
                 milestones = []
-                for name, desc in completed_matches:
+                for name, _ in completed_matches:
                     milestones.append(
                         {
                             "name": name.strip(),
@@ -311,23 +344,13 @@ def get_context(workspace_id: str = Query("default")):
                 logger.info(f"Loaded {len(milestones)} milestones from MILESTONES.md")
             except Exception as e:
                 logger.warning(f"Error reading MILESTONES.md: {e}")
-        else:
-            logger.warning(f"MILESTONES.md not found at {milestones_file}")
 
-        logger.info(f"Context loaded from .md files: {context}")
+        logger.info("Context loaded from legacy markdown files")
         return context
 
     except Exception as e:
         logger.error(f"Error in context endpoint: {str(e)}", exc_info=True)
-        # Return default context on error
-        return {
-            "checkpoint": {
-                "project_name": "ContextPilot - AI Development Assistant",
-                "goal": "Transform development workflows with AI-powered multi-agent assistance",
-                "current_status": "Core Functionality Complete",
-                "milestones": [],
-            }
-        }
+        return default_context
 
 
 @app.get("/context/milestones")

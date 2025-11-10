@@ -97,6 +97,21 @@ These usability targets drive every architectural choice described below.
 
 ---
 
+## Context Engineering & Workspace Artifacts
+
+ContextPilot treats context as a first-class system component:
+
+- **Workspace roots**: On startup the backend ensures `.contextpilot/workspaces/<workspace_id>/` exists (locally under the repo; in Cloud Run under `/app/.contextpilot`). `meta.json` and `history.json` capture creation metadata and event timelines.
+- **Checkpoint contract**: `checkpoint.yaml` stores `project_name`, `goal`, `current_status`, and `milestones`. The `/context` endpoint reads this file first, and the Spec, Strategy, and Coach agents update it after retrospectives or manual edits via the extension. Legacy `PROJECT.md/GOAL.md/STATUS.md` remain fallback-only for backwards compatibility.
+- **Knowledge artifacts**: `context.md`, `project_scope.md`, `project_checklist.md`, `milestones.md`, `timeline.md`, `daily_checklist.md`, `DECISIONS.md`, and `coding_standards.md` are maintained collaboratively by agents (Spec, Strategy, Git, Coach) and developers. Each file includes natural-language rules declared in `artifacts.yaml`, defining which agent produces or consumes it.
+- **Retrospective evidence**: Every retrospective saves JSON + Markdown under `retrospectives/`. The Development Agent links proposals back to these artifacts for traceability.
+- **IDE bridge**: The extension’s Context Tree, “View Context Detail”, “View Related Files”, and “Ask Claude to Review” commands read/write the same workspace directory so human edits, agent updates, and AI prompts stay in sync. When files are missing the extension scaffolds them with templates that match `checkpoint.yaml`.
+- **Cloud mirroring**: In cloud mode the Git agent and storage utilities mirror `.contextpilot/workspaces/...` to Cloud Storage so downstream analytics (BigQuery, dashboards) have the same structure as local development.
+
+This context engineering strategy ensures every agent action and IDE surface is grounded in the same living knowledge base, reducing drift and keeping long-running projects aligned.
+
+---
+
 ## Key Experience Flows
 
 ### Retrospective to Proposal Flow

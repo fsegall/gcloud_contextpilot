@@ -3,6 +3,7 @@ import { ContextPilotService, ChangeProposal, ProposedChange } from '../services
 import { CoachProvider } from '../views/coach';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as yaml from 'js-yaml';
 import simpleGit from 'simple-git';
 
 function inferLanguageId(filePath: string): string {
@@ -494,7 +495,7 @@ export async function viewProposalDiff(
     });
     
     if (action?.action === 'review') {
-      await askClaudeToReview(proposal);
+      await askClaudeToReview(service, proposal);
     } else if (action?.action === 'approve') {
       const next = await vscode.window.showQuickPick([
         { label: '$(robot) Ask Claude first', description: 'Open review with context, then approve', value: 'ask' },
@@ -503,7 +504,7 @@ export async function viewProposalDiff(
       ], { placeHolder: 'Would you like to ask Claude to review before approving?' });
 
       if (next?.value === 'ask') {
-        await askClaudeToReview(proposal);
+        await askClaudeToReview(service, proposal);
         const confirmApprove = await vscode.window.showQuickPick([
           { label: '$(check) Approve after review', value: 'approve' },
           { label: '$(x) Cancel', value: 'cancel' }
@@ -612,7 +613,7 @@ export async function askClaudeReviewCommand(
       return;
     }
 
-    await askClaudeToReview(proposal);
+    await askClaudeToReview(service, proposal);
   } catch (error) {
     console.error('Error triggering Claude review:', error);
     vscode.window.showErrorMessage('Failed to request Claude review');
@@ -629,16 +630,100 @@ export function setReviewPanel(panel: any): void {
 // Global chat session ID for maintaining context
 let contextPilotChatSessionId: string | undefined;
 
-async function askClaudeToReview(proposal: ChangeProposal): Promise<void> {
+async function askClaudeToReview(
+  service: ContextPilotService,
+  proposal: ChangeProposal
+): Promise<void> {
   console.log('[askClaudeToReview] Preparing review for proposal:', proposal.id);
-  // If review panel is available, use it
+  const workspaceId = getWorkspaceId();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const workspaceContextDir = workspaceRoot
+    ? path.join(workspaceRoot, '.contextpilot', 'workspaces', workspaceId)
+    : undefined;
+
+  // If review panel is available, use it but still attempt to open chat automatically
+  let usedReviewPanel = false;
   if (reviewPanel) {
+    usedReviewPanel = true;
     await reviewPanel.showReview(proposal);
-    return;
   }
-  
-  // Fallback to clipboard + chat
-  // Prepare context for Claude
+
+  const truncate = (value: string, maxLength: number) => {
+    if (!value) {
+      return '';
+    }
+    if (value.length <= maxLength) {
+      return value;
+    }
+    return `${value.slice(0, maxLength)}\n...\n[truncated ${value.length - maxLength} chars]`;
+  };
+
+  let checkpointData: any = {};
+  try {
+    const contextPayload = await service.getContextReal(workspaceId);
+    checkpointData = contextPayload?.checkpoint || {};
+  } catch (error) {
+    console.warn('[askClaudeToReview] Failed to load workspace checkpoint:', error);
+  }
+
+  const projectName = checkpointData?.project_name || '(project name not set)';
+  const goal = checkpointData?.goal || '(goal not set)';
+  const status = checkpointData?.current_status || '(status not set)';
+  const milestoneArr: any[] = Array.isArray(checkpointData?.milestones)
+    ? checkpointData.milestones
+    : [];
+  const milestoneLines = milestoneArr.slice(0, 6).map((m) => {
+    const name = m?.name || 'Unnamed milestone';
+    const state = m?.status ? ` [${m.status}]` : '';
+    const due = m?.due ? ` (due ${m.due})` : '';
+    return `- ${name}${state}${due}`;
+  });
+
+  let projectContextSection = `## Project Brief (workspace: ${workspaceId})
+- **Name:** ${projectName}
+- **Goal:** ${goal}
+- **Status:** ${status}
+- **Milestones tracked:** ${milestoneArr.length}`;
+
+  if (milestoneLines.length) {
+    projectContextSection += `\n\n### Milestone Snapshot\n${milestoneLines.join('\n')}`;
+  }
+
+  const artifactSections: string[] = [];
+  if (workspaceContextDir && fs.existsSync(workspaceContextDir)) {
+    const artifacts: Array<{ label: string; file: string; maxLength: number }> = [
+      { label: 'Context', file: 'context.md', maxLength: 2000 },
+      { label: 'Project Scope', file: 'project_scope.md', maxLength: 2000 },
+      { label: 'Milestones Notes', file: 'milestones.md', maxLength: 2000 },
+      { label: 'Project Checklist', file: 'project_checklist.md', maxLength: 1600 },
+      { label: 'Daily Checklist', file: 'daily_checklist.md', maxLength: 1200 },
+      { label: 'Timeline', file: 'timeline.md', maxLength: 1500 },
+      { label: 'Decisions', file: 'DECISIONS.md', maxLength: 1500 },
+      { label: 'Coding Standards', file: 'coding_standards.md', maxLength: 1500 },
+    ];
+
+    for (const artifact of artifacts) {
+      const artifactPath = path.join(workspaceContextDir, artifact.file);
+      if (fs.existsSync(artifactPath)) {
+        try {
+          const raw = fs.readFileSync(artifactPath, 'utf-8').trim();
+          if (raw.length > 0) {
+            const truncated = truncate(raw, artifact.maxLength);
+            artifactSections.push(
+              `### ${artifact.label}\n_Source: .contextpilot/workspaces/${workspaceId}/${artifact.file}_\n\n${truncated}`
+            );
+          }
+        } catch (error) {
+          console.warn(`[askClaudeToReview] Failed to read artifact ${artifact.file}:`, error);
+        }
+      }
+    }
+  }
+
+  const artifactContextSection = artifactSections.length
+    ? `## Workspace Artifacts\n${artifactSections.join('\n\n')}`
+    : '';
+
   const filesAffected = proposal.proposed_changes
     .map(c => `- **${c.file_path}** (${c.change_type}): ${c.description}`)
     .join('\n');
@@ -653,60 +738,46 @@ async function askClaudeToReview(proposal: ChangeProposal): Promise<void> {
     .join('\n\n');
 
   const diffContent = proposal.diff?.content || fallbackDiff || '(no diff available)';
-  
-  const context = `# Review Change Proposal #${proposal.id}
 
-**Title:** ${proposal.title}
-**Description:** ${proposal.description}
-**Agent:** ${proposal.agent_id}
+  const promptBody = [
+    projectContextSection,
+    artifactContextSection,
+    `## Proposed Changes\n\n\`\`\`diff\n${diffContent}\n\`\`\`\n\n## Files Affected\n${filesAffected || '- (none listed)'}`
+  ].filter(Boolean).join('\n\n');
 
-## Proposed Changes
+  const context = `# Review Change Proposal #${proposal.id}\n\n**Title:** ${proposal.title}\n**Description:** ${proposal.description}\n**Agent:** ${proposal.agent_id}\n\n${promptBody}\n`;
 
-\`\`\`diff
-${diffContent}
-\`\`\`
-
-## Files Affected
-${filesAffected}
-
-`;
-  
   try {
-    // Try to use Cursor's chat API with session persistence
-    // Option 1: Use chat participant API (if available)
     const chatOptions = {
       prompt: context,
-      // Try to maintain session
       sessionId: contextPilotChatSessionId
     };
-    
-    // Try to open chat with context directly
+
     const result = await vscode.commands.executeCommand(
       'workbench.action.chat.open',
       chatOptions
     );
-    
-    // Store session ID if returned
+
     if (result && typeof result === 'object' && 'sessionId' in result) {
       contextPilotChatSessionId = (result as any).sessionId;
     }
-    
-    // Also copy to clipboard as fallback
+
     await vscode.env.clipboard.writeText(context);
-    
-    vscode.window.showInformationMessage(
-      '🤖 Chat opened with review context. If not auto-filled, paste from clipboard (Cmd+V).'
-    );
+
+    if (!usedReviewPanel) {
+      vscode.window.showInformationMessage(
+        '🤖 Chat opened with review context. If not auto-filled, paste from clipboard (Cmd+V).'
+      );
+    }
   } catch (error) {
-    // Fallback: Just copy to clipboard and open chat
     await vscode.env.clipboard.writeText(context);
-    
+
     const result = await vscode.window.showInformationMessage(
       '📋 Review context copied to clipboard! Open Cursor Chat and paste to ask Claude.',
       'Open Chat',
       'OK'
     );
-    
+
     if (result === 'Open Chat') {
       await vscode.commands.executeCommand('workbench.action.chat.open');
     }
@@ -819,6 +890,7 @@ export async function viewRelatedFiles(service: ContextPilotService, proposalId:
 
         // Get related files from proposal
         const relatedFiles: string[] = [];
+        const workspaceId = getWorkspaceId();
         
         // Add files from proposed changes
         if (proposal.proposed_changes) {
@@ -831,11 +903,13 @@ export async function viewRelatedFiles(service: ContextPilotService, proposalId:
 
         // Add context files if available
         const contextFiles = [
-            'README.md',
-            'project_scope.md',
-            'ARCHITECTURE.md',
-            'project_checklist.md',
-            'daily_checklist.md'
+            `.contextpilot/workspaces/${workspaceId}/context.md`,
+            `.contextpilot/workspaces/${workspaceId}/project_scope.md`,
+            `.contextpilot/workspaces/${workspaceId}/project_checklist.md`,
+            `.contextpilot/workspaces/${workspaceId}/daily_checklist.md`,
+            `.contextpilot/workspaces/${workspaceId}/milestones.md`,
+            `.contextpilot/workspaces/${workspaceId}/timeline.md`,
+            `.contextpilot/workspaces/${workspaceId}/DECISIONS.md`
         ];
 
         // Show files in a quick pick
@@ -1242,6 +1316,11 @@ export async function viewContextDetail(item: any): Promise<void> {
     const contextValue = item.contextValue;
     const label = item.label;
     const description = item.description;
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceId = getWorkspaceId();
+    const workspaceContextDir = workspaceRoot
+      ? path.join(workspaceRoot, '.contextpilot', 'workspaces', workspaceId)
+      : undefined;
     
     const panel = vscode.window.createWebviewPanel(
       'contextpilotContextDetail',
@@ -1252,51 +1331,73 @@ export async function viewContextDetail(item: any): Promise<void> {
     
     let content = '';
     
+    const checkpointPath = workspaceContextDir
+      ? path.join(workspaceContextDir, 'checkpoint.yaml')
+      : undefined;
+    const milestonesPath = workspaceContextDir
+      ? path.join(workspaceContextDir, 'milestones.md')
+      : undefined;
+    
+    const checkpointExists = checkpointPath ? fs.existsSync(checkpointPath) : false;
+    const checkpointData = checkpointExists
+      ? ((yaml.load(fs.readFileSync(checkpointPath, 'utf-8')) as any) || {})
+      : {};
+    const checkpointYaml = checkpointExists
+      ? fs.readFileSync(checkpointPath!, 'utf-8')
+      : getTemplateContent('project', workspaceId);
+    const milestonesText =
+      milestonesPath && fs.existsSync(milestonesPath)
+        ? fs.readFileSync(milestonesPath, 'utf-8')
+        : getTemplateContent('milestones-root', workspaceId);
+    
     if (contextValue === 'project') {
+      const projectName = checkpointData?.project_name || description || 'N/A';
       content = `
         <h1>📦 Project</h1>
         <div class="content-box">
-          <p>${description}</p>
+          <p><strong>Current name:</strong> ${projectName}</p>
         </div>
         <h2>About</h2>
         <p>This is your project name and description. It helps agents understand the context of your work.</p>
         <h2>How to Update</h2>
-        <p>Edit the <code>PROJECT.md</code> file in your project root:</p>
-        <pre><code># 📦 ContextPilot - AI Development Assistant
-
-**ContextPilot** is an AI-powered development assistant...</code></pre>
+        <p>Edit <code>.contextpilot/workspaces/${workspaceId}/checkpoint.yaml</code> and update the <code>project_name</code> field:</p>
+        <pre><code>${checkpointYaml}</code></pre>
       `;
     } else if (contextValue === 'goal') {
+      const goal = checkpointData?.goal || description || 'N/A';
       content = `
         <h1>🎯 Goal</h1>
         <div class="content-box">
-          <p>${description}</p>
+          <p><strong>Current goal:</strong> ${goal}</p>
         </div>
         <h2>About</h2>
         <p>This is your main project goal. It guides the AI agents in making relevant suggestions.</p>
         <h2>How to Update</h2>
-        <p>Edit the <code>GOAL.md</code> file in your project root:</p>
-        <pre><code># 🎯 Project Goal
-
-**Transform development workflows with AI-powered assistance**</code></pre>
+        <p>Edit <code>.contextpilot/workspaces/${workspaceId}/checkpoint.yaml</code> and update the <code>goal</code> field:</p>
+        <pre><code>${checkpointYaml}</code></pre>
       `;
     } else if (contextValue === 'status') {
+      const status = checkpointData?.current_status || description || 'N/A';
       content = `
         <h1>📊 Status</h1>
         <div class="content-box">
-          <p>${description}</p>
+          <p><strong>Current status:</strong> ${status}</p>
         </div>
         <h2>About</h2>
         <p>Your current project status helps agents understand what phase you're in.</p>
         <h2>How to Update</h2>
-        <p>Edit the <code>STATUS.md</code> file in your project root:</p>
-        <pre><code># 📊 Project Status
-
-Current Status: **Core Functionality Complete**
-
-- Backend deployed to Cloud Run
-- VS Code extension functional
-- Multi-agent system operational</code></pre>
+        <p>Edit <code>.contextpilot/workspaces/${workspaceId}/checkpoint.yaml</code> and update the <code>current_status</code> field:</p>
+        <pre><code>${checkpointYaml}</code></pre>
+      `;
+    } else if (contextValue === 'milestones-root') {
+      content = `
+        <h1>🗓️ Milestones</h1>
+        <div class="content-box">
+          <p><strong>Total milestones tracked:</strong> ${(item.milestones || []).length}</p>
+        </div>
+        <h2>How to Update</h2>
+        <p>Edit <code>.contextpilot/workspaces/${workspaceId}/milestones.md</code> or update the <code>milestones</code> array inside <code>checkpoint.yaml</code>:</p>
+        <pre><code>${milestonesText}</code></pre>
       `;
     }
     
@@ -1415,18 +1516,25 @@ export async function openContextFile(item: any): Promise<void> {
   try {
     const contextValue = item.contextValue;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceId = getWorkspaceId();
     
     if (!workspaceRoot) {
       vscode.window.showErrorMessage('No workspace folder open');
       return;
     }
     
-    // Map context value to file name
+    const workspaceContextDir = path.join(
+      workspaceRoot,
+      '.contextpilot',
+      'workspaces',
+      workspaceId
+    );
+    
     const fileMap: { [key: string]: string } = {
-      'project': 'PROJECT.md',
-      'goal': 'GOAL.md',
-      'status': 'STATUS.md',
-      'milestones-root': 'MILESTONES.md'
+      project: 'checkpoint.yaml',
+      goal: 'checkpoint.yaml',
+      status: 'checkpoint.yaml',
+      'milestones-root': 'milestones.md'
     };
     
     const fileName = fileMap[contextValue];
@@ -1435,35 +1543,33 @@ export async function openContextFile(item: any): Promise<void> {
       return;
     }
     
-    const filePath = path.join(workspaceRoot, fileName);
+    const filePath = path.join(workspaceContextDir, fileName);
     const uri = vscode.Uri.file(filePath);
     
-    // Check if file exists
     try {
       await vscode.workspace.fs.stat(uri);
-      // File exists, open it
-      const document = await vscode.workspace.openTextDocument(uri);
-      await vscode.window.showTextDocument(document);
     } catch {
-      // File doesn't exist, offer to create it
       const createFile = await vscode.window.showWarningMessage(
-        `File ${fileName} doesn't exist. Create it?`,
-        'Create File',
+        `Artifact ${fileName} doesn't exist. Create it now?`,
+        'Create Artifact',
         'Cancel'
       );
       
-      if (createFile === 'Create File') {
-        // Create file with template content
-        const template = getTemplateContent(contextValue);
-        await vscode.workspace.fs.writeFile(uri, Buffer.from(template, 'utf-8'));
-        
-        vscode.window.showInformationMessage(`✅ Created ${fileName}`);
-        
-        // Open the newly created file
-        const document = await vscode.workspace.openTextDocument(uri);
-        await vscode.window.showTextDocument(document);
+      if (createFile !== 'Create Artifact') {
+        return;
       }
+      
+      await vscode.workspace.fs.createDirectory(
+        vscode.Uri.file(path.dirname(filePath))
+      );
+      
+      const template = getTemplateContent(contextValue, workspaceId);
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(template, 'utf-8'));
+      vscode.window.showInformationMessage(`✅ Created ${fileName} in workspace ${workspaceId}`);
     }
+    
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document);
     
   } catch (error: any) {
     console.error('[openContextFile] Error:', error);
@@ -1471,69 +1577,32 @@ export async function openContextFile(item: any): Promise<void> {
   }
 }
 
-function getTemplateContent(contextValue: string): string {
+function getTemplateContent(contextValue: string, workspaceId?: string): string {
   switch (contextValue) {
     case 'project':
-      return `# 📦 Project Name
-
-**Your Project Name** - A brief description of what your project does.
-
-## Overview
-Describe your project in more detail here.
-
-## Key Features
-- Feature 1
-- Feature 2
-- Feature 3
-`;
     case 'goal':
-      return `# 🎯 Project Goal
-
-**Your main project goal**
-
-## Objective
-Describe what you want to achieve with this project.
-
-## Success Criteria
-- Criterion 1
-- Criterion 2
-- Criterion 3
-`;
     case 'status':
-      return `# 📊 Project Status
+      return `# Workspace context for "${workspaceId || 'default'}"
+# Update the YAML below to align agents and tooling.
 
-Current Status: **In Progress**
-
-## Current Phase
-Describe what phase of development you're in.
-
-## Recent Updates
-- Update 1
-- Update 2
-- Update 3
-
-## Next Steps
-- Step 1
-- Step 2
-- Step 3
+project_name: ${workspaceId || 'my-project'}
+goal: >
+  Describe the primary objective driving this project.
+current_status: >
+  Summarize the current status so agents know what changed recently.
+milestones:
+  - name: Example milestone
+    status: planned
+    due: ${new Date().toISOString().slice(0, 10)}
 `;
     case 'milestones-root':
       return `# 🗓️ Project Milestones
 
-## Phase 1: Foundation
-- ✅ **Setup project structure**: Complete
-- ✅ **Initial configuration**: Complete
-
-## Phase 2: Development
-- [ ] **Feature implementation**: In Progress
-- [ ] **Testing**: Not Started
-
-## Phase 3: Launch
-- [ ] **Final testing**: Not Started
-- [ ] **Deployment**: Not Started
+- [ ] 2025-12-31 — Describe the milestone outcome
+- [ ] YYYY-MM-DD — Add more milestones and keep them synced with checkpoint.yaml
 `;
     default:
-      return '# Context File\n\nAdd your content here.\n';
+      return '# Context Artifact\n\nUpdate this file to keep agents informed.\n';
   }
 }
 

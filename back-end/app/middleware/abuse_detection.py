@@ -50,6 +50,10 @@ class AbuseDetector:
         """
         client_ip = request.client.host if request.client else "unknown"
 
+        # Skip internal IPs (Cloud Run / GCP load balancer) to avoid false positives
+        if client_ip.startswith(("169.254.", "10.", "127.0.0.1")):
+            return {"suspicious": False, "reason": None, "should_block": False}
+
         # Check blacklist
         if client_ip in self.blacklist:
             logger.warning(f"🚫 Blocked request from blacklisted IP: {client_ip}")
@@ -104,6 +108,9 @@ class AbuseDetector:
 
     def record_error(self, client_ip: str, status_code: int):
         """Record error for IP (used to detect malicious scanning)"""
+        if client_ip.startswith(("169.254.", "10.", "127.0.0.1")):
+            return
+
         if status_code >= 400:
             self.error_counts[client_ip] += 1
 

@@ -78,7 +78,9 @@ class DevelopmentAgent(BaseAgent):
             "PERSONAL_GITHUB_TOKEN"
         )
         if self.github_token:
-            self.github_token = self.github_token.strip()  # Remove whitespace and newlines
+            self.github_token = (
+                self.github_token.strip()
+            )  # Remove whitespace and newlines
 
         # Codespaces mode configuration
         self.codespaces_enabled = (
@@ -144,7 +146,9 @@ class DevelopmentAgent(BaseAgent):
         """
         try:
             logger.info(f"[DevelopmentAgent] Received event: {event_type}")
-            logger.info(f"[DevelopmentAgent] Current metrics before processing: {self.get_metrics()}")
+            logger.info(
+                f"[DevelopmentAgent] Current metrics before processing: {self.get_metrics()}"
+            )
 
             if event_type == "retrospective.summary.v1":
                 await self._handle_retrospective(data)
@@ -152,11 +156,17 @@ class DevelopmentAgent(BaseAgent):
                 await self._handle_spec_requirement(data)
 
             self.increment_metric("events_processed")
-            logger.info(f"[DevelopmentAgent] Incremented events_processed. New metrics: {self.get_metrics()}")
+            logger.info(
+                f"[DevelopmentAgent] Incremented events_processed. New metrics: {self.get_metrics()}"
+            )
         except Exception as e:
-            logger.error(f"[DevelopmentAgent] Error handling {event_type}: {e}", exc_info=True)
+            logger.error(
+                f"[DevelopmentAgent] Error handling {event_type}: {e}", exc_info=True
+            )
             self.increment_metric("errors")
-            logger.info(f"[DevelopmentAgent] Incremented errors. New metrics: {self.get_metrics()}")
+            logger.info(
+                f"[DevelopmentAgent] Incremented errors. New metrics: {self.get_metrics()}"
+            )
 
     async def _handle_retrospective(self, data: Dict) -> None:
         """
@@ -165,10 +175,8 @@ class DevelopmentAgent(BaseAgent):
         Args:
             data: Retrospective event data
         """
-        retrospective_id = data.get('retrospective_id')
-        logger.info(
-            f"[DevelopmentAgent] Processing retrospective: {retrospective_id}"
-        )
+        retrospective_id = data.get("retrospective_id")
+        logger.info(f"[DevelopmentAgent] Processing retrospective: {retrospective_id}")
 
         dispatched_by_retrospective_agent = data.get("code_actions_dispatched", False)
         existing_code_proposals = data.get("code_proposals") or []
@@ -223,7 +231,9 @@ Context from Retrospective:
 """
                 # Add relevant insights
                 for insight in retrospective.get("insights", [])[:3]:
-                    if any(keyword in insight.lower() for keyword in action.lower().split()):
+                    if any(
+                        keyword in insight.lower() for keyword in action.lower().split()
+                    ):
                         description += f"- {insight}\n"
 
                 description += f"\n**Implementation Goal:**\n{action}"
@@ -260,7 +270,9 @@ Context from Retrospective:
     def _load_retrospective_summary(self, retrospective_id: str) -> Optional[Dict]:
         """Load retrospective summary from workspace."""
         try:
-            retro_path = self.workspace_path / "retrospectives" / f"{retrospective_id}.json"
+            retro_path = (
+                self.workspace_path / "retrospectives" / f"{retrospective_id}.json"
+            )
             if not retro_path.exists():
                 logger.warning(
                     f"[DevelopmentAgent] Retrospective file not found: {retro_path}"
@@ -276,27 +288,49 @@ Context from Retrospective:
             return retrospective
 
         except Exception as e:
-            logger.error(
-                f"[DevelopmentAgent] Error loading retrospective summary: {e}"
-            )
+            logger.error(f"[DevelopmentAgent] Error loading retrospective summary: {e}")
             return None
 
     def _identify_code_actions(self, action_items: List[Dict]) -> List[Dict]:
         """
         Identify action items that require code implementation.
-        
+
         Args:
             action_items: List of action items from retrospective
-            
+
         Returns:
             List of action items that need code implementation
         """
         code_keywords = [
-            "implement", "code", "fix", "add", "create", "update", "refactor",
-            "improve", "enhance", "build", "develop", "write", "modify",
-            "test", "unit test", "integration test", "error handling",
-            "agent", "event", "subscription", "handler", "endpoint", "api",
-            "function", "class", "method", "bug", "issue", "feature"
+            "implement",
+            "code",
+            "fix",
+            "add",
+            "create",
+            "update",
+            "refactor",
+            "improve",
+            "enhance",
+            "build",
+            "develop",
+            "write",
+            "modify",
+            "test",
+            "unit test",
+            "integration test",
+            "error handling",
+            "agent",
+            "event",
+            "subscription",
+            "handler",
+            "endpoint",
+            "api",
+            "function",
+            "class",
+            "method",
+            "bug",
+            "issue",
+            "feature",
         ]
 
         code_actions = []
@@ -465,7 +499,9 @@ Context from Retrospective:
                     )
                     target_files = fallback_files
                 else:
-                    logger.warning("[DevelopmentAgent] Could not determine target files")
+                    logger.warning(
+                        "[DevelopmentAgent] Could not determine target files"
+                    )
                     return None
 
             logger.info(f"[DevelopmentAgent] Target files: {target_files}")
@@ -1405,30 +1441,38 @@ Examples:
             await self._stream_codespace_progress(
                 codespace_id, f"🌿 Creating branch: {branch_name}"
             )
-            
+
             # Create branch first
             branch_created = await self._create_remote_branch(branch_name)
             if not branch_created:
-                logger.error(f"[DevelopmentAgent] Failed to create branch: {branch_name}")
+                logger.error(
+                    f"[DevelopmentAgent] Failed to create branch: {branch_name}"
+                )
                 return None
-                
+
             await self._stream_codespace_progress(
                 codespace_id, "💾 Committing changes..."
             )
-            
+
             # Make a simple commit to the branch
-            commit_made = await self._make_commit(branch_name, description, changes_made)
+            commit_made = await self._make_commit(
+                branch_name, description, changes_made
+            )
             if not commit_made:
-                logger.error(f"[DevelopmentAgent] Failed to make commit on branch: {branch_name}")
+                logger.error(
+                    f"[DevelopmentAgent] Failed to make commit on branch: {branch_name}"
+                )
                 return None
-                
+
             await self._stream_codespace_progress(
                 codespace_id, "📤 Pushing to repository..."
             )
 
             # Create PR using GitHub API
-            pr_url = await self._create_pull_request(branch_name, description, changes_made)
-            
+            pr_url = await self._create_pull_request(
+                branch_name, description, changes_made
+            )
+
             if pr_url:
                 await self._stream_codespace_progress(
                     codespace_id, f"✅ PR created: {pr_url}"
@@ -1436,7 +1480,8 @@ Examples:
 
             return {
                 "branch_name": branch_name,
-                "pr_url": pr_url or f"https://github.com/{self.codespaces_repo}/pull/new/{branch_name}",
+                "pr_url": pr_url
+                or f"https://github.com/{self.codespaces_repo}/pull/new/{branch_name}",
             }
         except Exception as e:
             logger.error(
@@ -1447,52 +1492,63 @@ Examples:
     async def _create_remote_branch(self, branch_name: str) -> bool:
         """Create a new branch from main."""
         try:
-            github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+            github_token = os.getenv("GITHUB_TOKEN") or os.getenv(
+                "PERSONAL_GITHUB_TOKEN"
+            )
             if github_token:
                 github_token = github_token.strip()  # Remove whitespace and newlines
             if not github_token:
-                logger.error("[DevelopmentAgent] No GitHub token available for branch creation")
+                logger.error(
+                    "[DevelopmentAgent] No GitHub token available for branch creation"
+                )
                 return False
 
             # Get the latest commit SHA from main branch
             url = f"https://api.github.com/repos/{self.codespaces_repo}/git/refs/heads/main"
             headers = {
                 "Authorization": f"token {github_token}",
-                "Accept": "application/vnd.github.v3+json"
+                "Accept": "application/vnd.github.v3+json",
             }
 
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code != 200:
-                logger.error(f"[DevelopmentAgent] Failed to get main branch: {response.status_code}")
+                logger.error(
+                    f"[DevelopmentAgent] Failed to get main branch: {response.status_code}"
+                )
                 return False
 
             main_ref = response.json()
             main_sha = main_ref["object"]["sha"]
 
             # Create new branch
-            branch_payload = {
-                "ref": f"refs/heads/{branch_name}",
-                "sha": main_sha
-            }
+            branch_payload = {"ref": f"refs/heads/{branch_name}", "sha": main_sha}
 
             url = f"https://api.github.com/repos/{self.codespaces_repo}/git/refs"
-            response = requests.post(url, json=branch_payload, headers=headers, timeout=30)
-            
+            response = requests.post(
+                url, json=branch_payload, headers=headers, timeout=30
+            )
+
             if response.status_code == 201:
                 logger.info(f"[DevelopmentAgent] Created branch: {branch_name}")
                 return True
             else:
-                logger.error(f"[DevelopmentAgent] Failed to create branch: {response.status_code} - {response.text}")
+                logger.error(
+                    f"[DevelopmentAgent] Failed to create branch: {response.status_code} - {response.text}"
+                )
                 return False
 
         except Exception as e:
             logger.error(f"[DevelopmentAgent] Error creating branch: {e}")
             return False
 
-    async def _make_commit(self, branch_name: str, description: str, changes_made: List[str]) -> bool:
+    async def _make_commit(
+        self, branch_name: str, description: str, changes_made: List[str]
+    ) -> bool:
         """Make a commit to the branch with a simple test file."""
         try:
-            github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+            github_token = os.getenv("GITHUB_TOKEN") or os.getenv(
+                "PERSONAL_GITHUB_TOKEN"
+            )
             if github_token:
                 github_token = github_token.strip()  # Remove whitespace and newlines
             if not github_token:
@@ -1500,8 +1556,10 @@ Examples:
                 return False
 
             # Generate actual implementation based on description
-            implementation = await self._generate_implementation_content(description, changes_made)
-            
+            implementation = await self._generate_implementation_content(
+                description, changes_made
+            )
+
             # Create implementation file content
             test_content = f"""# 🤖 Dev Agent Implementation
 
@@ -1532,36 +1590,43 @@ Examples:
 
             # Encode content to base64
             import base64
-            content_b64 = base64.b64encode(test_content.encode('utf-8')).decode('utf-8')
+
+            content_b64 = base64.b64encode(test_content.encode("utf-8")).decode("utf-8")
 
             # Create commit
             commit_payload = {
                 "message": f"🤖 Dev Agent: {description[:50]}",
                 "content": content_b64,
-                "branch": branch_name
+                "branch": branch_name,
             }
 
             url = f"https://api.github.com/repos/{self.codespaces_repo}/contents/dev-agent-test-{datetime.now().strftime('%Y%m%d-%H%M%S')}.md"
             headers = {
                 "Authorization": f"token {github_token}",
                 "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
-            response = requests.put(url, json=commit_payload, headers=headers, timeout=30)
-            
+            response = requests.put(
+                url, json=commit_payload, headers=headers, timeout=30
+            )
+
             if response.status_code == 201:
                 logger.info(f"[DevelopmentAgent] Made commit on branch: {branch_name}")
                 return True
             else:
-                logger.error(f"[DevelopmentAgent] Failed to make commit: {response.status_code} - {response.text}")
+                logger.error(
+                    f"[DevelopmentAgent] Failed to make commit: {response.status_code} - {response.text}"
+                )
                 return False
 
         except Exception as e:
             logger.error(f"[DevelopmentAgent] Error making commit: {e}")
             return False
 
-    async def _generate_implementation_content(self, description: str, changes_made: List[str]) -> str:
+    async def _generate_implementation_content(
+        self, description: str, changes_made: List[str]
+    ) -> str:
         """Generate actual implementation content based on feature description."""
         try:
             # Use Gemini to generate implementation
@@ -1603,24 +1668,38 @@ Generate a detailed implementation plan with code examples:"""
                     .get("text", "")
                     .strip()
                 )
-                return implementation if implementation else "Implementation details will be provided in the Codespace environment."
+                return (
+                    implementation
+                    if implementation
+                    else "Implementation details will be provided in the Codespace environment."
+                )
             else:
-                logger.warning(f"[DevelopmentAgent] Failed to generate implementation: {response.status_code}")
+                logger.warning(
+                    f"[DevelopmentAgent] Failed to generate implementation: {response.status_code}"
+                )
                 return "Implementation details will be provided in the Codespace environment."
 
         except Exception as e:
             logger.error(f"[DevelopmentAgent] Error generating implementation: {e}")
-            return "Implementation details will be provided in the Codespace environment."
+            return (
+                "Implementation details will be provided in the Codespace environment."
+            )
 
-    async def _create_pull_request(self, branch_name: str, description: str, changes_made: List[str]) -> Optional[str]:
+    async def _create_pull_request(
+        self, branch_name: str, description: str, changes_made: List[str]
+    ) -> Optional[str]:
         """Create a pull request using GitHub API."""
         try:
             # Get GitHub token from environment
-            github_token = os.getenv("GITHUB_TOKEN") or os.getenv("PERSONAL_GITHUB_TOKEN")
+            github_token = os.getenv("GITHUB_TOKEN") or os.getenv(
+                "PERSONAL_GITHUB_TOKEN"
+            )
             if github_token:
                 github_token = github_token.strip()  # Remove whitespace and newlines
             if not github_token:
-                logger.error("[DevelopmentAgent] No GitHub token available for PR creation")
+                logger.error(
+                    "[DevelopmentAgent] No GitHub token available for PR creation"
+                )
                 return None
 
             # Create PR payload
@@ -1652,7 +1731,7 @@ Generate a detailed implementation plan with code examples:"""
 
 ---
 *This PR was automatically generated by the ContextPilot Dev Agent* 🚀
-"""
+""",
             }
 
             # Create PR via GitHub API
@@ -1660,18 +1739,20 @@ Generate a detailed implementation plan with code examples:"""
             headers = {
                 "Authorization": f"token {github_token}",
                 "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
             response = requests.post(url, json=pr_payload, headers=headers, timeout=30)
-            
+
             if response.status_code == 201:
                 pr_data = response.json()
                 pr_url = pr_data["html_url"]
                 logger.info(f"[DevelopmentAgent] Created PR: {pr_url}")
                 return pr_url
             else:
-                logger.error(f"[DevelopmentAgent] Failed to create PR: {response.status_code} - {response.text}")
+                logger.error(
+                    f"[DevelopmentAgent] Failed to create PR: {response.status_code} - {response.text}"
+                )
                 return None
 
         except Exception as e:
@@ -1708,19 +1789,30 @@ Generate a detailed implementation plan with code examples:"""
 
             # Sanitize description for title (remove markdown and newlines)
             import re
+
             # Remove markdown bold patterns (including incomplete ones like **Priority:** )
-            title_desc = re.sub(r'\*\*[^*]*?\*\*', '', description)  # Remove **bold** patterns
-            title_desc = re.sub(r'\*\*[^*]*$', '', title_desc)  # Remove incomplete ** at end
-            title_desc = re.sub(r'^\*\*[^*]*', '', title_desc)  # Remove incomplete ** at start
-            title_desc = re.sub(r'\*\*[^*:]*:\s*\*\*', '', title_desc)  # Remove **text:** patterns
-            title_desc = re.sub(r'\*\*[^*:]*:\s*', '', title_desc)  # Remove **text: patterns (incomplete)
-            title_desc = re.sub(r'\*[^*]*\*', '', title_desc)  # Remove *italic*
-            title_desc = re.sub(r'\*\*', '', title_desc)  # Remove any remaining **
-            title_desc = re.sub(r'\*', '', title_desc)  # Remove any remaining *
-            title_desc = re.sub(r'\n', ' ', title_desc)  # Replace newlines with spaces
-            title_desc = re.sub(r'\s+', ' ', title_desc).strip()  # Collapse whitespace
+            title_desc = re.sub(
+                r"\*\*[^*]*?\*\*", "", description
+            )  # Remove **bold** patterns
+            title_desc = re.sub(
+                r"\*\*[^*]*$", "", title_desc
+            )  # Remove incomplete ** at end
+            title_desc = re.sub(
+                r"^\*\*[^*]*", "", title_desc
+            )  # Remove incomplete ** at start
+            title_desc = re.sub(
+                r"\*\*[^*:]*:\s*\*\*", "", title_desc
+            )  # Remove **text:** patterns
+            title_desc = re.sub(
+                r"\*\*[^*:]*:\s*", "", title_desc
+            )  # Remove **text: patterns (incomplete)
+            title_desc = re.sub(r"\*[^*]*\*", "", title_desc)  # Remove *italic*
+            title_desc = re.sub(r"\*\*", "", title_desc)  # Remove any remaining **
+            title_desc = re.sub(r"\*", "", title_desc)  # Remove any remaining *
+            title_desc = re.sub(r"\n", " ", title_desc)  # Replace newlines with spaces
+            title_desc = re.sub(r"\s+", " ", title_desc).strip()  # Collapse whitespace
             title_desc = title_desc[:60]  # Limit length
-            
+
             # Create proposal with codespace info
             proposal_data = {
                 "id": proposal_id,

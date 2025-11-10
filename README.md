@@ -60,6 +60,18 @@ The detailed breakdown lives in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
+## Context Engineering Strategy
+
+- **Dynamic workspaces**: Every project gets a `.contextpilot/workspaces/<workspace_id>/` directory containing `checkpoint.yaml`, `context.md`, `milestones.md`, `history.json`, and other living artifacts. The backend creates (or hydrates) this tree on demand whether you run locally or in Cloud Run.
+- **Single source of truth**: Agents ingest and update those artifacts instead of ad-hoc markdown in the repo root. `/context` returns the latest `checkpoint.yaml`, and the Spec/Git/Coach agents keep it fresh after retrospectives, commits, or manual edits.
+- **IDE integration**: The extension’s Context view and “Ask Claude to Review” pull directly from `.contextpilot/workspaces/...` so AI reviews and chat prompts always include the current project brief, scope, milestones, and checklists.
+- **Replayable history**: Retrospectives, proposals, and task history land under the same workspace folder, giving developers a time machine for decisions and enabling agents to reason about trends over weeks—not just a single request.
+- **Docs for operators**: See the “Context Engineering & Workspace Artifacts” section inside [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full file map and the lifecycle rules each agent follows.
+
+Keeping this workspace alive is the backbone of ContextPilot’s context engineering approach: agents stay aligned, reviewers get richer prompts, and developers never lose track of project intent.
+
+---
+
 ## Google ADK Integration
 - All agents inherit from `BaseAgent`, mirroring ADK’s `start → handle_event → stop` lifecycle.
 - The Retrospective Agent bundles high/medium/low action items and publishes ADK-compatible payloads so the Development Agent can produce one proposal per priority bucket.
