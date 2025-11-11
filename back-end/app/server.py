@@ -1310,6 +1310,10 @@ async def get_development_agent_diagnostic(workspace_id: str = Query("default"))
     logger.info(f"GET /agents/development/diagnostic - workspace: {workspace_id}")
     
     try:
+        # Ensure workspace exists before getting path
+        from app.utils.workspace_manager import ensure_workspace_exists
+        ensure_workspace_exists(workspace_id)
+        
         workspace_path = get_workspace_path(workspace_id)
         project_id = os.getenv(
             "GCP_PROJECT_ID",
@@ -1320,11 +1324,19 @@ async def get_development_agent_diagnostic(workspace_id: str = Query("default"))
         import requests
         
         # Initialize agent to get configuration
-        agent = DevelopmentAgent(
-            workspace_path=str(workspace_path),
-            workspace_id=workspace_id,
-            project_id=project_id,
-        )
+        try:
+            agent = DevelopmentAgent(
+                workspace_path=str(workspace_path),
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
+        except Exception as agent_error:
+            logger.error(f"Error initializing DevelopmentAgent: {agent_error}", exc_info=True)
+            return {
+                "error": f"Failed to initialize DevelopmentAgent: {str(agent_error)}",
+                "workspace_id": workspace_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
         
         diagnostic = {
             "workspace_id": workspace_id,
