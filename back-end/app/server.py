@@ -1229,6 +1229,7 @@ async def trigger_agent_retrospective(
     workspace_id: str = Query("default"),
     trigger: str = Body("manual"),
     use_llm: bool = Body(False),
+    trigger_topic: Optional[str] = Body(None),
 ):
     """
     Trigger a retrospective meeting between agents.
@@ -1243,14 +1244,16 @@ async def trigger_agent_retrospective(
         workspace_id: Workspace identifier
         trigger: What triggered the retrospective (e.g., "manual", "milestone_complete", "cycle_end")
         use_llm: Whether to use Gemini LLM for narrative synthesis
+        trigger_topic: Optional topic for agent discussion
 
     Returns:
         Retrospective summary with agent insights
     """
-    logger.info(f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}")
+    logger.info(f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}, topic: {trigger_topic}")
 
     try:
         from app.agents.retrospective_agent import trigger_retrospective
+        import asyncio
 
         # Get Gemini API key if LLM synthesis requested
         gemini_api_key = None
@@ -1259,22 +1262,192 @@ async def trigger_agent_retrospective(
             if not gemini_api_key:
                 logger.warning("[API] LLM synthesis requested but no API key found")
 
-        retrospective = await trigger_retrospective(
-            workspace_id=workspace_id,
-            trigger=trigger,
-            gemini_api_key=gemini_api_key
-        )
+        # Add timeout to prevent 503 errors (max 840 seconds to stay under Cloud Run 900s limit)
+        try:
+            retrospective = await asyncio.wait_for(
+                trigger_retrospective(
+                    workspace_id=workspace_id,
+                    trigger=trigger,
+                    gemini_api_key=gemini_api_key,
+                    trigger_topic=trigger_topic
+                ),
+                timeout=840.0  # 14 minutes max (leaving 60s buffer for Cloud Run 900s limit)
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"[API] Retrospective timeout after 840 seconds for workspace: {workspace_id}")
+            raise HTTPException(
+                status_code=504,
+                detail="Retrospective processing timed out. Try again with use_llm=false or check agent logs."
+            )
 
         return {
             "status": "success",
             "retrospective": retrospective
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error triggering retrospective: {str(e)}")
+        logger.error(f"Error triggering retrospective: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to trigger retrospective: {str(e)}"
+        )
+
+
+@app.get("/agents/development/diagnostic")
+async def get_development_agent_diagnostic(workspace_id: str = Query("default")):
+    """
+    Get detailed diagnostic information about Development Agent and Codespaces configuration.
+    
+    This endpoint provides visibility into:
+    - Codespaces configuration status
+    - Token availability and scopes
+    - Authentication test results
+    - Last error messages
+    - Current mode being used
+    """
+    logger.info(f"GET /agents/development/diagnostic - workspace: {workspace_id}")
+    
+    try:
+        workspace_path = get_workspace_path(workspace_id)
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
+        
+        from app.agents.development_agent import DevelopmentAgent
+        import requests
+        
+        # Initialize agent to get configuration
+        agent = DevelopmentAgent(
+            workspace_path=str(workspace_path),
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        
+        diagnostic = {
+            "workspace_id": workspace_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "codespaces": {
+                "enabled": agent.codespaces_enabled,
+                "repo": agent.codespaces_repo,
+                "machine": agent.codespaces_machine,
+            },
+            "sandbox": {
+                "enabled": agent.sandbox_enabled,
+                "repo_url": agent.sandbox_repo_url if agent.sandbox_enabled else None,
+            },
+            "github_token": {
+                "available": agent.github_token is not None,
+                "source": None,
+                "preview": None,
+                "length": len(agent.github_token) if agent.github_token else 0,
+            },
+            "authentication": {
+                "tested": False,
+                "status": "not_tested",
+                "message": None,
+                "scopes": [],
+                "missing_scopes": [],
+                "error": None,
+            },
+            "processed_retrospectives": list(agent.processed_retrospectives),
+        }
+        
+        # Determine token source
+        if os.getenv("PERSONAL_GITHUB_TOKEN"):
+            diagnostic["github_token"]["source"] = "PERSONAL_GITHUB_TOKEN"
+        elif os.getenv("GITHUB_TOKEN"):
+            diagnostic["github_token"]["source"] = "GITHUB_TOKEN"
+        elif os.getenv("GH_TOKEN"):
+            diagnostic["github_token"]["source"] = "GH_TOKEN"
+        else:
+            diagnostic["github_token"]["source"] = "none"
+        
+        if agent.github_token:
+            diagnostic["github_token"]["preview"] = f"{agent.github_token[:10]}...{agent.github_token[-4:]}" if len(agent.github_token) > 14 else "***"
+        
+        # Test authentication if token is available
+        if agent.github_token and agent.codespaces_enabled:
+            try:
+                # Test 1: Check token scopes
+                url = "https://api.github.com/user"
+                headers = {
+                    "Authorization": f"Bearer {agent.github_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                }
+                response = requests.get(url, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    scopes_header = response.headers.get("X-OAuth-Scopes", "")
+                    if scopes_header:
+                        scopes = [s.strip() for s in scopes_header.split(",")]
+                        diagnostic["authentication"]["scopes"] = scopes
+                        
+                        required_scopes = ["repo", "codespace"]
+                        missing = [s for s in required_scopes if s not in scopes]
+                        diagnostic["authentication"]["missing_scopes"] = missing
+                        
+                        if missing:
+                            diagnostic["authentication"]["status"] = "missing_scopes"
+                            diagnostic["authentication"]["message"] = f"Token missing scopes: {', '.join(missing)}"
+                        else:
+                            diagnostic["authentication"]["status"] = "scopes_ok"
+                            diagnostic["authentication"]["message"] = "Token has required scopes"
+                    
+                    # Test 2: Try to list codespaces
+                    codespaces_url = "https://api.github.com/user/codespaces"
+                    codespaces_response = requests.get(codespaces_url, headers=headers, timeout=10)
+                    
+                    if codespaces_response.status_code == 200:
+                        diagnostic["authentication"]["status"] = "authenticated"
+                        diagnostic["authentication"]["message"] = "Authentication successful - Codespaces API accessible"
+                        codespaces_data = codespaces_response.json()
+                        diagnostic["codespaces"]["active_count"] = len(codespaces_data.get("codespaces", []))
+                    elif codespaces_response.status_code in [401, 403]:
+                        diagnostic["authentication"]["status"] = "authentication_failed"
+                        try:
+                            error_data = codespaces_response.json()
+                            error_msg = error_data.get("message", "Unknown error")
+                            diagnostic["authentication"]["message"] = f"Authentication failed: {error_msg}"
+                            diagnostic["authentication"]["error"] = error_data
+                        except:
+                            diagnostic["authentication"]["message"] = f"Authentication failed: {codespaces_response.status_code}"
+                    else:
+                        diagnostic["authentication"]["status"] = "api_error"
+                        diagnostic["authentication"]["message"] = f"API returned status {codespaces_response.status_code}"
+                else:
+                    diagnostic["authentication"]["status"] = "token_invalid"
+                    diagnostic["authentication"]["message"] = f"Token validation failed: {response.status_code}"
+                
+                diagnostic["authentication"]["tested"] = True
+                
+            except Exception as e:
+                diagnostic["authentication"]["status"] = "test_error"
+                diagnostic["authentication"]["message"] = f"Error testing authentication: {str(e)}"
+                diagnostic["authentication"]["error"] = str(e)
+        
+        # Determine current mode
+        if agent.codespaces_enabled and diagnostic["authentication"]["status"] == "authenticated":
+            diagnostic["current_mode"] = "codespaces"
+            diagnostic["current_mode_reason"] = "Codespaces enabled and authenticated"
+        elif agent.sandbox_enabled:
+            diagnostic["current_mode"] = "sandbox"
+            diagnostic["current_mode_reason"] = "Sandbox mode enabled (Codespaces not available or not authenticated)"
+        else:
+            diagnostic["current_mode"] = "proposal"
+            diagnostic["current_mode_reason"] = "Proposal mode (Codespaces and Sandbox not available)"
+        
+        return diagnostic
+        
+    except Exception as e:
+        logger.error(f"Error getting development agent diagnostic: {str(e)}", exc_info=True)
         return {
-            "status": "error",
-            "message": str(e)
+            "error": str(e),
+            "workspace_id": workspace_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
 
@@ -1345,3 +1518,120 @@ async def get_retrospective(retrospective_id: str, workspace_id: str = Query("de
     except Exception as e:
         logger.error(f"Error reading retrospective: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/events/log")
+async def get_event_log(
+    workspace_id: str = Query("default"),
+    limit: int = Query(100, ge=1, le=1000),
+    event_type: Optional[str] = Query(None),
+):
+    """
+    Get event log from EventBus (inspect event stack).
+    
+    Returns all events published through the event bus.
+    Works with both InMemoryEventBus (development) and PubSubEventBus (production).
+    
+    Args:
+        workspace_id: Workspace identifier
+        limit: Maximum number of events to return (1-1000)
+        event_type: Optional filter by event type
+    
+    Returns:
+        List of events with full payload
+    """
+    logger.info(f"GET /events/log - workspace: {workspace_id}, limit: {limit}, event_type: {event_type}")
+    
+    try:
+        from app.services.event_bus import get_event_bus
+        
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
+        
+        event_bus = get_event_bus(project_id=project_id)
+        
+        # Get event log
+        if hasattr(event_bus, "get_event_log"):
+            events = event_bus.get_event_log(limit=limit)
+            
+            # Filter by event type if specified
+            if event_type:
+                events = [e for e in events if e.get("event_type") == event_type]
+            
+            # Sort by timestamp (most recent first)
+            events.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            
+            return {
+                "events": events,
+                "count": len(events),
+                "event_bus_type": type(event_bus).__name__,
+                "workspace_id": workspace_id,
+            }
+        else:
+            return {
+                "error": "Event bus does not support get_event_log()",
+                "event_bus_type": type(event_bus).__name__,
+                "workspace_id": workspace_id,
+            }
+    
+    except Exception as e:
+        logger.error(f"Error getting event log: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get event log: {str(e)}")
+
+
+@app.get("/events/stats")
+async def get_event_stats(workspace_id: str = Query("default")):
+    """
+    Get event statistics (counts by type, source, topic).
+    
+    Returns:
+        Statistics about events in the event log
+    """
+    logger.info(f"GET /events/stats - workspace: {workspace_id}")
+    
+    try:
+        from app.services.event_bus import get_event_bus
+        
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
+        
+        event_bus = get_event_bus(project_id=project_id)
+        
+        if hasattr(event_bus, "get_event_log"):
+            events = event_bus.get_event_log(limit=1000)
+            
+            # Calculate statistics
+            by_type = defaultdict(int)
+            by_source = defaultdict(int)
+            by_topic = defaultdict(int)
+            
+            for event in events:
+                event_type = event.get("event_type", "unknown")
+                source = event.get("source", "unknown")
+                topic = event.get("topic", "unknown")
+                
+                by_type[event_type] += 1
+                by_source[source] += 1
+                by_topic[topic] += 1
+            
+            return {
+                "total_events": len(events),
+                "by_type": dict(by_type),
+                "by_source": dict(by_source),
+                "by_topic": dict(by_topic),
+                "event_bus_type": type(event_bus).__name__,
+                "workspace_id": workspace_id,
+            }
+        else:
+            return {
+                "error": "Event bus does not support get_event_log()",
+                "event_bus_type": type(event_bus).__name__,
+            }
+    
+    except Exception as e:
+        logger.error(f"Error getting event stats: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get event stats: {str(e)}")
