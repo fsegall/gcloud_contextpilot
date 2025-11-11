@@ -226,6 +226,72 @@ class PubSubEventBus(EventBusInterface):
         """Publish event to Pub/Sub topic"""
         topic_path = self.publisher.topic_path(self.project_id, topic)
 
+        # Ensure topic exists (create if it doesn't)
+        try:
+            # Try to get the topic to verify it exists
+            self.publisher.get_topic(request={"topic": topic_path})
+            logger.debug(f"[PubSubEventBus] Topic {topic} exists")
+        except Exception as e:
+            # Topic doesn't exist, check if there's a similar topic first
+            error_str = str(e).lower()
+            if "not found" in error_str or "404" in error_str or "does not exist" in error_str:
+                logger.info(f"[PubSubEventBus] Topic {topic} not found, checking for similar topics...")
+                
+                # List all topics to check for similar names
+                try:
+                    project_path = f"projects/{self.project_id}"
+                    existing_topics = list(self.publisher.list_topics(request={"project": project_path}))
+                    topic_names = [t.name.split("/")[-1] for t in existing_topics]
+                    
+                    # Check for similar topic names (case-insensitive, with/without hyphens)
+                    topic_lower = topic.lower()
+                    similar_topics = [
+                        t for t in topic_names 
+                        if t.lower() == topic_lower or 
+                           t.lower().replace("-", "") == topic_lower.replace("-", "") or
+                           t.lower().replace("_", "-") == topic_lower
+                    ]
+                    
+                    if similar_topics:
+                        logger.warning(
+                            f"[PubSubEventBus] Found similar topics: {similar_topics}. "
+                            f"Using existing topic '{similar_topics[0]}' instead of creating '{topic}'"
+                        )
+                        # Use the existing similar topic
+                        topic_path = self.publisher.topic_path(self.project_id, similar_topics[0])
+                    else:
+                        # No similar topic found, create new one
+                        logger.info(f"[PubSubEventBus] No similar topics found, creating new topic: {topic}")
+                        try:
+                            self.publisher.create_topic(request={"name": topic_path})
+                            logger.info(f"[PubSubEventBus] ✅ Created topic: {topic}")
+                        except Exception as create_error:
+                            logger.error(
+                                f"[PubSubEventBus] Failed to create topic {topic}: {create_error}"
+                            )
+                            raise
+                except Exception as list_error:
+                    # If we can't list topics, just try to create (might be permission issue)
+                    logger.warning(
+                        f"[PubSubEventBus] Could not list topics to check for similar names: {list_error}. "
+                        f"Attempting to create topic {topic}..."
+                    )
+                    try:
+                        self.publisher.create_topic(request={"name": topic_path})
+                        logger.info(f"[PubSubEventBus] ✅ Created topic: {topic}")
+                    except Exception as create_error:
+                        # Check if topic was created by another process (race condition)
+                        if "already exists" in str(create_error).lower() or "409" in str(create_error):
+                            logger.info(f"[PubSubEventBus] Topic {topic} already exists (created by another process)")
+                        else:
+                            logger.error(
+                                f"[PubSubEventBus] Failed to create topic {topic}: {create_error}"
+                            )
+                            raise
+            else:
+                # Different error, re-raise
+                raise
+
         event_payload = {
             "event_id": f"evt-{uuid.uuid4().hex}",
             "topic": topic,
