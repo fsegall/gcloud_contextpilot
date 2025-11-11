@@ -1115,8 +1115,27 @@ export async function triggerRetrospective(service: ContextPilotService): Promis
         // Call backend API to trigger retrospective
         const response = await service.triggerRetrospective(workspaceId, topic || 'manual');
         
+        console.log('[triggerRetrospective] Full response:', JSON.stringify(response, null, 2));
+        
         if (response && response.retrospective) {
           const retro = response.retrospective;
+          
+          console.log('[triggerRetrospective] Retrospective data:', {
+            id: retro.retrospective_id,
+            timestamp: retro.timestamp,
+            insights: retro.insights?.length || 0,
+            action_items: retro.action_items?.length || 0,
+            agent_metrics: Object.keys(retro.agent_metrics || {}).length,
+            has_llm_summary: !!retro.llm_summary,
+            proposal_id: retro.proposal_id
+          });
+          
+          // Validate that we have at least the basic fields
+          if (!retro.retrospective_id || !retro.timestamp) {
+            console.error('[triggerRetrospective] Invalid retrospective data:', retro);
+            vscode.window.showErrorMessage('Retrospective data is incomplete. Check console for details.');
+            return;
+          }
           
           // Show results in a webview
           const panel = vscode.window.createWebviewPanel(
@@ -1150,7 +1169,9 @@ export async function triggerRetrospective(service: ContextPilotService): Promis
             []
           );
           
-          panel.webview.html = getRetrospectiveWebviewContent(retro, topic);
+          const webviewHtml = getRetrospectiveWebviewContent(retro, topic);
+          console.log('[triggerRetrospective] Generated webview HTML length:', webviewHtml.length);
+          panel.webview.html = webviewHtml;
           
           // Show completion notification (non-blocking)
           const insightCount = retro.insights?.length || 0;
@@ -1287,28 +1308,28 @@ function getRetrospectiveWebviewContent(retro: any, topic?: string): string {
     <div class="header">
         <h1>🤖 Agent Retrospective</h1>
         <div class="meta">
-            <strong>ID:</strong> ${retro.retrospective_id}<br/>
-            <strong>Date:</strong> ${new Date(retro.timestamp).toLocaleString()}<br/>
-            <strong>Trigger:</strong> ${retro.trigger}
+            <strong>ID:</strong> ${retrospectiveId}<br/>
+            <strong>Date:</strong> ${new Date(timestamp).toLocaleString()}<br/>
+            <strong>Trigger:</strong> ${trigger}
         </div>
     </div>
 
-    ${topic ? `
+    ${topicFromRetro ? `
     <div class="topic-box">
-        <strong>💬 Discussion Topic:</strong> ${topic}
+        <strong>💬 Discussion Topic:</strong> ${topicFromRetro}
     </div>
     ` : ''}
 
     <div class="section">
         <h2>📊 Agent Metrics</h2>
-        ${Object.entries(metrics).map(([agentId, agentMetrics]: [string, any]) => `
+        ${Object.keys(metrics).length > 0 ? Object.entries(metrics).map(([agentId, agentMetrics]: [string, any]) => `
             <div class="agent-metric">
                 <div class="agent-name">${agentId}</div>
-                ${Object.entries(agentMetrics).map(([key, value]) => `
-                    <div><strong>${key}:</strong> ${value}</div>
-                `).join('')}
+                ${agentMetrics && typeof agentMetrics === 'object' ? Object.entries(agentMetrics).map(([key, value]) => `
+                    <div><strong>${key}:</strong> ${JSON.stringify(value)}</div>
+                `).join('') : `<div>${JSON.stringify(agentMetrics)}</div>`}
             </div>
-        `).join('')}
+        `).join('') : '<p>No agent metrics available.</p>'}
     </div>
 
     <div class="section">
