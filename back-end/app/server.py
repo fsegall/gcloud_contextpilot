@@ -1,106 +1,43 @@
-import os
-import sys
-import json
-import copy
-import logging
-import httpx
-from typing import Optional, Any, Union, List, Dict
-from datetime import datetime, timezone
-from time import time
-from pathlib import Path
-from collections import defaultdict
-from dotenv import load_dotenv
-from pydantic import BaseModel
-
 from fastapi import FastAPI, Body, Query, HTTPException, Request
+from typing import Optional
+from app.git_context_manager import Git_Context_Manager
+from datetime import datetime
+from dotenv import load_dotenv
+import os
+from app.llm_request_model import LLMRequest
+from pydantic import BaseModel
+from typing import List
+import httpx
+from datetime import datetime, timezone
+from fastapi import Body, Query
+import logging
 from fastapi.middleware.cors import CORSMiddleware
+from collections import defaultdict
+from time import time
 
-# Import routers
-from app.routers import rewards, proposals
-from app.config import get_config, StorageMode
+# Temporarily commented - install dependencies later
+# from app.routers import rewards, proposals, events
 from app.agents.spec_agent import SpecAgent
 from app.middleware.abuse_detection import abuse_detector
 from app.utils.workspace_manager import get_workspace_path
 from app.repositories.proposal_repository import get_proposal_repository
-from app.git_context_manager import Git_Context_Manager
-from app.llm_request_model import LLMRequest
+import os
+from typing import List, Dict
+import json
+from pathlib import Path
 
 # Configure logging
-# In Cloud Run, only use StreamHandler (stdout/stderr are captured automatically)
-# FileHandler can fail if directory doesn't exist or lacks permissions
-handlers = [logging.StreamHandler(sys.stdout)]
-if os.getenv("ENVIRONMENT") != "production":
-    # Only add file handler in non-production environments
-    try:
-        handlers.append(logging.FileHandler("server.log", mode="w"))
-    except Exception as e:
-        # If file handler fails, continue with just stdout
-        pass
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=handlers,
+    handlers=[logging.FileHandler("server.log", mode="w"), logging.StreamHandler()],
     force=True,
 )
 logger = logging.getLogger(__name__)
 
-# Log startup
-logger.info("=" * 50)
-logger.info("ContextPilot Server Starting...")
-logger.info("=" * 50)
-
 CONTEXT_PILOT_URL = "http://localhost:8000"
 
-env_candidates = [
-    Path(__file__).resolve().parent.parent / ".env",  # back-end/.env (legacy)
-    Path(__file__).resolve().parents[2] / ".env",  # repository root .env
-]
-
-loaded_envs = []
-for env_path in env_candidates:
-    if env_path.exists():
-        load_dotenv(dotenv_path=str(env_path), override=False)
-        loaded_envs.append(str(env_path))
-
-if loaded_envs:
-    logger.info("Environment variables loaded from: %s", ", ".join(loaded_envs))
-else:
-    logger.warning(
-        "No .env file found in expected locations; relying on existing environment variables"
-    )
-
-
-def configure_firestore_credentials():
-    """
-    If FIRESTORE_CREDENTIALS_JSON is provided via environment/Secret Manager,
-    write it to a temporary file and point GOOGLE_APPLICATION_CREDENTIALS to it.
-    """
-    credentials_json = os.getenv("FIRESTORE_CREDENTIALS_JSON")
-    if not credentials_json:
-        return
-
-    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-        logger.info(
-            "GOOGLE_APPLICATION_CREDENTIALS already set; skipping Firestore secret configuration."
-        )
-        return
-
-    try:
-        credentials_path = Path("/tmp/firestore-service-account.json")
-        credentials_path.write_text(credentials_json)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path)
-        logger.info(
-            "Configured Firestore credentials from FIRESTORE_CREDENTIALS_JSON secret."
-        )
-    except Exception as exc:
-        logger.error(
-            f"Failed to configure Firestore credentials from secret: {exc}",
-            exc_info=True,
-        )
-
-
-configure_firestore_credentials()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 app = FastAPI(
     title="ContextPilot API",
@@ -109,7 +46,6 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
-logger.info("FastAPI app created")
 
 # Simple in-memory rate limiter
 rate_limit_store = defaultdict(list)
@@ -148,19 +84,6 @@ async def rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/health":
         return await call_next(request)
 
-    # Skip abuse detection for Pub/Sub push notifications (/events endpoint)
-    # Pub/Sub uses internal IPs (169.254.x.x) and sends many identical requests
-    if request.url.path == "/events":
-        # Verify it's a Pub/Sub request (has Pub/Sub headers or internal IP)
-        pubsub_token = request.headers.get("x-verification-token")
-        user_agent = request.headers.get("user-agent", "")
-        is_internal_ip = client_ip.startswith("169.254.") or client_ip.startswith("10.")
-
-        # Allow if it looks like Pub/Sub (has Pub/Sub headers or internal GCP IP)
-        if pubsub_token or "CloudPubSub" in user_agent or is_internal_ip:
-            logger.debug(f"✅ Allowing Pub/Sub request from {client_ip}")
-            return await call_next(request)
-
     # Check for abuse patterns
     abuse_check = abuse_detector.check_request(request)
     if abuse_check["should_block"]:
@@ -174,30 +97,13 @@ async def rate_limit_middleware(request: Request, call_next):
             f"⚠️ Suspicious request from {client_ip}: {abuse_check['reason']}"
         )
 
-    # Skip rate limiting for Pub/Sub push notifications
-    if request.url.path == "/events":
-        pubsub_token = request.headers.get("x-verification-token")
-        user_agent = request.headers.get("user-agent", "")
-        is_internal_ip = client_ip.startswith("169.254.") or client_ip.startswith("10.")
-        if pubsub_token or "CloudPubSub" in user_agent or is_internal_ip:
-            # Skip rate limiting for Pub/Sub
-            pass
-        else:
-            # Apply rate limiting for non-Pub/Sub requests to /events
-            if not check_rate_limit(client_ip, max_requests=10000, window_seconds=3600):
-                logger.warning(f"Rate limit exceeded for IP: {client_ip}")
-                abuse_detector.record_error(client_ip, 429)
-                raise HTTPException(
-                    status_code=429, detail="Rate limit exceeded. Try again later."
-                )
-    else:
-        # Check rate limit (10000 req/hour per IP for development)
-        if not check_rate_limit(client_ip, max_requests=10000, window_seconds=3600):
-            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
-            abuse_detector.record_error(client_ip, 429)
-            raise HTTPException(
-                status_code=429, detail="Rate limit exceeded. Try again later."
-            )
+    # Check rate limit (100 req/hour per IP)
+    if not check_rate_limit(client_ip, max_requests=100, window_seconds=3600):
+        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        abuse_detector.record_error(client_ip, 429)
+        raise HTTPException(
+            status_code=429, detail="Rate limit exceeded. Try again later."
+        )
 
     response = await call_next(request)
 
@@ -217,46 +123,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(rewards.router)
-
-# Proposals router: Only use in CLOUD mode
-# In LOCAL mode, we use custom endpoints below with file storage
-try:
-    config = get_config()
-    if config.is_cloud_storage:
-        logger.info("📊 Using Firestore proposals router (CLOUD mode)")
-        app.include_router(proposals.router)
-    else:
-        logger.info("📁 Using file-based proposals endpoints (LOCAL mode)")
-        # Custom endpoints registered below
-except Exception as e:
-    logger.error(f"Error loading config: {e}", exc_info=True)
-    # Default to cloud storage if config fails
-    logger.warning("Falling back to cloud storage mode")
-    app.include_router(proposals.router)
-
-# Include events router for Pub/Sub push subscriptions
-try:
-    from app.routers import events
-
-    app.include_router(events.router)
-    logger.info("Events router loaded")
-except Exception as e:
-    logger.error(f"Error loading events router: {e}", exc_info=True)
-    # Continue without events router if it fails
-
-logger.info("All routers loaded successfully")
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Log server startup"""
-    import socket
-
-    port = int(os.getenv("PORT", "8080"))
-    logger.info(f"🚀 Server starting on port {port}")
-    logger.info("✅ Server startup complete - ready to accept requests")
+# Include routers (temporarily commented - install dependencies later)
+# app.include_router(rewards.router)
+# app.include_router(proposals.router)
+# app.include_router(events.router)
 
 
 def get_manager(workspace_id: str = "default"):
@@ -265,124 +135,21 @@ def get_manager(workspace_id: str = "default"):
 
 @app.get("/context")
 def get_context(workspace_id: str = Query("default")):
-    """
-    Return project context for the workspace.
-
-    Preference order:
-    1. Workspace checkpoint (.contextpilot/workspaces/<id>/checkpoint.yaml)
-    2. Legacy markdown files in repository root (PROJECT.md, etc.)
-    3. Default hard-coded fallback
-    """
     logger.info(f"GET /context called with workspace_id: {workspace_id}")
 
-    default_context = {
-        "checkpoint": {
-            "project_name": "ContextPilot - AI Development Assistant",
-            "goal": "Transform development workflows with AI-powered multi-agent assistance",
-            "current_status": "Core Functionality Complete",
-            "milestones": [],
-        }
-    }
-
     try:
-        import re
-        import yaml
+        logger.info(f"Creating Git_Context_Manager for workspace: {workspace_id}")
+        manager = get_manager(workspace_id)
 
-        # First try workspace checkpoint (dynamic per project)
-        try:
-            workspace_path = get_workspace_path(workspace_id)
-            checkpoint_file = Path(workspace_path) / "checkpoint.yaml"
-            if checkpoint_file.exists():
-                with open(checkpoint_file, "r", encoding="utf-8") as f:
-                    checkpoint_data = yaml.safe_load(f) or {}
+        logger.info("Getting project context...")
+        context = manager.get_project_context()
+        logger.info("Context retrieved successfully")
 
-                context = {
-                    "checkpoint": {
-                        "project_name": checkpoint_data.get(
-                            "project_name",
-                            default_context["checkpoint"]["project_name"],
-                        ),
-                        "goal": checkpoint_data.get(
-                            "goal", default_context["checkpoint"]["goal"]
-                        ),
-                        "current_status": checkpoint_data.get(
-                            "current_status",
-                            default_context["checkpoint"]["current_status"],
-                        ),
-                        "milestones": checkpoint_data.get("milestones", []),
-                    }
-                }
-                logger.info("Context loaded from workspace checkpoint.yaml")
-                return context
-        except Exception as workspace_error:
-            logger.warning(
-                f"Failed to read workspace checkpoint: {workspace_error}", exc_info=True
-            )
-
-        # Fallback to repository markdown files (legacy behaviour)
-        project_root = Path("/app")
-        context = copy.deepcopy(default_context)
-
-        project_file = project_root / "PROJECT.md"
-        if project_file.exists():
-            try:
-                content = project_file.read_text(encoding="utf-8")
-                match = re.search(r"#\s+(.+?)(?:\n|$)", content)
-                if match:
-                    context["checkpoint"]["project_name"] = match.group(1).strip()
-                    logger.info("Loaded project name from PROJECT.md")
-            except Exception as e:
-                logger.warning(f"Error reading PROJECT.md: {e}")
-
-        goal_file = project_root / "GOAL.md"
-        if goal_file.exists():
-            try:
-                content = goal_file.read_text(encoding="utf-8")
-                match = re.search(r"\*\*(.+?)\*\*", content)
-                if match:
-                    context["checkpoint"]["goal"] = match.group(1).strip()
-                    logger.info("Loaded goal from GOAL.md")
-            except Exception as e:
-                logger.warning(f"Error reading GOAL.md: {e}")
-
-        status_file = project_root / "STATUS.md"
-        if status_file.exists():
-            try:
-                content = status_file.read_text(encoding="utf-8")
-                match = re.search(r"Current Status:\s+\*\*(.+?)\*\*", content)
-                if match:
-                    context["checkpoint"]["current_status"] = match.group(1).strip()
-                    logger.info("Loaded status from STATUS.md")
-            except Exception as e:
-                logger.warning(f"Error reading STATUS.md: {e}")
-
-        milestones_file = project_root / "MILESTONES.md"
-        if milestones_file.exists():
-            try:
-                content = milestones_file.read_text(encoding="utf-8")
-                completed_matches = re.findall(
-                    r"- ✅ \*\*(.+?)\*\*:?\s*(.+?)(?:\n|$)", content
-                )
-                milestones = []
-                for name, _ in completed_matches:
-                    milestones.append(
-                        {
-                            "name": name.strip(),
-                            "status": "completed",
-                            "due": "completed",
-                        }
-                    )
-                context["checkpoint"]["milestones"] = milestones
-                logger.info(f"Loaded {len(milestones)} milestones from MILESTONES.md")
-            except Exception as e:
-                logger.warning(f"Error reading MILESTONES.md: {e}")
-
-        logger.info("Context loaded from legacy markdown files")
         return context
 
     except Exception as e:
-        logger.error(f"Error in context endpoint: {str(e)}", exc_info=True)
-        return default_context
+        logger.error(f"Error in context endpoint: {str(e)}")
+        return {"error": f"Failed to get context: {str(e)}"}
 
 
 @app.get("/context/milestones")
@@ -807,59 +574,11 @@ def close_cycle(workspace_id: str = Query("default")):
 def health_check():
     """Health check for extension connectivity"""
     logger.info("Health check called")
-    try:
-        config = get_config()
-
-        # Safely get event_bus_mode value with fallback
-        try:
-            event_bus_mode_value = config.event_bus_mode.value
-        except (AttributeError, ValueError) as e:
-            logger.error(f"Error getting event_bus_mode value: {e}")
-            event_bus_mode_value = "in_memory"  # Safe fallback
-
-        return {
-            "status": "ok",
-            "version": "2.1.0",
-            "config": {
-                "environment": config.environment,
-                "storage_mode": config.storage_mode.value,
-                "rewards_mode": config.rewards_mode.value,
-                "event_bus_mode": event_bus_mode_value,
-            },
-            "agents": [
-                "spec",
-                "git",
-                "development",
-                "context",
-                "coach",  # Strategy Coach Agent (unified)
-                "milestone",
-                "retrospective",
-            ],
-        }
-    except Exception as e:
-        logger.error(f"Error in health check: {e}", exc_info=True)
-        # Return minimal health response on error
-        return {
-            "status": "error",
-            "version": "2.1.0",
-            "config": {
-                "environment": "unknown",
-                "storage_mode": "unknown",
-                "rewards_mode": "unknown",
-                "event_bus_mode": "unknown",
-            },
-            "agents": [],
-            "error": str(e),
-        }
-
-
-@app.post("/admin/clear-blacklist")
-def clear_blacklist():
-    """Clear the IP blacklist (for development)"""
-    abuse_detector.blacklist.clear()
-    abuse_detector.error_counts.clear()
-    logger.info("🧹 Blacklist cleared")
-    return {"message": "Blacklist cleared successfully"}
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "agents": ["context", "spec", "strategy", "milestone", "git", "coach"],
+    }
 
 
 @app.get("/admin/abuse-stats")
@@ -873,527 +592,102 @@ def get_abuse_stats():
     return abuse_detector.get_stats()
 
 
-@app.post("/admin/config/github-repo")
-async def update_github_repo_config(github_repo: str = Body(..., embed=True)):
-    """
-    Update GITHUB_REPO configuration in Secret Manager and Cloud Run.
-
-    This endpoint:
-    1. Updates the GITHUB_REPO secret in Secret Manager
-    2. Updates the Cloud Run service to use the new secret
-
-    Args:
-        github_repo: Repository in format owner/repo (e.g., fsegall/google-context-pilot)
-
-    Returns:
-        Status message
-    """
-    import subprocess
-    import re
-
-    logger.info(f"POST /admin/config/github-repo called with: {github_repo}")
-
-    # Validate format
-    if not re.match(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$", github_repo):
-        raise HTTPException(
-            status_code=400, detail="Invalid repository format. Use: owner/repo"
-        )
-
-    try:
-        project_id = os.getenv("GCP_PROJECT_ID")
-        if not project_id:
-            raise HTTPException(status_code=500, detail="GCP_PROJECT_ID not configured")
-
-        # Update Secret Manager
-        try:
-            result = subprocess.run(
-                [
-                    "gcloud",
-                    "secrets",
-                    "versions",
-                    "add",
-                    "GITHUB_REPO",
-                    "--data-file=-",
-                    "--project",
-                    project_id,
-                ],
-                input=github_repo.encode(),
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Failed to update secret: {result.stderr}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to update Secret Manager: {result.stderr}",
-                )
-
-            logger.info(f"✅ Updated GITHUB_REPO secret: {github_repo}")
-        except FileNotFoundError:
-            raise HTTPException(
-                status_code=500,
-                detail="gcloud CLI not available. Cannot update Secret Manager.",
-            )
-        except subprocess.TimeoutExpired:
-            raise HTTPException(
-                status_code=500, detail="Timeout updating Secret Manager"
-            )
-
-        # Update Cloud Run service
-        try:
-            result = subprocess.run(
-                [
-                    "gcloud",
-                    "run",
-                    "services",
-                    "update",
-                    "contextpilot-backend",
-                    "--region",
-                    "us-central1",
-                    "--project",
-                    project_id,
-                    "--set-secrets",
-                    "GITHUB_REPO=GITHUB_REPO:latest",
-                    "--quiet",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            if result.returncode != 0:
-                logger.warning(f"Failed to update Cloud Run service: {result.stderr}")
-                # Don't fail if Cloud Run update fails - secret is already updated
-                return {
-                    "status": "partial_success",
-                    "message": f"Secret updated to {github_repo}, but Cloud Run update failed. Please update manually.",
-                    "github_repo": github_repo,
-                    "error": result.stderr,
-                }
-
-            logger.info(f"✅ Updated Cloud Run service with GITHUB_REPO: {github_repo}")
-
-            return {
-                "status": "success",
-                "message": f"GITHUB_REPO updated to {github_repo}",
-                "github_repo": github_repo,
-            }
-        except FileNotFoundError:
-            return {
-                "status": "partial_success",
-                "message": f"Secret updated to {github_repo}, but gcloud CLI not available to update Cloud Run.",
-                "github_repo": github_repo,
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "status": "partial_success",
-                "message": f"Secret updated to {github_repo}, but Cloud Run update timed out.",
-                "github_repo": github_repo,
-            }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating GITHUB_REPO config: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Failed to update configuration: {str(e)}"
-        )
-
-
 @app.get("/agents/status")
-def get_agents_status(workspace_id: str = Query(default="default")):
-    """
-    Get real-time status of all agents from AgentOrchestrator.
-
-    Returns metrics from actual agent state files.
-    """
-    logger.info(f"GET /agents/status called for workspace: {workspace_id}")
-
-    try:
-        from app.agents.agent_orchestrator import AgentOrchestrator
-
-        # Get workspace path
-        workspace_path = get_workspace_path(workspace_id)
-
-        # Initialize orchestrator
-        orchestrator = AgentOrchestrator(
-            workspace_id=workspace_id, workspace_path=str(workspace_path)
-        )
-
-        # Initialize all agents to get their state
-        orchestrator.initialize_agents()
-
-        # Get real metrics from agents
-        agent_metrics = orchestrator.get_agent_metrics()
-
-        # Agent metadata (names, emojis)
-        agent_info = {
-            "spec": {"name": "Spec Agent", "emoji": "📋"},
-            "git": {"name": "Git Agent", "emoji": "🔧"},
-            "development": {"name": "Development Agent", "emoji": "💻"},
-            "context": {"name": "Context Agent", "emoji": "📦"},
-            "coach": {"name": "Strategy Coach Agent", "emoji": "🎯"},
-            "milestone": {"name": "Milestone Agent", "emoji": "🏁"},
-            "retrospective": {"name": "Retrospective Agent", "emoji": "🔄"},
-        }
-
-        # Build response with real data
-        result = []
-        for agent_id, info in agent_info.items():
-            metrics = agent_metrics.get(agent_id, {})
-
-            # Determine status based on metrics
-            events_processed = metrics.get("events_processed", 0)
-            errors = metrics.get("errors", 0)
-
-            if errors > 0:
-                status = "error"
-            elif events_processed == 0:
-                status = "idle"
-            else:
-                status = "active"
-
-            # Get last activity from agent state
-            agent = orchestrator.agents.get(agent_id)
-            last_activity = "Never"
-            if agent and hasattr(agent, "state"):
-                last_updated = agent.state.get("last_updated")
-                if last_updated:
-                    try:
-                        last_time = datetime.fromisoformat(
-                            last_updated.replace("Z", "+00:00")
-                        )
-                        now = datetime.now(timezone.utc)
-                        delta = now - last_time.replace(tzinfo=timezone.utc)
-
-                        if delta.total_seconds() < 60:
-                            last_activity = "Just now"
-                        elif delta.total_seconds() < 3600:
-                            mins = int(delta.total_seconds() / 60)
-                            last_activity = (
-                                f"{mins} minute{'s' if mins > 1 else ''} ago"
-                            )
-                        elif delta.total_seconds() < 86400:
-                            hours = int(delta.total_seconds() / 3600)
-                            last_activity = (
-                                f"{hours} hour{'s' if hours > 1 else ''} ago"
-                            )
-                        else:
-                            days = int(delta.total_seconds() / 86400)
-                            last_activity = f"{days} day{'s' if days > 1 else ''} ago"
-                    except Exception as e:
-                        logger.warning(
-                            f"Error parsing last_updated for {agent_id}: {e}"
-                        )
-
-            result.append(
-                {
-                    "agent_id": agent_id,
-                    "name": info["name"],
-                    "status": status,
-                    "last_activity": last_activity,
-                    "metrics": {
-                        "events_processed": events_processed,
-                        "events_published": metrics.get("events_published", 0),
-                        "errors": errors,
-                    },
-                }
-            )
-
-        # Cleanup
-        orchestrator.shutdown_agents()
-
-        logger.info(f"[agents/status] Returned status for {len(result)} agents")
-        return result
-
-    except Exception as e:
-        logger.error(f"Error getting agent status: {e}", exc_info=True)
-        # Fallback to basic structure if orchestrator fails
-        return [
-            {
-                "agent_id": "spec",
-                "name": "Spec Agent",
-                "status": "unknown",
-                "last_activity": "Unknown",
-            },
-            {
-                "agent_id": "git",
-                "name": "Git Agent",
-                "status": "unknown",
-                "last_activity": "Unknown",
-            },
-            {
-                "agent_id": "development",
-                "name": "Development Agent",
-                "status": "unknown",
-                "last_activity": "Unknown",
-            },
-            {
-                "agent_id": "context",
-                "name": "Context Agent",
-                "status": "unknown",
-                "last_activity": "Unknown",
-            },
-            {
-                "agent_id": "coach",
-                "name": "Strategy Coach Agent",
-                "status": "unknown",
-                "last_activity": "Unknown",
-            },
-            {
-                "agent_id": "milestone",
-                "name": "Milestone Agent",
-                "status": "unknown",
-                "last_activity": "Unknown",
-            },
-            {
-                "agent_id": "retrospective",
-                "name": "Retrospective Agent",
-                "status": "unknown",
-                "last_activity": "Unknown",
-            },
-        ]
-
-
-@app.post("/agents/{agent_id}/reset-metrics")
-def reset_agent_metrics(agent_id: str, workspace_id: str = Query(default="default")):
-    """
-    Reset metrics for a specific agent (clear errors, events_processed, etc.).
-
-    Useful for clearing persistent error states.
-    """
-    logger.info(
-        f"POST /agents/{agent_id}/reset-metrics called for workspace: {workspace_id}"
-    )
-
-    try:
-        from app.agents.agent_orchestrator import AgentOrchestrator
-
-        # Get workspace path
-        workspace_path = get_workspace_path(workspace_id)
-
-        # Initialize orchestrator
-        orchestrator = AgentOrchestrator(
-            workspace_id=workspace_id, workspace_path=str(workspace_path)
-        )
-
-        # Initialize agents
-        orchestrator.initialize_agents()
-
-        # Get the specific agent
-        agent = orchestrator.agents.get(agent_id)
-        if not agent:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Agent '{agent_id}' not found. Available: {list(orchestrator.agents.keys())}",
-            )
-
-        # Reset metrics in agent state
-        if hasattr(agent, "state") and "metrics" in agent.state:
-            agent.state["metrics"] = {
-                "events_processed": 0,
-                "events_published": 0,
-                "errors": 0,
-            }
-            agent._save_state()
-            logger.info(f"[agents/reset-metrics] Reset metrics for {agent_id}")
-
-            # Cleanup
-            orchestrator.shutdown_agents()
-
-            return {
-                "success": True,
-                "agent_id": agent_id,
-                "message": f"Metrics reset for {agent_id}",
-                "metrics": agent.state["metrics"],
-            }
-        else:
-            # Cleanup
-            orchestrator.shutdown_agents()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Agent '{agent_id}' does not have metrics state",
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error resetting agent metrics: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Failed to reset metrics: {str(e)}"
-        )
-
-
-@app.post("/agents/reset-metrics")
-def reset_all_agents_metrics(workspace_id: str = Query(default="default")):
-    """
-    Reset metrics for all agents in the workspace.
-
-    Useful for clearing all persistent error states.
-    """
-    logger.info(f"POST /agents/reset-metrics called for workspace: {workspace_id}")
-
-    try:
-        from app.agents.agent_orchestrator import AgentOrchestrator
-
-        # Get workspace path
-        workspace_path = get_workspace_path(workspace_id)
-
-        # Initialize orchestrator
-        orchestrator = AgentOrchestrator(
-            workspace_id=workspace_id, workspace_path=str(workspace_path)
-        )
-
-        # Initialize agents
-        orchestrator.initialize_agents()
-
-        reset_count = 0
-        results = {}
-
-        for agent_id, agent in orchestrator.agents.items():
-            try:
-                if hasattr(agent, "state") and "metrics" in agent.state:
-                    agent.state["metrics"] = {
-                        "events_processed": 0,
-                        "events_published": 0,
-                        "errors": 0,
-                    }
-                    agent._save_state()
-                    reset_count += 1
-                    results[agent_id] = "reset"
-                    logger.info(f"[agents/reset-metrics] Reset metrics for {agent_id}")
-                else:
-                    results[agent_id] = "no_metrics"
-            except Exception as e:
-                logger.error(f"Error resetting metrics for {agent_id}: {e}")
-                results[agent_id] = f"error: {str(e)}"
-
-        # Cleanup
-        orchestrator.shutdown_agents()
-
-        return {
-            "success": True,
-            "workspace_id": workspace_id,
-            "reset_count": reset_count,
-            "total_agents": len(results),
-            "results": results,
-        }
-
-    except Exception as e:
-        logger.error(f"Error resetting all agent metrics: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Failed to reset metrics: {str(e)}"
-        )
+def get_agents_status():
+    """Get status of all agents (mock for now)"""
+    logger.info("GET /agents/status called")
+    return [
+        {
+            "agent_id": "context",
+            "name": "Context Agent",
+            "status": "active",
+            "last_activity": "Just now",
+        },
+        {
+            "agent_id": "spec",
+            "name": "Spec Agent",
+            "status": "active",
+            "last_activity": "5 minutes ago",
+        },
+        {
+            "agent_id": "strategy",
+            "name": "Strategy Agent",
+            "status": "idle",
+            "last_activity": "1 hour ago",
+        },
+        {
+            "agent_id": "milestone",
+            "name": "Milestone Agent",
+            "status": "active",
+            "last_activity": "10 minutes ago",
+        },
+        {
+            "agent_id": "git",
+            "name": "Git Agent",
+            "status": "active",
+            "last_activity": "2 minutes ago",
+        },
+        {
+            "agent_id": "coach",
+            "name": "Coach Agent",
+            "status": "active",
+            "last_activity": "Just now",
+        },
+    ]
 
 
 @app.post("/agents/coach/ask")
-async def coach_ask(
-    user_id: str = Body(...),
-    question: str = Body(...),
-    workspace_id: str = Body(default="default"),
-):
-    """Ask the Strategy Coach Agent a question (integrated with real agent)"""
-    logger.info(
-        f"POST /agents/coach/ask - user: {user_id}, workspace: {workspace_id}, question: {question}"
-    )
-
-    try:
-        from app.agents.coach_agent import CoachAgent
-
-        workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv(
-            "GCP_PROJECT_ID",
-            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
-        )
-
-        # Initialize Coach Agent
-        coach = CoachAgent(
-            workspace_path=workspace_path,
-            workspace_id=workspace_id,
-            project_id=project_id,
-        )
-
-        # Get answer from coach (using Gemini API if available)
-        gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
-        if gemini_api_key:
-            # Use LLM for intelligent response
-            try:
-                import google.generativeai as genai
-
-                genai.configure(api_key=gemini_api_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
-
-                # Build context-aware prompt
-                context_info = f"User question: {question}\n\n"
-                context_info += "As the Strategy Coach Agent, provide strategic, technical, and motivational guidance. "
-                context_info += "Focus on: 1) Strategic direction, 2) Code quality best practices, 3) Practical next steps."
-
-                response = model.generate_content(context_info)
-                answer = response.text
-
-            except Exception as llm_error:
-                logger.warning(f"LLM generation failed, using fallback: {llm_error}")
-                answer = _fallback_coach_response(question)
-        else:
-            logger.warning("No Gemini API key found, using fallback response")
-            answer = _fallback_coach_response(question)
-
-        return {"answer": answer, "agent_id": "coach", "workspace_id": workspace_id}
-
-    except Exception as e:
-        logger.error(f"Error in coach agent: {str(e)}", exc_info=True)
-        # Fallback to helpful error message
-        return {
-            "answer": f"I encountered an issue processing your question. Here's what I'd generally recommend: {_fallback_coach_response(question)}",
-            "error": str(e),
-        }
+def coach_ask(user_id: str = Body(...), question: str = Body(...)):
+    """Ask the coach agent a question (mock for now)"""
+    logger.info(f"POST /agents/coach/ask - user: {user_id}, question: {question}")
+    # TODO: Integrate with actual coach agent
+    mock_answer = f"Great question! For '{question}', I recommend: 1) Break it into smaller tasks, 2) Write tests first, 3) Document as you go. Let me know if you need more specific guidance!"
+    return {"answer": mock_answer}
 
 
-def _fallback_coach_response(question: str) -> str:
-    """Generate a helpful fallback response when LLM is unavailable"""
-    question_lower = question.lower()
-
-    if any(
-        word in question_lower
-        for word in ["test", "testing", "qa", "quality assurance"]
-    ):
-        return (
-            "Great question about testing! I recommend: 1) Start with unit tests for critical logic, "
-            "2) Use integration tests for API endpoints, 3) Consider TDD for complex features. "
-            "What specific area would you like to test first?"
-        )
-    elif any(word in question_lower for word in ["refactor", "clean", "improve"]):
-        return (
-            "Excellent focus on code quality! For refactoring: 1) Identify code smells (long functions, duplicates), "
-            "2) Write tests before refactoring, 3) Refactor in small steps with frequent commits. "
-            "Would you like me to analyze your codebase for issues?"
-        )
-    elif any(
-        word in question_lower for word in ["architecture", "design", "structure"]
-    ):
-        return (
-            "Great architectural question! Consider: 1) Separation of concerns (keep business logic separate), "
-            "2) SOLID principles, 3) Ports and Adapters pattern for external dependencies. "
-            "What part of the architecture are you working on?"
-        )
-    elif any(word in question_lower for word in ["start", "begin", "first", "next"]):
-        return (
-            "Let's break this down! Here's a strategic approach: 1) Define clear success criteria, "
-            "2) Break into smaller, testable milestones, 3) Start with the riskiest/most uncertain part. "
-            "What's the most important outcome you're aiming for?"
-        )
-    else:
-        return (
-            f"For '{question}', I recommend: 1) Break it into smaller, concrete tasks, "
-            "2) Identify any risks or unknowns early, 3) Define what 'done' looks like. "
-            "Would you like me to help you create a specific action plan?"
-        )
+@app.get("/proposals/mock")
+def get_mock_proposals():
+    """Get mock proposals for testing"""
+    logger.info("GET /proposals/mock called")
+    return [
+        {
+            "id": "prop-001",
+            "agent_id": "strategy",
+            "title": "Add error handling to API calls",
+            "description": "Found 3 API calls without proper error handling. This could cause silent failures.",
+            "proposed_changes": [
+                {
+                    "file_path": "src/api.ts",
+                    "change_type": "update",
+                    "description": "Wrap fetch calls in try-catch blocks",
+                }
+            ],
+            "status": "pending",
+            "created_at": "2025-10-14T10:30:00Z",
+        },
+        {
+            "id": "prop-002",
+            "agent_id": "spec",
+            "title": "Update API documentation",
+            "description": "API endpoints in api.ts need documentation with examples.",
+            "proposed_changes": [
+                {
+                    "file_path": "src/api.ts",
+                    "change_type": "update",
+                    "description": "Add JSDoc comments with examples",
+                }
+            ],
+            "status": "pending",
+            "created_at": "2025-10-14T10:45:00Z",
+        },
+    ]
 
 
-# Mock endpoint removed - no more fallbacks to mask real issues
+@app.get("/rewards/balance/mock")
+def get_mock_balance(user_id: str = Query("test")):
+    """Get mock rewards balance for testing"""
+    logger.info(f"GET /rewards/balance/mock called for user: {user_id}")
+    return {"balance": 150, "total_earned": 300, "pending_rewards": 50}
 
 
 # ===== GIT AGENT ENDPOINTS =====
@@ -1637,53 +931,66 @@ async def _trigger_github_workflow(proposal_id: str, proposal: Dict) -> bool:
         return False
 
 
-@app.get("/proposals/list")
-async def list_proposals_local(
-    workspace_id: str = Query("default"),
-    user_id: str = Query(...),
-    status: Optional[str] = Query(None),
-):
-    """List proposals (LOCAL mode - file-based storage)"""
-    config = get_config()
+@app.get("/proposals")
+async def list_proposals(workspace_id: str = Query("default")):
+    """List all proposals with diffs"""
 
-    if config.is_cloud_storage:
-        raise HTTPException(
-            status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
-        )
+    # Try Firestore first (if enabled)
+    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
+        try:
+            from app.repositories.proposal_repository import get_proposal_repository
 
+            repo = get_proposal_repository()
+            proposals = repo.list(workspace_id=workspace_id)
+            logger.info(f"[API] Listed {len(proposals)} proposals from Firestore")
+            return {"proposals": proposals, "count": len(proposals)}
+        except Exception as e:
+            logger.error(f"[API] Firestore error, falling back to local: {e}")
+
+    # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
+
+    # Try new format first (individual JSON files with diffs)
     proposals = _read_proposals_from_dir(paths["dir"])
 
+    # Fallback to legacy format if no proposals in dir
     if not proposals:
         proposals = _read_proposals(paths["json"])
 
-    # Filter by status if provided
-    if status:
-        proposals = [p for p in proposals if p.get("status") == status]
-
-    return {"proposals": proposals, "total": len(proposals)}
+    return {"proposals": proposals, "count": len(proposals)}
 
 
 @app.get("/proposals/{proposal_id}")
-async def get_proposal_local(proposal_id: str, workspace_id: str = Query("default")):
-    """Get proposal by ID (LOCAL mode - file-based storage)"""
-    config = get_config()
+async def get_proposal(proposal_id: str, workspace_id: str = Query("default")):
+    """Get a single proposal by ID with full diff"""
 
-    if config.is_cloud_storage:
-        raise HTTPException(
-            status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
-        )
+    # Try Firestore first (if enabled)
+    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
+        try:
+            from app.repositories.proposal_repository import get_proposal_repository
 
+            repo = get_proposal_repository()
+            proposal = repo.get(proposal_id)
+            if proposal:
+                logger.info(f"[API] Found proposal in Firestore: {proposal_id}")
+                return proposal
+        except Exception as e:
+            logger.error(f"[API] Firestore error, falling back to local: {e}")
+
+    # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
+
+    # Try to read from individual file
     proposal_file = paths["dir"] / f"{proposal_id}.json"
-
     if proposal_file.exists():
-        with open(proposal_file, "r") as f:
-            return json.load(f)
+        try:
+            with open(proposal_file, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading proposal {proposal_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to read proposal: {e}")
 
-    # Fallback to proposals.json
+    # Fallback: search in proposals.json
     proposals = _read_proposals(paths["json"])
     for p in proposals:
         if p.get("id") == proposal_id:
@@ -1693,40 +1000,42 @@ async def get_proposal_local(proposal_id: str, workspace_id: str = Query("defaul
 
 
 @app.post("/proposals/create")
-async def create_proposals_local(workspace_id: str = Query("default")):
-    """Generate proposals from SpecAgent (LOCAL mode - file-based storage)"""
-    config = get_config()
-
-    if config.is_cloud_storage:
-        raise HTTPException(
-            status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
-        )
-
+async def create_proposals_from_spec(workspace_id: str = Query("default")):
+    """Generate proposals from SpecAgent with diffs, persist to Firestore."""
     logger.info(f"POST /proposals/create - workspace: {workspace_id}")
 
     try:
         workspace_path = str(get_workspace_path(workspace_id))
+        project_id = os.getenv(
+            "GCP_PROJECT_ID",
+            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
+        )
         agent = SpecAgent(
             workspace_path=workspace_path,
             workspace_id=workspace_id,
-            project_id=config.gcp_project_id,
+            project_id=project_id,
         )
         issues: List[Dict] = await agent.validate_docs()
 
-        # Create proposals using agent's method
+        # Create proposals with actual diffs using agent's method
         new_proposals = []
         for issue in issues:
             proposal_id = await agent._create_proposal_for_issue(issue)
             if proposal_id:
                 new_proposals.append(proposal_id)
 
-        # Count total proposals
-        paths = _proposals_paths(workspace_id)
-        proposals = _read_proposals_from_dir(paths["dir"])
-        if not proposals:
-            proposals = _read_proposals(paths["json"])
-        total = len(proposals)
+        # Count total proposals in Firestore
+        if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
+            repo = get_proposal_repository()
+            all_proposals = repo.list(workspace_id=workspace_id)
+            total = len(all_proposals)
+        else:
+            # Fallback to local file storage
+            paths = _proposals_paths(workspace_id)
+            proposals = _read_proposals_from_dir(paths["dir"])
+            if not proposals:
+                proposals = _read_proposals(paths["json"])
+            total = len(proposals)
 
         return {"created": len(new_proposals), "total": total}
     except Exception as e:
@@ -1740,6 +1049,8 @@ async def get_context_summary(
 ):
     """Generate intelligent context summary for new chat sessions."""
     try:
+        from app.agents.spec_agent import SpecAgent
+
         # Get workspace path
         workspace_path = get_workspace_path(workspace_id)
         if not workspace_path:
@@ -1768,28 +1079,73 @@ async def get_context_summary(
 
 
 @app.post("/proposals/{proposal_id}/approve")
-async def approve_proposal_local(
-    proposal_id: str, workspace_id: str = Query("default")
-):
-    """Approve proposal (LOCAL mode - file-based storage)"""
-    config = get_config()
+async def approve_proposal(proposal_id: str, workspace_id: str = Query("default")):
+    # Try Firestore first (if enabled)
+    if os.getenv("FIRESTORE_ENABLED", "false").lower() == "true":
+        try:
+            from app.repositories.proposal_repository import get_proposal_repository
 
-    if config.is_cloud_storage:
-        raise HTTPException(
-            status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
-        )
+            repo = get_proposal_repository()
+            prop = repo.get(proposal_id)
 
-    # LOCAL mode: file-based storage
+            if not prop:
+                return {"status": "not_found"}
+
+            summary = prop.get("description", "")
+            commit_hash = None
+
+            if _auto_approve_enabled():
+                try:
+                    from app.agents.git_agent import commit_via_agent
+
+                    commit_hash = await commit_via_agent(
+                        workspace_id=workspace_id,
+                        event_type="proposal.approved",
+                        data={
+                            "proposal_id": proposal_id,
+                            "workspace_id": workspace_id,
+                            "changes_summary": summary,
+                        },
+                        source="spec-agent",
+                    )
+                except Exception as git_error:
+                    logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
+                    # Continue with approval even if Git fails
+
+            # Update status in Firestore
+            repo.approve(proposal_id, commit_hash)
+
+            # Trigger GitHub Actions workflow for cloud deployment
+            github_triggered = False
+            if os.getenv("ENVIRONMENT") == "production" and not commit_hash:
+                try:
+                    github_triggered = await _trigger_github_workflow(proposal_id, prop)
+                    logger.info(
+                        f"[API] GitHub Actions triggered for proposal {proposal_id}"
+                    )
+                except Exception as gh_error:
+                    logger.warning(f"[API] GitHub trigger failed: {gh_error}")
+
+            return {
+                "status": "approved",
+                "commit_hash": commit_hash,
+                "auto_committed": bool(commit_hash),
+                "github_triggered": github_triggered,
+            }
+        except Exception as e:
+            logger.error(f"[API] Firestore approve error: {e}")
+            return {"status": "error", "error": str(e)}
+
+    # Fallback to local file storage
     paths = _proposals_paths(workspace_id)
 
-    # Try individual file first
+    # Try to read from individual file first (new format)
     proposal_file = paths["dir"] / f"{proposal_id}.json"
     if proposal_file.exists():
         with open(proposal_file, "r") as f:
             prop = json.load(f)
     else:
-        # Fallback to proposals.json
+        # Fallback to proposals.json (legacy)
         proposals = _read_proposals(paths["json"])
         prop = next((p for p in proposals if p.get("id") == proposal_id), None)
 
@@ -1811,17 +1167,18 @@ async def approve_proposal_local(
                 )
             except Exception as git_error:
                 logger.warning(f"[API] Git commit failed (non-fatal): {git_error}")
-
+                # Continue with approval even if Git fails
         # Update proposal status
         prop["status"] = "approved"
         if commit_hash:
             prop["commit_hash"] = commit_hash
 
-        # Save
+        # Save to individual file if it exists
         if proposal_file.exists():
             with open(proposal_file, "w") as f:
                 json.dump(prop, f, indent=2)
         else:
+            # Save to proposals.json (legacy)
             _write_proposals(paths["json"], proposals)
 
         # Update MD file
@@ -1844,59 +1201,23 @@ async def approve_proposal_local(
 
 
 @app.post("/proposals/{proposal_id}/reject")
-async def reject_proposal_local(
-    proposal_id: str, workspace_id: str = Query("default"), payload: Any = Body("")
+async def reject_proposal(
+    proposal_id: str, workspace_id: str = Query("default"), reason: str = Body("")
 ):
-    """Reject proposal (LOCAL mode - file-based storage)"""
-    config = get_config()
-
-    if config.is_cloud_storage:
-        raise HTTPException(
-            status_code=501,
-            detail="This endpoint is for LOCAL mode. Use Firestore router in CLOUD mode.",
-        )
-
-    # Accept both legacy proposals.json and new proposals directory
     paths = _proposals_paths(workspace_id)
-    proposals = _read_proposals_from_dir(paths["dir"]) or _read_proposals(paths["json"])
+    proposals = _read_proposals(paths["json"])
     prop = next((p for p in proposals if p.get("id") == proposal_id), None)
-
     if not prop:
         return {"status": "not_found"}
-
-    # Normalize reason from payload: support string or object with { reason, user_id }
-    normalized_reason: str = ""
-    try:
-        if isinstance(payload, str):
-            normalized_reason = payload
-        elif isinstance(payload, dict):
-            # Align with cloud payload shape
-            normalized_reason = str(payload.get("reason", ""))
-        else:
-            normalized_reason = str(payload)
-    except Exception:
-        normalized_reason = ""
-
     prop["status"] = "rejected"
-    prop["reason"] = normalized_reason
-
-    # Persist back to whichever storage exists
-    proposal_file = paths["dir"] / f"{proposal_id}.json"
-    if proposal_file.exists():
-        try:
-            with open(proposal_file, "w") as f:
-                json.dump(prop, f, indent=2)
-        except Exception:
-            _write_proposals(paths["json"], proposals)
-    else:
-        _write_proposals(paths["json"], proposals)
+    prop["reason"] = reason
+    _write_proposals(paths["json"], proposals)
 
     md_path = paths["dir"] / f"{proposal_id}.md"
     if md_path.exists():
         md_content = md_path.read_text(encoding="utf-8")
-        md_content += f"\nStatus: rejected\nReason: {normalized_reason}\n"
+        md_content += f"\nStatus: rejected\nReason: {reason}\n"
         md_path.write_text(md_content, encoding="utf-8")
-
     return {"status": "rejected"}
 
 
@@ -1908,7 +1229,6 @@ async def trigger_agent_retrospective(
     workspace_id: str = Query("default"),
     trigger: str = Body("manual"),
     use_llm: bool = Body(False),
-    trigger_topic: Optional[str] = Body(None),
 ):
     """
     Trigger a retrospective meeting between agents.
@@ -1919,74 +1239,43 @@ async def trigger_agent_retrospective(
     - Generating insights and action items
     - (Optional) Synthesizing with LLM
 
-    Note: This is a long-running operation (can take 2-5 minutes). The proposal
-    will be created even if the HTTP request times out.
-
     Args:
         workspace_id: Workspace identifier
         trigger: What triggered the retrospective (e.g., "manual", "milestone_complete", "cycle_end")
         use_llm: Whether to use Gemini LLM for narrative synthesis
-        trigger_topic: Optional topic for agent discussion
 
     Returns:
         Retrospective summary with agent insights
     """
-    logger.info(
-        f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}, topic: {trigger_topic}, use_llm: {use_llm}"
-    )
+    logger.info(f"POST /agents/retrospective/trigger - workspace: {workspace_id}, trigger: {trigger}")
 
     try:
-        import asyncio
         from app.agents.retrospective_agent import trigger_retrospective
 
-        # Get Gemini API key for LLM synthesis (only if use_llm is True)
+        # Get Gemini API key if LLM synthesis requested
         gemini_api_key = None
         if use_llm:
             gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if not gemini_api_key:
-                logger.warning("[API] LLM synthesis requested (use_llm=True) but no API key found. Retrospective will be created without LLM summary.")
-            else:
-                logger.info("[API] Gemini API key found, will generate LLM summary")
-        else:
-            logger.info("[API] use_llm=False, skipping LLM summary generation")
+                logger.warning("[API] LLM synthesis requested but no API key found")
 
-        logger.info("[API] Starting retrospective process in background...")
+        retrospective = await trigger_retrospective(
+            workspace_id=workspace_id,
+            trigger=trigger,
+            gemini_api_key=gemini_api_key
+        )
 
-        # Process retrospective asynchronously to avoid HTTP timeout
-        # This allows the request to return immediately while processing continues
-        async def run_retrospective():
-            try:
-                retrospective = await trigger_retrospective(
-                    workspace_id=workspace_id,
-                    trigger=trigger,
-                    gemini_api_key=gemini_api_key,
-                    trigger_topic=trigger_topic,
-                )
-                logger.info(
-                    f"[API] ✅ Retrospective completed: {retrospective.get('retrospective_id')}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"[API] ❌ Error in background retrospective: {e}",
-                    exc_info=True
-                )
-
-        # Start background task (don't await - let it run in background)
-        asyncio.create_task(run_retrospective())
-
-        # Return immediately to avoid HTTP timeout
-        logger.info("[API] Retrospective process started in background, returning response immediately")
         return {
-            "status": "started",
-            "message": "Retrospective process started in background. It may take 2-5 minutes to complete. Check proposals list or retrospective list endpoint for results.",
-            "workspace_id": workspace_id,
-            "trigger": trigger,
-            "topic": trigger_topic,
+            "status": "success",
+            "retrospective": retrospective
         }
 
     except Exception as e:
-        logger.error(f"Error starting retrospective: {str(e)}", exc_info=True)
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Error triggering retrospective: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
 
 
 @app.get("/agents/retrospective/list")
@@ -2012,15 +1301,13 @@ async def list_retrospectives(workspace_id: str = Query("default")):
                 with open(json_file, "r") as f:
                     retro = json.load(f)
                     # Return summary only (not full data)
-                    retrospectives.append(
-                        {
-                            "retrospective_id": retro.get("retrospective_id"),
-                            "timestamp": retro.get("timestamp"),
-                            "trigger": retro.get("trigger"),
-                            "insights_count": len(retro.get("insights", [])),
-                            "action_items_count": len(retro.get("action_items", [])),
-                        }
-                    )
+                    retrospectives.append({
+                        "retrospective_id": retro.get("retrospective_id"),
+                        "timestamp": retro.get("timestamp"),
+                        "trigger": retro.get("trigger"),
+                        "insights_count": len(retro.get("insights", [])),
+                        "action_items_count": len(retro.get("action_items", []))
+                    })
             except Exception as e:
                 logger.error(f"Error reading retrospective {json_file}: {e}")
 
@@ -2032,24 +1319,18 @@ async def list_retrospectives(workspace_id: str = Query("default")):
 
 
 @app.get("/agents/retrospective/{retrospective_id}")
-async def get_retrospective(
-    retrospective_id: str, workspace_id: str = Query("default")
-):
+async def get_retrospective(retrospective_id: str, workspace_id: str = Query("default")):
     """
     Get a specific retrospective by ID.
 
     Returns:
         Full retrospective data
     """
-    logger.info(
-        f"GET /agents/retrospective/{retrospective_id} - workspace: {workspace_id}"
-    )
+    logger.info(f"GET /agents/retrospective/{retrospective_id} - workspace: {workspace_id}")
 
     try:
         workspace_path = get_workspace_path(workspace_id)
-        retro_file = (
-            Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
-        )
+        retro_file = Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
 
         if not retro_file.exists():
             raise HTTPException(status_code=404, detail="Retrospective not found")
@@ -2063,316 +1344,4 @@ async def get_retrospective(
         raise
     except Exception as e:
         logger.error(f"Error reading retrospective: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/agents/retrospective/status")
-async def get_retrospective_status(
-    workspace_id: str = Query("default"),
-    since: Optional[str] = Query(
-        None,
-        description="ISO timestamp to check for new retrospectives/proposals since",
-    ),
-):
-    """
-    Get status of the latest retrospective and proposal.
-
-    Useful for polling to detect when a retrospective completes and creates a new proposal.
-    The frontend can use this to trigger a page reload after approving a proposal and
-    waiting for the retrospective to complete.
-
-    Args:
-        workspace_id: Workspace identifier
-        since: Optional ISO timestamp - only return retrospectives/proposals created after this time
-
-    Returns:
-        {
-            "latest_retrospective": {
-                "retrospective_id": "...",
-                "timestamp": "...",
-                "proposal_id": "...",
-                "has_proposal": true/false
-            },
-            "latest_proposal": {
-                "proposal_id": "...",
-                "created_at": "...",
-                "status": "...",
-                "title": "..."
-            },
-            "has_new_proposal": true/false  # If since timestamp provided
-        }
-    """
-    logger.info(
-        f"GET /agents/retrospective/status - workspace: {workspace_id}, since: {since}"
-    )
-
-    try:
-        workspace_path = get_workspace_path(workspace_id)
-        retro_dir = Path(workspace_path) / "retrospectives"
-        proposals_dir = Path(workspace_path) / "proposals"
-
-        result = {
-            "latest_retrospective": None,
-            "latest_proposal": None,
-            "has_new_proposal": False,
-        }
-
-        # Get latest retrospective
-        if retro_dir.exists():
-            retro_files = sorted(retro_dir.glob("*.json"), reverse=True)
-            if retro_files:
-                try:
-                    with open(retro_files[0], "r") as f:
-                        retro = json.load(f)
-
-                    retro_timestamp = retro.get("timestamp", "")
-                    if since and retro_timestamp:
-                        # Check if retrospective is newer than 'since'
-                        try:
-                            retro_dt = datetime.fromisoformat(
-                                retro_timestamp.replace("Z", "+00:00")
-                            )
-                            since_dt = datetime.fromisoformat(
-                                since.replace("Z", "+00:00")
-                            )
-                            if retro_dt <= since_dt:
-                                # No new retrospective
-                                pass
-                        except:
-                            pass
-
-                    proposal_id = retro.get("proposal_id")
-                    result["latest_retrospective"] = {
-                        "retrospective_id": retro.get("retrospective_id"),
-                        "timestamp": retro_timestamp,
-                        "proposal_id": proposal_id,
-                        "has_proposal": bool(proposal_id),
-                    }
-                except Exception as e:
-                    logger.error(f"Error reading latest retrospective: {e}")
-
-        # Get latest proposal
-        proposals = []
-        if proposals_dir.exists():
-            proposals = _read_proposals_from_dir(proposals_dir)
-        else:
-            proposals_path = Path(workspace_path) / "proposals.json"
-            if proposals_path.exists():
-                proposals = _read_proposals(proposals_path)
-
-        if proposals:
-            # Sort by created_at
-            proposals.sort(key=lambda p: p.get("created_at", ""), reverse=True)
-            latest_proposal = proposals[0]
-
-            result["latest_proposal"] = {
-                "proposal_id": latest_proposal.get("id"),
-                "created_at": latest_proposal.get("created_at"),
-                "status": latest_proposal.get("status"),
-                "title": latest_proposal.get("title", ""),
-            }
-
-            # Check if there's a new proposal since 'since' timestamp
-            if since and latest_proposal.get("created_at"):
-                try:
-                    proposal_dt = datetime.fromisoformat(
-                        latest_proposal["created_at"].replace("Z", "+00:00")
-                    )
-                    since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-                    if proposal_dt > since_dt:
-                        result["has_new_proposal"] = True
-                except:
-                    pass
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Error getting retrospective status: {str(e)}")
-        return {
-            "latest_retrospective": None,
-            "latest_proposal": None,
-            "has_new_proposal": False,
-            "error": str(e),
-        }
-
-
-# ========== Development Agent Endpoints ==========
-
-
-@app.post("/agents/development/implement")
-async def development_implement_feature(
-    workspace_id: str = Query("default"),
-    description: str = Body(..., embed=True),
-    target_files: Optional[List[str]] = Body(None, embed=True),
-):
-    """
-    Generate code implementation for a feature using the Development Agent.
-
-    Args:
-        workspace_id: Workspace identifier
-        description: Feature description or action item
-        target_files: Optional list of files to modify (will be inferred if not provided)
-
-    Returns:
-        Created proposal ID and details
-    """
-    logger.info(f"POST /agents/development/implement - workspace: {workspace_id}")
-    logger.info(f"Feature description: {description[:100]}...")
-
-    try:
-        from app.agents.development_agent import DevelopmentAgent
-
-        workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv(
-            "GCP_PROJECT_ID",
-            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
-        )
-
-        agent = DevelopmentAgent(
-            workspace_path=workspace_path,
-            workspace_id=workspace_id,
-            project_id=project_id,
-        )
-
-        proposal_id = await agent.implement_feature(
-            description=description, target_files=target_files
-        )
-
-        if proposal_id:
-            return {
-                "success": True,
-                "proposal_id": proposal_id,
-                "message": f"Implementation proposal created: {proposal_id}",
-            }
-        else:
-            return {"success": False, "error": "Failed to generate implementation"}
-
-    except Exception as e:
-        logger.error(f"Error in development agent: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/agents/development/implement-from-retrospective")
-async def development_implement_from_retrospective(
-    workspace_id: str = Query("default"),
-    retrospective_id: str = Body(..., embed=True),
-    action_item_indices: Optional[List[int]] = Body(None, embed=True),
-):
-    """
-    Generate code implementations from retrospective action items.
-
-    Args:
-        workspace_id: Workspace identifier
-        retrospective_id: Retrospective identifier
-        action_item_indices: Optional list of action item indices to implement (0-based).
-                             If None, implements all high/medium priority items.
-
-    Returns:
-        List of created proposal IDs
-    """
-    logger.info(
-        f"POST /agents/development/implement-from-retrospective - workspace: {workspace_id}"
-    )
-    logger.info(f"Retrospective ID: {retrospective_id}")
-
-    try:
-        from app.agents.development_agent import implement_from_retrospective
-
-        workspace_path = str(get_workspace_path(workspace_id))
-        project_id = os.getenv(
-            "GCP_PROJECT_ID",
-            os.getenv("GOOGLE_CLOUD_PROJECT", os.getenv("GCP_PROJECT", "local")),
-        )
-
-        # Load retrospective
-        retro_file = (
-            Path(workspace_path) / "retrospectives" / f"{retrospective_id}.json"
-        )
-        if not retro_file.exists():
-            raise HTTPException(status_code=404, detail="Retrospective not found")
-
-        with open(retro_file, "r") as f:
-            retrospective = json.load(f)
-
-        action_items = retrospective.get("action_items", [])
-        if not action_items:
-            return {"success": False, "error": "No action items in retrospective"}
-
-        # Filter action items if indices provided
-        if action_item_indices is not None:
-            action_items = [
-                action_items[i] for i in action_item_indices if i < len(action_items)
-            ]
-        else:
-            # Default: only high/medium priority
-            action_items = [
-                item
-                for item in action_items
-                if item.get("priority", "").lower() in ["high", "medium"]
-            ]
-
-        if not action_items:
-            return {"success": False, "error": "No action items match the criteria"}
-
-        # Generate implementations
-        proposal_ids = await implement_from_retrospective(
-            workspace_id=workspace_id,
-            retrospective_id=retrospective_id,
-            action_items=action_items,
-            workspace_path=workspace_path,
-            project_id=project_id,
-        )
-
-        return {
-            "success": True,
-            "proposal_ids": proposal_ids,
-            "count": len(proposal_ids),
-            "message": f"Generated {len(proposal_ids)} implementation proposal(s)",
-        }
-
-    except Exception as e:
-        logger.error(f"Error implementing from retrospective: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/workspace/create")
-async def create_workspace_endpoint(
-    workspace_id: str = Body("default"), workspace_name: str = Body("Default Workspace")
-):
-    """Create a new workspace."""
-    logger.info(f"POST /workspace/create - workspace: {workspace_id}")
-
-    try:
-        from app.utils.workspace_manager import create_workspace
-
-        # Create workspace directory
-        workspace_path = os.path.join(
-            "/app", ".contextpilot", "workspaces", workspace_id
-        )
-        os.makedirs(workspace_path, exist_ok=True)
-
-        # Create basic workspace files
-        meta_file = os.path.join(workspace_path, "meta.json")
-        with open(meta_file, "w") as f:
-            json.dump(
-                {
-                    "workspace_id": workspace_id,
-                    "name": workspace_name,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "status": "active",
-                },
-                f,
-                indent=2,
-            )
-
-        logger.info(f"Workspace created: {workspace_path}")
-        return {
-            "status": "success",
-            "workspace_id": workspace_id,
-            "workspace_path": workspace_path,
-            "message": f"Workspace '{workspace_id}' created successfully",
-        }
-
-    except Exception as e:
-        logger.error(f"Error creating workspace: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
