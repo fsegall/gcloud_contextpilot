@@ -726,6 +726,19 @@ Generate ONLY the commit message, nothing else."""
         proposal_agent_id = getattr(proposal, "agent_id", None) or proposal.get("agent_id") if isinstance(proposal, dict) else None
         proposal_title = getattr(proposal, "title", None) or proposal.get("title", proposal_id) if isinstance(proposal, dict) else proposal_id
 
+        # Determine which workflow to trigger based on environment
+        # If GITHUB_ACTION_MODE=dev, trigger dev workflow; otherwise use production
+        action_mode = os.getenv("GITHUB_ACTION_MODE", "production").lower()
+        if action_mode == "dev" or action_mode == "development":
+            event_type = "proposal-approved-dev"
+            logger.info("[GitAgent] 🔧 Using DEV mode - will trigger apply-proposal-dev.yml workflow")
+        else:
+            event_type = "proposal-approved"
+            logger.info("[GitAgent] 🚀 Using PRODUCTION mode - will trigger apply-proposal.yml workflow")
+        
+        # Get base branch for dev mode (default: after-hackathon-delivery)
+        base_branch = os.getenv("GITHUB_BASE_BRANCH", "after-hackathon-delivery") if action_mode == "dev" else "main"
+        
         url = f"https://api.github.com/repos/{github_repo}/dispatches"
         headers = {
             "Accept": "application/vnd.github+json",
@@ -733,12 +746,13 @@ Generate ONLY the commit message, nothing else."""
             "X-GitHub-Api-Version": "2022-11-28",
         }
         payload = {
-            "event_type": "proposal-approved",
+            "event_type": event_type,
             "client_payload": {
                 "proposal_id": proposal_id,
                 "workspace_id": proposal_workspace_id or self.workspace_id,
                 "agent_id": proposal_agent_id,
                 "title": proposal_title,
+                "base_branch": base_branch,  # Include base branch in payload
             },
         }
 

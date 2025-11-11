@@ -1,0 +1,429 @@
+name: Apply ContextPilot Proposals (Dev/Testing)
+
+on:
+  repository_dispatch:
+    types: [proposal-approved-dev]
+  workflow_dispatch:
+    inputs:
+      proposal_id:
+        description: "Proposal ID to apply"
+        required: true
+        type: string
+      workspace_id:
+        description: "Workspace ID that owns the proposal"
+        required: false
+        type: string
+      base_branch:
+        description: "Base branch to create feature branch from (default: after-hackathon-delivery)"
+        required: false
+        type: string
+        default: "after-hackathon-delivery"
+
+jobs:
+  apply-proposal:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "ContextPilot Bot (Dev)"
+          git config user.email "bot@contextpilot.ai"
+
+      - name: Get proposal ID and base branch
+        id: proposal
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "proposal_id=${{ github.event.client_payload.proposal_id }}" >> $GITHUB_OUTPUT
+            echo "workspace_id=${{ github.event.client_payload.workspace_id || 'contextpilot' }}" >> $GITHUB_OUTPUT
+            echo "base_branch=${{ github.event.client_payload.base_branch || 'after-hackathon-delivery' }}" >> $GITHUB_OUTPUT
+          else
+            echo "proposal_id=${{ github.event.inputs.proposal_id }}" >> $GITHUB_OUTPUT
+            echo "workspace_id=${{ github.event.inputs.workspace_id || 'contextpilot' }}" >> $GITHUB_OUTPUT
+            echo "base_branch=${{ github.event.inputs.base_branch || 'after-hackathon-delivery' }}" >> $GITHUB_OUTPUT
+          fi
+          echo "Using base branch: ${{ steps.proposal.outputs.base_branch }}"
+
+      - name: Fetch proposal from Firestore
+        id: fetch
+        run: |
+          PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
+          WORKSPACE_ID="${{ steps.proposal.outputs.workspace_id }}"
+          if [ -z "$WORKSPACE_ID" ] || [ "$WORKSPACE_ID" = "null" ]; then
+            WORKSPACE_ID="contextpilot"
+          fi
+          API_URL="https://contextpilot-backend-581368740395.us-central1.run.app"
+
+          echo "Fetching proposal: $PROPOSAL_ID"
+
+          # Get proposal from API
+          curl -s "${API_URL}/proposals/${PROPOSAL_ID}?workspace_id=${WORKSPACE_ID}" \
+            -o proposal.json
+
+          # Check if proposal exists
+          if ! jq -e '.id' proposal.json > /dev/null 2>&1; then
+            echo "❌ Proposal not found or invalid response"
+            cat proposal.json
+            exit 1
+          fi
+
+          # Extract proposal details
+          TITLE=$(jq -r '.title' proposal.json)
+          STATUS=$(jq -r '.status // "pending"' proposal.json)
+          
+          # Sanitize title for GitHub Actions output
+          TITLE_SANITIZED=$(echo "$TITLE" | \
+            sed 's/\*\*[^*]*:\s*\*\*//g' | \
+            sed 's/\*\*[^*:]*:\s*//g' | \
+            sed 's/\*\*[^*]*\*\*//g' | \
+            sed 's/\*\*[[:space:]]*//g' | \
+            sed 's/[[:space:]]*\*\*//g' | \
+            sed 's/\*\*//g' | \
+            tr '\n' ' ' | \
+            sed 's/[[:space:]]\{2,\}/ /g' | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+            head -c 200)
+          
+          # Check if this is a sandbox proposal
+          IMPLEMENTATION_TYPE=$(jq -r '.metadata.implementation_type // ""' proposal.json)
+          SANDBOX_BRANCH=$(jq -r '.metadata.sandbox_branch // ""' proposal.json)
+          IS_SANDBOX="false"
+          SANDBOX_REPO=""
+          
+          if [ "$IMPLEMENTATION_TYPE" = "sandbox" ] || [ -n "$SANDBOX_BRANCH" ]; then
+            IS_SANDBOX="true"
+            SANDBOX_REPO=$(jq -r '.metadata.sandbox_repo // "fsegall/contextpilot-sandbox"' proposal.json)
+            echo "🔍 Detected sandbox proposal: branch=$SANDBOX_BRANCH, repo=$SANDBOX_REPO"
+          fi
+
+          {
+            echo "title<<EOF"
+            echo "$TITLE_SANITIZED"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "workspace_id=$WORKSPACE_ID" >> $GITHUB_OUTPUT
+          echo "is_sandbox=$IS_SANDBOX" >> $GITHUB_OUTPUT
+          echo "sandbox_branch=$SANDBOX_BRANCH" >> $GITHUB_OUTPUT
+          echo "sandbox_repo=$SANDBOX_REPO" >> $GITHUB_OUTPUT
+
+          echo "✅ Proposal fetched: $TITLE_SANITIZED (status: $STATUS, sandbox: $IS_SANDBOX)"
+
+      - name: Check if sandbox proposal
+        id: sandbox_check
+        run: |
+          if [ "${{ steps.fetch.outputs.is_sandbox }}" = "true" ]; then
+            echo "ℹ️  This is a sandbox proposal - changes already applied by Dev Agent"
+            echo "skip_apply=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_apply=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Apply changes
+        if: steps.sandbox_check.outputs.skip_apply == 'false'
+        run: |
+          CHANGES_COUNT=$(jq -r '.proposed_changes | length' proposal.json)
+          
+          if [ "$CHANGES_COUNT" = "0" ] || [ "$CHANGES_COUNT" = "null" ]; then
+            echo "ℹ️  No proposed changes to apply"
+            exit 0
+          fi
+          
+          echo "📝 Applying $CHANGES_COUNT proposed change(s)..."
+          
+          jq -r '.proposed_changes[] | @json' proposal.json | while read -r change_json; do
+            file_path=$(echo "$change_json" | jq -r '.file_path')
+            change_type=$(echo "$change_json" | jq -r '.change_type')
+            content=$(echo "$change_json" | jq -r '.after')
+            
+            if [ -z "$file_path" ] || [ "$file_path" = "null" ]; then
+              echo "  ⚠️  Skipping invalid file path"
+              continue
+            fi
+            
+            echo "📄 Applying $change_type to $file_path"
+            
+            if [ "$change_type" = "delete" ]; then
+              if [ -f "$file_path" ]; then
+                rm -f "$file_path"
+                echo "  ✅ Deleted: $file_path"
+              else
+                echo "  ℹ️  File not found (already deleted?): $file_path"
+              fi
+            else
+              dir_path=$(dirname "$file_path")
+              if [ -n "$dir_path" ] && [ "$dir_path" != "." ]; then
+                mkdir -p "$dir_path"
+              fi
+              
+              echo "$content" > "$file_path"
+              echo "  ✅ Updated: $file_path"
+            fi
+          done
+          
+          echo "✅ All changes applied successfully!"
+
+      - name: Handle sandbox proposal
+        if: steps.fetch.outputs.is_sandbox == 'true'
+        uses: actions/github-script@v7
+        env:
+          SANDBOX_REPO: ${{ steps.fetch.outputs.sandbox_repo }}
+          SANDBOX_BRANCH: ${{ steps.fetch.outputs.sandbox_branch }}
+          PROPOSAL_ID: ${{ steps.proposal.outputs.proposal_id }}
+          BASE_BRANCH: ${{ steps.proposal.outputs.base_branch }}
+          MAIN_REPO_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+        with:
+          github-token: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const sandboxRepo = process.env.SANDBOX_REPO.split('/');
+            const sandboxOwner = sandboxRepo[0];
+            const sandboxRepoName = sandboxRepo[1];
+            const sandboxBranch = process.env.SANDBOX_BRANCH;
+            const proposalId = process.env.PROPOSAL_ID;
+
+            let proposal;
+            try {
+              const raw = fs.readFileSync('proposal.json', 'utf8');
+              proposal = JSON.parse(raw);
+            } catch (e) {
+              core.warning('Could not load proposal.json for review request: ' + e.message);
+              proposal = {};
+            }
+
+            const filesAffected = Array.isArray(proposal.proposed_changes)
+              ? proposal.proposed_changes.map(c => '- **' + c.file_path + '** (' + c.change_type + ')').join('\n')
+              : 'No file details available';
+
+            const diffContent = proposal?.diff?.content ? '\n\n```diff\n' + proposal.diff.content + '\n```' : '';
+
+            const reviewRequest = [
+              '## Review Request (DEV/TESTING)',
+              '',
+              '**⚠️ This is a DEV/TESTING proposal - testing in after-hackathon-delivery branch**',
+              '',
+              'Please review the following proposed changes and advise whether to approve or reject.',
+              '',
+              '**Proposal ID:** ' + (proposal.id || proposalId),
+              '**Title:** ' + (proposal.title || '(no title)') + ' ',
+              '**Agent:** ' + (proposal.agent_id || '(unknown)'),
+              '',
+              '### Files Affected',
+              filesAffected,
+              '',
+              '### Diff',
+              diffContent || '_Diff not available in proposal payload_',
+            ].join('\n');
+
+            core.info('🔍 Checking sandbox repo: ' + sandboxOwner + '/' + sandboxRepoName + ', branch: ' + sandboxBranch);
+
+            const { data: prs } = await github.rest.pulls.list({
+              owner: sandboxOwner,
+              repo: sandboxRepoName,
+              head: sandboxOwner + ':' + sandboxBranch,
+              state: 'open'
+            });
+
+            let sandboxPRNumber = null;
+            if (prs.length > 0) {
+              sandboxPRNumber = prs[0].number;
+              core.info('✅ PR already exists in sandbox: #' + sandboxPRNumber + ' - ' + prs[0].html_url);
+            } else {
+              try {
+                const { data: pr } = await github.rest.pulls.create({
+                  owner: sandboxOwner,
+                  repo: sandboxRepoName,
+                  title: '[DEV] Apply proposal ' + proposalId,
+                  head: sandboxBranch,
+                  base: 'main',
+                  body: 'This PR was created automatically by ContextPilot (DEV mode).\n\n' + reviewRequest
+                });
+                sandboxPRNumber = pr.number;
+                core.info('✅ Created PR in sandbox repo: #' + sandboxPRNumber + ' - ' + pr.html_url);
+              } catch (error) {
+                core.warning('⚠️ Could not create PR in sandbox repo: ' + error.message);
+              }
+            }
+
+            // Create PR from sandbox to dev branch (after-hackathon-delivery)
+            try {
+              const mainRepo = context.repo;
+              const title = '[DEV] 🤖 Dev Agent: ' + sandboxBranch.replace('dev-agent/', '');
+              const sandboxPRUrl = sandboxPRNumber 
+                ? 'https://github.com/' + sandboxOwner + '/' + sandboxRepoName + '/pull/' + sandboxPRNumber
+                : 'https://github.com/' + sandboxOwner + '/' + sandboxRepoName + '/tree/' + sandboxBranch;
+              const body = '## Automated PR from Development Agent (DEV/TESTING)\n\n' +
+                '**⚠️ This is a DEV/TESTING PR - testing in after-hackathon-delivery branch**\n\n' +
+                '**Branch:** `' + sandboxBranch + '`\n' +
+                '**Agent:** Development Agent (Sandbox Mode)\n' +
+                '**Sandbox PR:** ' + sandboxPRUrl + '\n' +
+                '**Generated:** ' + new Date().toISOString() + '\n\n' +
+                '### Proposal\n' +
+                'Proposal ID: ' + proposalId + '\n\n' +
+                '### Changes\n' +
+                'This PR contains automated changes generated by the Development Agent based on retrospective insights.\n\n' +
+                reviewRequest + '\n\n' +
+                '---\n' +
+                '*This PR was automatically created by the ContextPilot Development Agent (DEV mode).*';
+
+              const head = sandboxOwner + ':' + sandboxBranch;
+              const baseBranch = process.env.BASE_BRANCH || 'after-hackathon-delivery';
+              
+              const { Octokit } = require('@octokit/rest');
+              const mainRepoToken = process.env.MAIN_REPO_TOKEN;
+              const mainRepoClient = new Octokit({ auth: mainRepoToken });
+              
+              const { data: existingPRs } = await mainRepoClient.rest.pulls.list({
+                owner: mainRepo.owner,
+                repo: mainRepo.repo,
+                head: head,
+                state: 'open'
+              });
+
+              if (existingPRs.length > 0) {
+                core.info('✅ PR already exists to dev branch: #' + existingPRs[0].number + ' - ' + existingPRs[0].html_url);
+              } else {
+                try {
+                  const { data: mainPR } = await mainRepoClient.rest.pulls.create({
+                    owner: mainRepo.owner,
+                    repo: mainRepo.repo,
+                    title: title,
+                    head: head,
+                    base: baseBranch,
+                    body: body
+                  });
+                  core.info('✅ Created PR to dev branch: #' + mainPR.number + ' - ' + mainPR.html_url);
+                } catch (error) {
+                  if (error.status === 403) {
+                    core.warning('⚠️ Permission denied creating PR. Please ensure:\n' +
+                      '1. Repository setting "Allow GitHub Actions to create and approve pull requests" is enabled, OR\n' +
+                      '2. Set PERSONAL_GITHUB_TOKEN secret with a Personal Access Token that has \'repo\' and \'workflow\' scopes');
+                  }
+                  throw error;
+                }
+              }
+            } catch (error) {
+              core.warning('⚠️ Could not create PR to dev branch: ' + error.message);
+            }
+
+      - name: Commit and push changes to feature branch
+        if: steps.fetch.outputs.is_sandbox == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: ${{ steps.proposal.outputs.base_branch }}
+        run: |
+          PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
+          TITLE="${{ steps.fetch.outputs.title }}"
+          BRANCH_NAME="cp-dev/proposal-${PROPOSAL_ID}"
+          BASE_BRANCH="$BASE_BRANCH"
+          
+          # Configure git to use token for authentication
+          git remote set-url origin https://${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+
+          # Check if there are changes
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "ℹ️  No changes to commit"
+            exit 0
+          fi
+
+          # Create/checkout feature branch from base branch (after-hackathon-delivery)
+          echo "Creating feature branch from: $BASE_BRANCH"
+          git fetch origin $BASE_BRANCH:$BASE_BRANCH || echo "Base branch $BASE_BRANCH not found, using main"
+          git checkout -B "$BRANCH_NAME" origin/$BASE_BRANCH || git checkout -B "$BRANCH_NAME" origin/main
+
+          # Stage all changes
+          git add -A
+
+          # Create commit message
+          COMMIT_MSG="feat(contextpilot): ${TITLE}
+
+          Applied by ContextPilot Bot via GitHub Actions (DEV mode).
+          Proposal-ID: ${PROPOSAL_ID}
+          Base-Branch: ${BASE_BRANCH}
+          Automated: true"
+
+          # Commit
+          git commit -m "$COMMIT_MSG"
+
+          # Push feature branch
+          git push -u origin "$BRANCH_NAME"
+
+          echo "✅ Changes committed and pushed to $BRANCH_NAME (from base: $BASE_BRANCH)!"
+
+      - name: Open Pull Request
+        if: steps.fetch.outputs.is_sandbox == 'false'
+        uses: actions/github-script@v7
+        env:
+          BRANCH_NAME: cp-dev/proposal-${{ steps.proposal.outputs.proposal_id }}
+          BASE_BRANCH: ${{ steps.proposal.outputs.base_branch }}
+        with:
+          github-token: ${{ secrets.PERSONAL_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const branch = process.env.BRANCH_NAME;
+            const base = process.env.BASE_BRANCH || 'after-hackathon-delivery';
+            const title = '[DEV] Apply proposal ' + branch.replace('cp-dev/proposal-','');
+            const body = [
+              '**⚠️ This is a DEV/TESTING PR - testing in ' + base + ' branch**',
+              '',
+              'This PR was created automatically by ContextPilot (DEV mode).',
+              '',
+              'Proposal ID: ' + branch.replace('cp-dev/proposal-',''),
+              'Base Branch: ' + base,
+              'Please review the applied changes.'
+            ].join('\n');
+
+            // Check if a PR already exists for this branch
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: context.repo.owner + ':' + branch,
+              state: 'open'
+            });
+            if (prs.length > 0) {
+              core.info('PR already exists: #' + prs[0].number);
+              return;
+            }
+
+            try {
+              const { data: pr } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                head: branch,
+                base,
+                body
+              });
+              core.info('Opened PR #' + pr.number + ' to ' + base);
+            } catch (error) {
+              if (error.status === 403) {
+                core.warning('⚠️ Permission denied creating PR. Please ensure:\n' +
+                  '1. Repository setting "Allow GitHub Actions to create and approve pull requests" is enabled, OR\n' +
+                  '2. Set GITHUB_TOKEN_PAT secret with a Personal Access Token that has \'repo\' and \'workflow\' scopes');
+              }
+              throw error;
+            }
+
+      - name: Update proposal status in Firestore
+        if: success()
+        run: |
+          PROPOSAL_ID="${{ steps.proposal.outputs.proposal_id }}"
+          API_URL="https://contextpilot-backend-581368740395.us-central1.run.app"
+          COMMIT_HASH=$(git rev-parse HEAD)
+
+          echo "Updating proposal $PROPOSAL_ID with commit hash $COMMIT_HASH"
+          echo "✅ Commit hash: $COMMIT_HASH"
+
+      - name: Comment on failure
+        if: failure()
+        run: |
+          echo "❌ Failed to apply proposal ${{ steps.proposal.outputs.proposal_id }}"
+          echo "Check the logs above for details."
+
