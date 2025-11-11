@@ -163,6 +163,9 @@ class DevelopmentAgent(BaseAgent):
             f"[DevelopmentAgent] Codespaces mode: {'enabled' if self.codespaces_enabled else 'disabled'}"
         )
 
+        # Track processed retrospective IDs to avoid reprocessing
+        self.processed_retrospectives: set[str] = set()
+
         # Subscribe to events
         self.subscribe_to_event("retrospective.summary.v1")
         self.subscribe_to_event("spec.requirement.created")
@@ -224,6 +227,17 @@ class DevelopmentAgent(BaseAgent):
             data: Retrospective event data
         """
         retrospective_id = data.get("retrospective_id")
+        if not retrospective_id:
+            logger.warning("[DevelopmentAgent] No retrospective_id in event data, skipping")
+            return
+        
+        # Check if this retrospective has already been processed
+        if retrospective_id in self.processed_retrospectives:
+            logger.info(
+                f"[DevelopmentAgent] Retrospective {retrospective_id} already processed, skipping duplicate"
+            )
+            return
+        
         logger.info(f"[DevelopmentAgent] Processing retrospective: {retrospective_id}")
 
         dispatched_by_retrospective_agent = data.get("code_actions_dispatched", False)
@@ -234,6 +248,8 @@ class DevelopmentAgent(BaseAgent):
                 "skipping duplicate proposal generation. Existing proposals: %s",
                 existing_code_proposals,
             )
+            # Mark as processed even if skipped
+            self.processed_retrospectives.add(retrospective_id)
             return
 
         try:
@@ -243,6 +259,8 @@ class DevelopmentAgent(BaseAgent):
                 logger.warning(
                     f"[DevelopmentAgent] Could not load retrospective summary: {retrospective_id}"
                 )
+                # Mark as processed to avoid retrying
+                self.processed_retrospectives.add(retrospective_id)
                 return
 
             # Identify code action items
@@ -251,6 +269,8 @@ class DevelopmentAgent(BaseAgent):
                 logger.info(
                     "[DevelopmentAgent] No action items in retrospective, skipping"
                 )
+                # Mark as processed
+                self.processed_retrospectives.add(retrospective_id)
                 return
 
             code_action_items = self._identify_code_actions(action_items)
@@ -258,13 +278,85 @@ class DevelopmentAgent(BaseAgent):
                 logger.info(
                     "[DevelopmentAgent] No code action items found in retrospective"
                 )
+                # Mark as processed
+                self.processed_retrospectives.add(retrospective_id)
                 return
 
             logger.info(
                 f"[DevelopmentAgent] Found {len(code_action_items)} code action items to implement"
             )
 
+            # Check authentication BEFORE processing action items
+            # If Codespaces is enabled, verify authentication first
+            # LOG CLEARLY what mode will be used and why
+            codespaces_available = False
+            if self.codespaces_enabled:
+                logger.info(
+                    "[DevelopmentAgent] 🔍 Checking Codespaces authentication before processing action items..."
+                )
+                logger.info(
+                    f"[DevelopmentAgent] 📋 Configuration: CODESPACES_ENABLED={self.codespaces_enabled}, "
+                    f"CODESPACES_REPO={self.codespaces_repo}, "
+                    f"Token available: {self.github_token is not None}"
+                )
+                auth_check = await self._list_active_codespaces()
+                if auth_check is None:
+                    # Authentication failed - log clearly but continue with fallback
+                    logger.warning(
+                        "[DevelopmentAgent] ⚠️  Codespaces authentication failed (401/403)"
+                    )
+                    logger.warning(
+                        "[DevelopmentAgent] 📝 FALLBACK MODE: Will use sandbox/proposal mode for this retrospective"
+                    )
+                    logger.warning(
+                        "[DevelopmentAgent] 💡 To enable Codespaces: Ensure PERSONAL_GITHUB_TOKEN has 'repo' and 'codespace' scopes"
+                    )
+                    logger.warning(
+                        "[DevelopmentAgent] 🔗 Create/update token: https://github.com/settings/tokens"
+                    )
+                    logger.info(
+                        "[DevelopmentAgent] ✅ Continuing with fallback mode - retrospective will not be blocked"
+                    )
+                    codespaces_available = False
+                elif auth_check is False:
+                    # Other error (not auth) - log but continue with fallback
+                    logger.warning(
+                        "[DevelopmentAgent] ⚠️  Codespaces API error (not authentication)"
+                    )
+                    logger.warning(
+                        "[DevelopmentAgent] 📝 FALLBACK MODE: Will use sandbox/proposal mode for this retrospective"
+                    )
+                    codespaces_available = False
+                else:
+                    logger.info(
+                        f"[DevelopmentAgent] ✅ Codespaces authentication successful - Found {len(auth_check)} active codespaces"
+                    )
+                    logger.info(
+                        "[DevelopmentAgent] 🚀 MODE: Codespaces - Will implement features in Codespaces"
+                    )
+                    codespaces_available = True
+            else:
+                logger.info(
+                    "[DevelopmentAgent] ℹ️  Codespaces not enabled - Will use sandbox/proposal mode"
+                )
+                codespaces_available = False
+            
+            # Log final mode decision
+            if codespaces_available:
+                logger.info(
+                    "[DevelopmentAgent] 🎯 FINAL DECISION: Using Codespaces mode for implementation"
+                )
+            elif self.sandbox_enabled:
+                logger.info(
+                    "[DevelopmentAgent] 🎯 FINAL DECISION: Using Sandbox mode for implementation"
+                )
+            else:
+                logger.info(
+                    "[DevelopmentAgent] 🎯 FINAL DECISION: Using Proposal mode for implementation"
+                )
+
             # Process each code action item
+            processed_count = 0
             for action_item in code_action_items:
                 action = action_item.get("action", "")
                 priority = action_item.get("priority", "medium")
@@ -290,30 +382,47 @@ Context from Retrospective:
                 logger.info(
                     f"[DevelopmentAgent] Generating implementation for: {action[:80]}"
                 )
-                proposal_id = await self.implement_feature(
-                    description=description,
-                    context={
-                        "retrospective_id": retrospective_id,
-                        "priority": priority,
-                        "topic": retrospective.get("topic"),
-                        "trigger": "retrospective_event",
-                    },
-                )
+                try:
+                    proposal_id = await self.implement_feature(
+                        description=description,
+                        context={
+                            "retrospective_id": retrospective_id,
+                            "priority": priority,
+                            "topic": retrospective.get("topic"),
+                            "trigger": "retrospective_event",
+                        },
+                    )
 
-                if proposal_id:
-                    logger.info(
-                        f"[DevelopmentAgent] ✅ Created code proposal: {proposal_id}"
+                    if proposal_id:
+                        logger.info(
+                            f"[DevelopmentAgent] ✅ Created code proposal: {proposal_id}"
+                        )
+                        processed_count += 1
+                    else:
+                        logger.warning(
+                            f"[DevelopmentAgent] ⚠️ Could not generate proposal for: {action[:80]}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[DevelopmentAgent] Error implementing action item '{action[:80]}': {e}",
+                        exc_info=True
                     )
-                else:
-                    logger.warning(
-                        f"[DevelopmentAgent] ⚠️ Could not generate proposal for: {action[:80]}"
-                    )
+                    # Continue with next action item instead of stopping
+
+            # Mark as processed after attempting all action items
+            self.processed_retrospectives.add(retrospective_id)
+            logger.info(
+                f"[DevelopmentAgent] ✅ Completed processing retrospective {retrospective_id} "
+                f"({processed_count}/{len(code_action_items)} proposals created)"
+            )
 
         except Exception as e:
             logger.error(
                 f"[DevelopmentAgent] Error processing retrospective: {e}",
                 exc_info=True,
             )
+            # Mark as processed even on error to prevent infinite retry loop
+            self.processed_retrospectives.add(retrospective_id)
 
     def _load_retrospective_summary(self, retrospective_id: str) -> Optional[Dict]:
         """Load retrospective summary from workspace."""
